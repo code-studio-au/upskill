@@ -368,11 +368,14 @@ standard distribution per exact entitlement and forwards requests to the
 existing package-host boundary with an entitlement-bound HMAC origin header.
 The allocator is not present without explicit CDK context, is not invokable by
 the application or worker roles, and cannot activate a learner path in its
-current slice. A later forward-only model must persist the distribution
-identifier, AWS-owned origin and allocation lifecycle before any distribution
-can be enabled. The private-PSL package host and localhost development topology
-remain the executable design until ADR 0045 passes its browser, cleanup, quota,
-WAF, latency and cost gates and is amended to Accepted.
+current slice. Its generated HMAC authority remains managed across context
+removal and restoration so rollback cannot orphan a fixed-name production
+secret or replace active origin capabilities. A later forward-only model must
+persist the distribution identifier, AWS-owned origin and allocation lifecycle
+before any distribution can be enabled. The private-PSL package host and
+localhost development topology remain the executable design until ADR 0045
+passes its browser, cleanup, quota, WAF, latency and cost gates and is amended
+to Accepted.
 
 The AWS-owned CloudFront hostname and default-certificate viewer policy were
 accepted for this qualification path on 2026-09-27. This resolves the TLS

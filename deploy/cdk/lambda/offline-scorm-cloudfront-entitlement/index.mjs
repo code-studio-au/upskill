@@ -1,4 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 
 const ALLOCATOR_FORMAT = "upskill-offline-scorm-cloudfront-entitlement-v1";
 const ORIGIN_CAPABILITY_FORMAT =
@@ -217,26 +218,30 @@ function distributionTags(environment, entitlementId) {
   };
 }
 
-function customHeader(config, name) {
-  return config.Origins?.Items?.[0]?.CustomHeaders?.Items?.find(
-    (header) => header.HeaderName?.toLowerCase() === name.toLowerCase(),
-  )?.HeaderValue;
-}
-
 export function assertOwnedConfiguration(
   config,
   environment,
   entitlementId,
   originCapability,
+  originDomain,
+  logBucketDomain,
 ) {
-  const marker = distributionMarker(environment, entitlementId);
-  if (
-    config.CallerReference !== marker ||
-    config.Comment !== marker ||
-    customHeader(config, "X-Upskill-Offline-Entitlement") !== entitlementId ||
-    customHeader(config, "X-Upskill-Offline-Origin-Capability") !==
-      originCapability
-  )
+  const expected = createDistributionConfig({
+    environment,
+    entitlementId,
+    originCapability,
+    originDomain,
+    logBucketDomain,
+  });
+  if (typeof config.Enabled !== "boolean")
+    throw new Error(
+      "Refusing to mutate a CloudFront distribution outside the exact entitlement boundary",
+    );
+  const expectedAtCurrentLifecycleState = {
+    ...expected,
+    Enabled: config.Enabled,
+  };
+  if (!isDeepStrictEqual(config, expectedAtCurrentLifecycleState))
     throw new Error(
       "Refusing to mutate a CloudFront distribution outside the exact entitlement boundary",
     );
@@ -308,6 +313,8 @@ async function distributionConfiguration(
   entitlementId,
   distributionId,
   originCapability,
+  originDomain,
+  logBucketDomain,
 ) {
   const response = await client.send(
     new cloudfront.GetDistributionConfigCommand({ Id: distributionId }),
@@ -319,6 +326,8 @@ async function distributionConfiguration(
     environment,
     entitlementId,
     originCapability,
+    originDomain,
+    logBucketDomain,
   );
   return { config: response.DistributionConfig, etag: response.ETag };
 }
@@ -378,6 +387,8 @@ async function allocate(input, configuration, client, cloudfront) {
       input.entitlementId,
       recovered.Id,
       configuration.originCapability,
+      configuration.originDomain,
+      configuration.logBucketDomain,
     );
     if (recoveredConfig.Enabled)
       throw new Error(
@@ -407,6 +418,8 @@ async function activate(input, configuration, client, cloudfront) {
     input.entitlementId,
     input.distributionId,
     configuration.originCapability,
+    configuration.originDomain,
+    configuration.logBucketDomain,
   );
   if (config.Enabled) return publicDistribution(distribution, "active");
   const response = await client.send(
@@ -438,6 +451,8 @@ async function retire(input, configuration, client, cloudfront) {
     input.entitlementId,
     input.distributionId,
     configuration.originCapability,
+    configuration.originDomain,
+    configuration.logBucketDomain,
   );
   if (config.Enabled) {
     const response = await client.send(
@@ -511,6 +526,8 @@ export async function handler(event) {
     input.entitlementId,
     input.distributionId,
     configuration.originCapability,
+    configuration.originDomain,
+    configuration.logBucketDomain,
   );
   return publicDistribution(distribution, "described");
 }

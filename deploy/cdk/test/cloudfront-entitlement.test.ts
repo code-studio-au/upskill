@@ -125,7 +125,7 @@ describe("offline SCORM CloudFront entitlement allocator", () => {
     ).toThrow("entitlement identifier is invalid");
   });
 
-  it("requires the exact entitlement and capability before mutation", () => {
+  it("requires the complete entitlement security boundary before mutation", () => {
     const capability = createOriginCapability(
       originKey,
       "staging",
@@ -140,7 +140,24 @@ describe("offline SCORM CloudFront entitlement allocator", () => {
     });
 
     expect(() => {
-      assertOwnedConfiguration(config, "staging", "entitlement_a", capability);
+      assertOwnedConfiguration(
+        config,
+        "staging",
+        "entitlement_a",
+        capability,
+        "staging.upskill.institute",
+        "offline-logs.s3.amazonaws.com",
+      );
+    }).not.toThrow();
+    expect(() => {
+      assertOwnedConfiguration(
+        { ...config, Enabled: true },
+        "staging",
+        "entitlement_a",
+        capability,
+        "staging.upskill.institute",
+        "offline-logs.s3.amazonaws.com",
+      );
     }).not.toThrow();
     expect(() => {
       assertOwnedConfiguration(
@@ -148,7 +165,55 @@ describe("offline SCORM CloudFront entitlement allocator", () => {
         "staging",
         "entitlement_a",
         createOriginCapability(originKey, "staging", "entitlement_b"),
+        "staging.upskill.institute",
+        "offline-logs.s3.amazonaws.com",
       );
     }).toThrow("outside the exact entitlement boundary");
+
+    const expectedOrigin = config.Origins.Items.at(0);
+    if (!expectedOrigin) throw new Error("Missing distribution origin fixture");
+    const driftedConfigurations = [
+      {
+        ...structuredClone(config),
+        Origins: {
+          ...structuredClone(config.Origins),
+          Items: [
+            {
+              ...structuredClone(expectedOrigin),
+              DomainName: "attacker.example.com",
+            },
+          ],
+        },
+      },
+      {
+        ...structuredClone(config),
+        DefaultCacheBehavior: {
+          ...structuredClone(config.DefaultCacheBehavior),
+          DefaultTTL: 300,
+        },
+      },
+      {
+        ...structuredClone(config),
+        Logging: {
+          ...structuredClone(config.Logging),
+          Bucket: "attacker-logs.s3.amazonaws.com",
+        },
+      },
+      {
+        ...structuredClone(config),
+        Aliases: { Quantity: 1, Items: ["packages.example.com"] },
+      },
+    ];
+    for (const drifted of driftedConfigurations)
+      expect(() => {
+        assertOwnedConfiguration(
+          drifted,
+          "staging",
+          "entitlement_a",
+          capability,
+          "staging.upskill.institute",
+          "offline-logs.s3.amazonaws.com",
+        );
+      }).toThrow("outside the exact entitlement boundary");
   });
 });

@@ -383,22 +383,23 @@ export class ApplicationStack extends Stack {
             : RemovalPolicy.DESTROY,
       },
     );
-    const offlineScormCloudFrontOriginKey = props.config
-      .offlineScormCloudFrontQualification
-      ? new Secret(this, "OfflineScormCloudFrontOriginKey", {
-          secretName: `upskill/${props.config.name}/offline-scorm/cloudfront-origin-key`,
-          description:
-            "Dormant HMAC authority for entitlement-bound CloudFront origin requests",
-          generateSecretString: {
-            passwordLength: 64,
-            excludePunctuation: true,
-          },
-          removalPolicy:
-            props.config.name === "production"
-              ? RemovalPolicy.RETAIN
-              : RemovalPolicy.DESTROY,
-        })
-      : null;
+    const offlineScormCloudFrontOriginKey = new Secret(
+      this,
+      "OfflineScormCloudFrontOriginKey",
+      {
+        secretName: `upskill/${props.config.name}/offline-scorm/cloudfront-origin-key`,
+        description:
+          "Dormant HMAC authority for CloudFront origin requests, retained across qualification toggles",
+        generateSecretString: {
+          passwordLength: 64,
+          excludePunctuation: true,
+        },
+        removalPolicy:
+          props.config.name === "production"
+            ? RemovalPolicy.RETAIN
+            : RemovalPolicy.DESTROY,
+      },
+    );
     const accessCodeEncryptionSecret = new Secret(
       this,
       "AccessCodeEncryptionKey",
@@ -584,7 +585,6 @@ UPSKILL_ENV`,
     });
     if (
       props.config.offlineScormCloudFrontQualification &&
-      offlineScormCloudFrontOriginKey &&
       props.offlineScormEdgeLogBucket
     ) {
       const allocatorCode = Code.fromAsset(
@@ -618,6 +618,12 @@ UPSKILL_ENV`,
         },
       );
       offlineScormCloudFrontOriginKey.grantRead(allocator);
+      allocator.addToRolePolicy(
+        new PolicyStatement({
+          actions: ["s3:GetBucketAcl", "s3:PutBucketAcl"],
+          resources: [props.offlineScormEdgeLogBucket.bucketArn],
+        }),
+      );
       allocator.addToRolePolicy(
         new PolicyStatement({
           actions: [

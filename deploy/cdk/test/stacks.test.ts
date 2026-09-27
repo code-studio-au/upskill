@@ -244,7 +244,7 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
     LaunchTemplateData: { MetadataOptions: { HttpTokens: "required" } },
   });
   applicationTemplate.resourceCountIs("AWS::CloudWatch::Alarm", 13);
-  applicationTemplate.resourceCountIs("AWS::SecretsManager::Secret", 6);
+  applicationTemplate.resourceCountIs("AWS::SecretsManager::Secret", 7);
   expect(JSON.stringify(applicationTemplate.toJSON())).not.toContain(
     "cloudfront:CreateDistributionWithTags",
   );
@@ -262,6 +262,14 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
       "Dormant offline SCORM signing and exact-site allocation authority",
     ),
     SecretString: JSON.stringify({ OFFLINE_SCORM_ENABLED: "false" }),
+  });
+  applicationTemplate.hasResourceProperties("AWS::SecretsManager::Secret", {
+    Name: "upskill/staging/offline-scorm/cloudfront-origin-key",
+    Description: Match.stringLikeRegexp("qualification toggles"),
+    GenerateSecretString: {
+      ExcludePunctuation: true,
+      PasswordLength: 64,
+    },
   });
   const secrets = applicationTemplate.findResources(
     "AWS::SecretsManager::Secret",
@@ -806,6 +814,17 @@ test("CloudFront entitlement qualification is dormant and operator-only", () => 
   expect(serialized).toContain("cloudfront:UpdateDistribution");
   expect(serialized).toContain("cloudfront:DeleteDistribution");
   expect(serialized).toContain("cloudfront:ListTagsForResource");
+  template.hasResourceProperties("AWS::IAM::Policy", {
+    PolicyDocument: {
+      Statement: Match.arrayWith([
+        Match.objectLike({
+          Action: ["s3:GetBucketAcl", "s3:PutBucketAcl"],
+          Effect: "Allow",
+          Resource: Match.anyValue(),
+        }),
+      ]),
+    },
+  });
   expect(serialized).not.toContain('"cloudfront:*"');
   const roles = template.findResources("AWS::IAM::Role");
   const instanceRoleLogicalId = Object.keys(roles).find((logicalId) =>

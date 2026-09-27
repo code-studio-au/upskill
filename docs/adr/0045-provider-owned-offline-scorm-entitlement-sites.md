@@ -74,7 +74,8 @@ The allocator is an operator-only dormant capability in this slice:
 - the application and worker roles receive no permission to invoke it;
 - every created distribution starts disabled;
 - mutation requires the exact environment, purpose and entitlement ownership
-  tags plus the expected caller reference and origin header; and
+  tags plus an exact match for the expected origin, capability, cache, logging,
+  certificate and isolation configuration; and
 - application Offline SCORM remains disabled.
 
 AWS documents that CloudFront custom origin headers overwrite same-named viewer
@@ -184,10 +185,19 @@ reviewed immediately before activation:
 [CloudFront pricing](https://aws.amazon.com/cloudfront/pricing/) and
 [S3 pricing](https://aws.amazon.com/s3/pricing/).
 
-The log bucket uses SSE-S3, blocks public access, grants only the legacy
-CloudFront log-delivery ACL required by standard logging, and expires staging
-logs after 30 days and production logs after 90 days. If CloudFront logging
-moves to a bucket-owner-enforced delivery mechanism, restore disabled ACLs.
+The log bucket uses SSE-S3, blocks public access, grants the legacy CloudFront
+log-delivery ACL required by standard logging, and expires staging logs after
+30 days and production logs after 90 days. The allocator can read and update
+only that bucket's ACL as required while creating a legacy-logged distribution.
+If CloudFront logging moves to a bucket-owner-enforced delivery mechanism,
+restore disabled ACLs.
+
+The generated origin-capability key remains managed by the application stack
+even while the explicit qualification context is absent. Removing and later
+restoring the context therefore reuses the same CloudFormation resource instead
+of colliding with an orphaned fixed-name secret or silently changing the HMAC
+authority. Production also retains the key on whole-stack deletion; restoring a
+deleted stack still requires the normal retained-resource recovery process.
 
 ## Alternatives considered
 

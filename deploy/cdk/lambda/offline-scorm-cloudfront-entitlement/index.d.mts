@@ -4,6 +4,18 @@ export interface OfflineScormCloudFrontAllocatorRequest {
   distributionId?: string;
 }
 
+export interface OfflineScormCloudFrontDistributionConfig extends Record<
+  string,
+  unknown
+> {
+  Enabled: boolean;
+  Origins: {
+    Items: Array<Record<string, unknown> & { DomainName: string }>;
+  };
+  DefaultCacheBehavior: Record<string, unknown>;
+  Logging: Record<string, unknown>;
+}
+
 export function distributionMarker(
   environment: "staging" | "production",
   entitlementId: string,
@@ -29,13 +41,15 @@ export function createDistributionConfig(input: {
   originDomain: string;
   originCapability: string;
   logBucketDomain: string;
-}): Record<string, unknown>;
+}): OfflineScormCloudFrontDistributionConfig;
 
 export function assertOwnedConfiguration(
   config: Record<string, unknown>,
   environment: "staging" | "production",
   entitlementId: string,
   originCapability: string,
+  originDomain: string,
+  logBucketDomain: string,
 ): void;
 
 export function handler(event: unknown): Promise<unknown>;
