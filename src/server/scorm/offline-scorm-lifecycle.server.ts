@@ -164,7 +164,12 @@ export async function resolveOfflineScormCourseEntitlement(
         reasonCode: result.authoritativeResolution,
       },
     });
-    return offlineScormResolutionSuccessSchema.parse(result);
+    return {
+      status: result.status,
+      entitlementId: result.entitlementId,
+      packageSiteOrigin: result.packageSiteOrigin,
+      cleanupCapability: result.cleanupCapability,
+    };
   }
   return result;
 }
