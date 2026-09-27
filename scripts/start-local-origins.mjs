@@ -11,9 +11,13 @@ const origins = [
     : []),
 ];
 for (const [index, origin] of origins.entries()) {
-  const allowedHosts =
-    index === 2 ? new Set(["127.0.0.2"]) : new Set(["127.0.0.1", "localhost"]);
-  if (!allowedHosts.has(origin.hostname) || !origin.port)
+  const allowedHost =
+    (index === 2 && origin.hostname === "127.0.0.2") ||
+    (index !== 2 &&
+      (origin.hostname === "127.0.0.1" ||
+        origin.hostname === "localhost" ||
+        origin.hostname.endsWith(".localhost")));
+  if (!allowedHost || !origin.port)
     throw new Error(
       "start:origins requires explicit loopback origin hosts and ports",
     );
@@ -25,13 +29,22 @@ const serverScript = path.resolve("scripts/start-server.mjs");
 const cleanupCapability =
   process.env.OFFLINE_SCORM_PROTOTYPE_CLEANUP_CAPABILITY ??
   randomBytes(32).toString("hex");
-const services = origins.map((origin) =>
+const listeners = new Map();
+for (const origin of origins) {
+  const listenHost = origin.hostname.endsWith(".localhost")
+    ? "127.0.0.1"
+    : origin.hostname;
+  const listenerKey = `${listenHost}:${origin.port}`;
+  if (!listeners.has(listenerKey))
+    listeners.set(listenerKey, { listenHost, origin });
+}
+const services = [...listeners.values()].map(({ listenHost, origin }) =>
   spawn(process.execPath, [serverScript], {
     env: {
       ...process.env,
       PORT: origin.port,
       OFFLINE_SCORM_PROTOTYPE_CLEANUP_CAPABILITY: cleanupCapability,
-      UPSKILL_LISTEN_HOST: origin.hostname,
+      UPSKILL_LISTEN_HOST: listenHost,
     },
     stdio: "inherit",
   }),

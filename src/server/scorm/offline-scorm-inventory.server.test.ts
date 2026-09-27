@@ -11,6 +11,8 @@ function inventoryRow(
     courseVersionItemId: string;
     enrollmentId: string;
     entitlementId: string;
+    entitlementResolution:
+      "administrator_resolved" | "discarded" | "reconciled" | null;
     entitlementStatus: "active" | "resolved";
     intendedLaunchExpiresAt: Date;
     modulePosition: number | null;
@@ -24,6 +26,7 @@ function inventoryRow(
     courseVersionItemId: "item_1",
     enrollmentId: "enrollment_1",
     entitlementId: "entitlement_1",
+    entitlementResolution: null,
     entitlementStatus: "active" as const,
     intendedLaunchExpiresAt: new Date("2026-10-26T00:00:00.000Z"),
     modulePosition: 0,
@@ -43,8 +46,18 @@ describe("offline SCORM server recovery inventory", () => {
           cleanupState: "cleared",
           courseVersionItemId: "item_2",
           entitlementId: "entitlement_2",
+          entitlementResolution: "discarded",
           entitlementStatus: "resolved",
           modulePosition: 1,
+        }),
+        inventoryRow({
+          attemptId: "attempt_3",
+          cleanupState: "needs_attention",
+          courseVersionItemId: "item_3",
+          entitlementId: "entitlement_3",
+          entitlementResolution: "administrator_resolved",
+          entitlementStatus: "resolved",
+          modulePosition: 2,
         }),
       ]),
     );
@@ -71,8 +84,21 @@ describe("offline SCORM server recovery inventory", () => {
           cleanupState: "cleared",
           courseVersionItemId: "item_2",
           entitlementId: "entitlement_2",
+          entitlementResolution: "discarded",
           entitlementStatus: "resolved",
           modulePosition: 1,
+        }),
+        intendedLaunchExpiresAt: "2026-10-26T00:00:00.000Z",
+      },
+      {
+        ...inventoryRow({
+          attemptId: "attempt_3",
+          cleanupState: "needs_attention",
+          courseVersionItemId: "item_3",
+          entitlementId: "entitlement_3",
+          entitlementResolution: "administrator_resolved",
+          entitlementStatus: "resolved",
+          modulePosition: 2,
         }),
         intendedLaunchExpiresAt: "2026-10-26T00:00:00.000Z",
       },
@@ -86,6 +112,21 @@ describe("offline SCORM server recovery inventory", () => {
         {
           findCourseRows: () =>
             Promise.resolve([inventoryRow({ modulePosition: null })]),
+          findRetainedState: vi.fn(),
+        },
+      ),
+    ).rejects.toThrow("inconsistent");
+    await expect(
+      listOfflineScormCourseRecoveryInventory(
+        { requestedEntitlementIds: [], userId: "learner_1" },
+        {
+          findCourseRows: () =>
+            Promise.resolve([
+              inventoryRow({
+                entitlementResolution: null,
+                entitlementStatus: "resolved",
+              }),
+            ]),
           findRetainedState: vi.fn(),
         },
       ),

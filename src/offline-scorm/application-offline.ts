@@ -16,6 +16,11 @@ import {
   offlineScormActivationDenialMessage,
   parseOfflineScormActivationDenial,
 } from "#/offline-scorm/offline-scorm-activation-denial";
+import {
+  isRelatedWebApplicationInstalled,
+  isStandaloneApplication,
+  rememberOfflineScormPwaHandoff,
+} from "#/offline-scorm/pwa-installation";
 import "./application-offline.css";
 
 const PROTOCOL_VERSION = 1;
@@ -34,6 +39,8 @@ interface RetainedCourse {
   courseVersionItemId: string;
   enrollmentId: string;
   entitlementId: string;
+  entitlementResolution:
+    "administrator_resolved" | "discarded" | "reconciled" | null;
   entitlementStatus: "active" | "resolved";
   intendedLaunchExpiresAt: string;
   modulePosition: number;
@@ -99,6 +106,16 @@ const courseList = element("offline-courses", HTMLElement);
 const downloadPanel = element("offline-download", HTMLElement);
 const downloadTitle = element("offline-download-title", HTMLElement);
 const downloadButton = element("offline-download-button", HTMLButtonElement);
+const downloadProgressPanel = element("offline-download-progress", HTMLElement);
+const downloadProgressLabel = element(
+  "offline-download-progress-label",
+  HTMLLabelElement,
+);
+const downloadProgressBar = element(
+  "offline-download-progress-bar",
+  HTMLProgressElement,
+);
+const reconnectLink = element("offline-reconnect", HTMLAnchorElement);
 const player = element("offline-player", HTMLElement);
 const playerTitle = element("offline-player-title", HTMLElement);
 const learningFrame = element("offline-learning-frame", HTMLIFrameElement);
@@ -107,9 +124,24 @@ let active: Operation | undefined;
 let deferredInstallPrompt: DeferredInstallPrompt | undefined;
 let synchronizingAll = false;
 let serverCleanupStates = new Map<string, OfflineScormServerCleanupState>();
+let serverResolutionStates = new Map<
+  string,
+  "administrator_resolved" | "discarded" | "reconciled" | null
+>();
 let visibleLearnerId: string | undefined;
 
 class BootstrapResponseError extends Error {}
+
+function configureReconnectLink(requiresSignIn: boolean): void {
+  if (!requiresSignIn) {
+    reconnectLink.href = "/";
+    reconnectLink.textContent = "Reconnect to Upskill";
+    return;
+  }
+  const returnPath = `${location.pathname}${location.search}${location.hash}`;
+  reconnectLink.href = `/login?redirect=${encodeURIComponent(returnPath)}`;
+  reconnectLink.textContent = "Sign in to Upskill";
+}
 
 function isRetainedCourse(value: unknown): value is RetainedCourse {
   if (!value || typeof value !== "object") return false;
@@ -123,8 +155,16 @@ function isRetainedCourse(value: unknown): value is RetainedCourse {
     typeof record.courseVersionItemId === "string" &&
     typeof record.enrollmentId === "string" &&
     typeof record.entitlementId === "string" &&
+    (record.entitlementResolution === null ||
+      record.entitlementResolution === "administrator_resolved" ||
+      record.entitlementResolution === "discarded" ||
+      record.entitlementResolution === "reconciled") &&
     (record.entitlementStatus === "active" ||
       record.entitlementStatus === "resolved") &&
+    ((record.entitlementStatus === "active" &&
+      record.entitlementResolution === null) ||
+      (record.entitlementStatus === "resolved" &&
+        record.entitlementResolution !== null)) &&
     typeof record.intendedLaunchExpiresAt === "string" &&
     Number.isFinite(Date.parse(record.intendedLaunchExpiresAt)) &&
     typeof record.modulePosition === "number" &&
@@ -139,12 +179,57 @@ function setStatus(message: string): void {
   status.textContent = message;
 }
 
-function installedApplication(): boolean {
-  return (
-    window.matchMedia("(display-mode: standalone)").matches ||
-    Boolean((navigator as Navigator & { standalone?: boolean }).standalone)
-  );
+function showIndeterminateDownloadProgress(message: string): void {
+  downloadProgressPanel.hidden = false;
+  downloadProgressLabel.textContent = message;
+  downloadProgressBar.removeAttribute("value");
 }
+
+function hideDownloadProgress(): void {
+  downloadProgressPanel.hidden = true;
+  downloadProgressBar.removeAttribute("value");
+}
+
+function updateDownloadProgress(message: Record<string, unknown>): void {
+  const completedBytes = message.completedBytes;
+  const completedFiles = message.completedFiles;
+  const totalBytes = message.totalBytes;
+  const totalFiles = message.totalFiles;
+  if (
+    typeof completedBytes !== "number" ||
+    !Number.isSafeInteger(completedBytes) ||
+    completedBytes < 0 ||
+    typeof completedFiles !== "number" ||
+    !Number.isSafeInteger(completedFiles) ||
+    completedFiles < 0 ||
+    typeof totalBytes !== "number" ||
+    !Number.isSafeInteger(totalBytes) ||
+    totalBytes < completedBytes ||
+    typeof totalFiles !== "number" ||
+    !Number.isSafeInteger(totalFiles) ||
+    totalFiles < 1 ||
+    totalFiles < completedFiles
+  )
+    return;
+  const maximum = totalBytes > 0 ? totalBytes : totalFiles;
+  const completed = totalBytes > 0 ? completedBytes : completedFiles;
+  const percentage = Math.round((completed / maximum) * 100);
+  const label = `Downloading ${String(completedFiles)} of ${String(totalFiles)} files (${String(percentage)}%)…`;
+  downloadProgressPanel.hidden = false;
+  downloadProgressBar.max = maximum;
+  downloadProgressBar.value = completed;
+  downloadProgressLabel.textContent = label;
+  setStatus(label);
+}
+
+const packageFailureMessages: Record<string, string> = {
+  cache_failed: "Secure offline storage could not save the package.",
+  digest_mismatch: "A downloaded package file failed its integrity check.",
+  invalid_origin: "The isolated package origin could not be verified.",
+  package_unavailable: "A package file could not be downloaded.",
+  storage_access_denied: "Secure offline storage access was denied.",
+  storage_failed: "Secure offline storage is unavailable.",
+};
 
 function supportedMobileRuntime(): boolean {
   return (
@@ -157,6 +242,14 @@ function supportedMobileRuntime(): boolean {
     "locks" in navigator &&
     Boolean(globalThis.crypto.subtle)
   );
+}
+
+function offerInstalledApplicationHandoff(message: string): void {
+  rememberOfflineScormPwaHandoff(location.href);
+  deferredInstallPrompt = undefined;
+  downloadButton.disabled = true;
+  downloadButton.textContent = "Open Upskill from home screen";
+  setStatus(message);
 }
 
 async function jsonResponse<T>(response: Response): Promise<T> {
@@ -177,6 +270,12 @@ async function bootstrap(
     credentials: "same-origin",
   });
   if (!response.ok) {
+    if (response.status === 401) {
+      configureReconnectLink(true);
+      throw new BootstrapResponseError(
+        "Sign in to Upskill to continue with offline learning.",
+      );
+    }
     let message = "The signed-in learner could not be verified";
     try {
       const body = (await response.json()) as { error?: unknown };
@@ -219,6 +318,7 @@ async function bootstrap(
     throw new BootstrapResponseError(
       "The signed-in learner response could not be verified",
     );
+  configureReconnectLink(false);
   return body as Bootstrap;
 }
 
@@ -265,6 +365,7 @@ function finishOperation(error?: unknown): void {
   packageFrame.removeAttribute("src");
   player.hidden = true;
   downloadButton.disabled = false;
+  if (current?.kind === "install") hideDownloadProgress();
   if (!current) return;
   if (error === undefined) current.resolve();
   else current.reject(error);
@@ -329,20 +430,31 @@ function startOperation(
 async function beginInstall(target: DownloadTarget): Promise<void> {
   if (!supportedMobileRuntime())
     throw new Error("Offline learning is supported in the Android app.");
-  if (!installedApplication()) {
-    if (deferredInstallPrompt) {
-      await deferredInstallPrompt.prompt();
-      const choice = await deferredInstallPrompt.userChoice;
-      throw new Error(
-        choice.outcome === "accepted"
-          ? "Open the installed Upskill app to download this module."
-          : "Install Upskill to learn offline.",
+  if (!isStandaloneApplication()) {
+    if (await isRelatedWebApplicationInstalled()) {
+      offerInstalledApplicationHandoff(
+        "Upskill is already installed. Open the installed app to download this module.",
       );
+      return;
+    }
+    if (deferredInstallPrompt) {
+      const installPrompt = deferredInstallPrompt;
+      deferredInstallPrompt = undefined;
+      await installPrompt.prompt();
+      const choice = await installPrompt.userChoice;
+      if (choice.outcome === "accepted") {
+        offerInstalledApplicationHandoff(
+          "Upskill is installing. When Android finishes, open the installed app to download this module.",
+        );
+        return;
+      }
+      throw new Error("Install Upskill to learn offline.");
     }
     throw new Error("Install Upskill, then reopen this course in the app.");
   }
   downloadButton.disabled = true;
   setStatus("Preparing secure offline storage…");
+  showIndeterminateDownloadProgress("Preparing secure offline storage…");
   await Promise.all([
     navigator.storage.persist(),
     navigator.serviceWorker.ready,
@@ -430,6 +542,12 @@ async function reconcileServerRecoveryInventory(
       record.cleanupState,
     ]),
   );
+  serverResolutionStates = new Map(
+    runtimeBootstrap.retainedCourses.map((record) => [
+      record.entitlementId,
+      record.entitlementResolution,
+    ]),
+  );
   for (const retained of runtimeBootstrap.retainedCourses) {
     const existing = records.find(
       (record) =>
@@ -483,6 +601,9 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
   const records = visibleLearnerId
     ? allRecords.filter((record) => record.learnerId === visibleLearnerId)
     : [];
+  const targetRecord = target
+    ? records.find((record) => record.key === target.key)
+    : undefined;
   courseList.replaceChildren();
   for (const record of records) {
     const card = document.createElement("section");
@@ -494,7 +615,7 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
     if (record.state === "activating" || record.state === "downloading") {
       const resume = document.createElement("button");
       resume.type = "button";
-      resume.disabled = !navigator.onLine;
+      resume.disabled = !navigator.onLine || Boolean(active);
       resume.textContent =
         record.state === "activating" ? "Retry download" : "Resume download";
       resume.addEventListener("click", () => {
@@ -514,7 +635,7 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
     if (record.state === "blocked" || record.state === "removing") {
       const remove = document.createElement("button");
       remove.type = "button";
-      remove.disabled = !navigator.onLine;
+      remove.disabled = !navigator.onLine || Boolean(active);
       remove.textContent =
         record.state === "blocked" ? "Resolve and remove" : "Resume removal";
       remove.addEventListener("click", () => {
@@ -534,7 +655,7 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
     const expired = Date.now() >= Date.parse(record.intendedLaunchExpiresAt);
     const open = document.createElement("button");
     open.type = "button";
-    open.disabled = expired;
+    open.disabled = expired || Boolean(active);
     open.textContent = expired ? "Access ended" : "Open offline";
     open.addEventListener("click", () => {
       void beginExistingOperation("launch", record).catch((error: unknown) => {
@@ -543,7 +664,7 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
     });
     const sync = document.createElement("button");
     sync.type = "button";
-    sync.disabled = !navigator.onLine;
+    sync.disabled = !navigator.onLine || Boolean(active);
     sync.textContent = "Sync now";
     sync.addEventListener("click", () => {
       void beginExistingOperation("sync", record).catch((error: unknown) => {
@@ -552,7 +673,7 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
     });
     const remove = document.createElement("button");
     remove.type = "button";
-    remove.disabled = !navigator.onLine;
+    remove.disabled = !navigator.onLine || Boolean(active);
     remove.textContent = "Remove download";
     remove.addEventListener("click", () => {
       void beginExistingOperation("remove", record).catch((error: unknown) => {
@@ -564,7 +685,8 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
     courseList.append(card);
   }
   if (target) {
-    const existing = records.find((record) => record.key === target.key);
+    const existing = targetRecord;
+    downloadPanel.hidden = Boolean(existing);
     downloadButton.disabled =
       existing?.state === "ready" ||
       existing?.state === "blocked" ||
@@ -644,6 +766,9 @@ async function handleLearningMessage(
                 ? "remove"
                 : "sync",
           packageOrigin: current.record.packageOrigin,
+          recoveryResolution: serverResolutionStates.get(
+            current.record.entitlementId,
+          ),
         },
         learningOrigin,
       );
@@ -746,6 +871,11 @@ async function handleLearningMessage(
     current.contextReady = true;
     bindIfReady();
   } else if (
+    message.type === "offline-scorm-package-progress" &&
+    current.kind === "install"
+  )
+    updateDownloadProgress(message);
+  else if (
     message.type === "offline-scorm-download-complete" &&
     current.kind === "install" &&
     current.activation &&
@@ -932,8 +1062,14 @@ window.addEventListener("message", (event) => {
       setStatus("This module is already open on this device.");
       finishOperation(new Error("The offline package is already open"));
     } else if (message.type === "offline-scorm-package-error") {
-      setStatus("The offline package needs attention.");
-      finishOperation(new Error("The offline package needs attention"));
+      const failureMessage =
+        typeof message.reason === "string"
+          ? packageFailureMessages[message.reason]
+          : undefined;
+      const errorMessage =
+        failureMessage ?? "The offline package needs attention.";
+      setStatus(errorMessage);
+      finishOperation(new Error(errorMessage));
     }
   }
 });
@@ -956,6 +1092,11 @@ async function syncAll(): Promise<void> {
 window.addEventListener("beforeinstallprompt", (event) => {
   event.preventDefault();
   deferredInstallPrompt = event as DeferredInstallPrompt;
+});
+window.addEventListener("appinstalled", () => {
+  offerInstalledApplicationHandoff(
+    "Upskill is installed. Open the installed app to download this module.",
+  );
 });
 window.addEventListener("online", () => {
   void syncAll();
@@ -980,11 +1121,19 @@ if (target) {
   downloadButton.addEventListener("click", () => {
     void beginInstall(target).catch((error: unknown) => {
       downloadButton.disabled = false;
+      hideDownloadProgress();
       setStatus(
         error instanceof Error ? error.message : "Offline setup failed.",
       );
     });
   });
+  if (!isStandaloneApplication())
+    void isRelatedWebApplicationInstalled().then((installed) => {
+      if (installed)
+        offerInstalledApplicationHandoff(
+          "Upskill is already installed. Open the installed app to download this module.",
+        );
+    });
 }
 
 void refreshCourses()

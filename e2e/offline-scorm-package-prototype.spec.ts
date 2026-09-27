@@ -63,14 +63,16 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
     process.env.PLAYWRIGHT_HTTPS === "true",
     "The loopback package-site prototype is qualified in the core lane",
   );
-
   await page.goto(prototypePath);
   await waitForPrototypeEvent(page, "prototype-learning-ready");
   await waitForPrototypeEvent(page, "prototype-package-ready");
   await waitForPrototypeEvent(page, "prototype-channel-bound");
   await waitForPrototypeEvent(page, "prototype-player-ready");
   await expect(
-    page.frameLocator("#package-frame").locator("#vendor-ready"),
+    page
+      .frameLocator("#package-frame")
+      .frameLocator("#vendor-frame")
+      .locator("#vendor-ready"),
   ).toHaveText("Rise fixture ready");
 
   const firstReady = (await prototypeEvents(page)).find(
@@ -82,16 +84,21 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
   const origins = await page.evaluate(() =>
     structuredClone(window.offlineScormPrototype?.origins),
   );
-  expect(new URL(origins?.application ?? "").hostname).toBe("127.0.0.1");
-  expect(new URL(origins?.learning ?? "").hostname).toBe("127.0.0.1");
-  expect(new URL(origins?.package ?? "").hostname).toBe("127.0.0.2");
+  expect(new URL(origins?.application ?? "").hostname).toBe("app.localhost");
+  expect(new URL(origins?.learning ?? "").hostname).toBe("learn.localhost");
+  expect(new URL(origins?.package ?? "").hostname).toBe(
+    "p-prototype.localhost",
+  );
 
   await page.evaluate(() => window.offlineScormPrototype?.addCompetitor());
   await expect(
     page.frameLocator("#package-competitor").locator("#package-status"),
   ).toHaveText("prototype-lock-busy");
   await expect(
-    page.frameLocator("#package-competitor").locator("#vendor-ready"),
+    page
+      .frameLocator("#package-competitor")
+      .frameLocator("#vendor-frame")
+      .locator("#vendor-ready"),
   ).toHaveCount(0);
   await page.locator("#package-competitor").evaluate((element) => {
     element.remove();
@@ -183,7 +190,10 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
     await waitForPrototypeEvent(page, "prototype-package-ready", 2);
     await waitForPrototypeEvent(page, "prototype-channel-bound", 2);
     await expect(
-      page.frameLocator("#package-frame").locator("#vendor-ready"),
+      page
+        .frameLocator("#package-frame")
+        .frameLocator("#vendor-frame")
+        .locator("#vendor-ready"),
     ).toHaveCount(0);
     await page.evaluate(() =>
       window.offlineScormPrototype?.command("learning", "acknowledge", true),
@@ -191,7 +201,10 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
     await waitForPrototypeEvent(page, "prototype-spool-drained");
     await waitForPrototypeEvent(page, "prototype-player-ready", 2);
     await expect(
-      page.frameLocator("#package-frame").locator("#vendor-ready"),
+      page
+        .frameLocator("#package-frame")
+        .frameLocator("#vendor-frame")
+        .locator("#vendor-ready"),
     ).toHaveText("Rise fixture ready");
   } finally {
     await context.setOffline(false);
@@ -393,7 +406,10 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
     repairEventCounts.playerReady + 1,
   );
   await expect(
-    page.frameLocator("#package-frame").locator("#vendor-ready"),
+    page
+      .frameLocator("#package-frame")
+      .frameLocator("#vendor-frame")
+      .locator("#vendor-ready"),
   ).toHaveText("Rise fixture ready");
 
   await page.evaluate(() =>
@@ -426,6 +442,12 @@ test("Safari qualification requires an explicit package-site storage decision", 
   test.skip(
     process.env.PLAYWRIGHT_HTTPS === "true",
     "The loopback package-site prototype is qualified in the core lane",
+  );
+  test.skip(
+    new URL(String(testInfo.project.use.baseURL)).hostname.endsWith(
+      ".localhost",
+    ),
+    "Safari package-site storage requires a separate production-style HTTPS qualification",
   );
 
   await page.goto(prototypePath);

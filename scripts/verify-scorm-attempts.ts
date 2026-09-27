@@ -2241,6 +2241,7 @@ try {
   );
   const cleanupReceiptSha256 = createOfflineScormPackageCleanupReceipt(
     {
+      APP_ENV: "test",
       OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY: Buffer.alloc(32, 7).toString(
         "base64url",
       ),
@@ -2290,6 +2291,102 @@ try {
       .where("entitlementId", "=", cleanupIssuance.entitlementId)
       .executeTakeFirstOrThrow(),
     { state: "cleared", cleanupReceiptSha256 },
+  );
+
+  const administratorCleanupIssuance = await issueOfflineScormEntitlement(
+    {
+      target: {
+        kind: "course",
+        enrollmentId: ids.enrollment,
+        modulePosition: 0,
+      },
+      installationId: ids.installation,
+      sessionId: ids.session,
+    },
+    user,
+    signEntitlement,
+    provisionPackageSite,
+  );
+  if (administratorCleanupIssuance.status !== "issued")
+    assert.fail(
+      `Expected administrator-cleanup issuance, received ${administratorCleanupIssuance.reason}`,
+    );
+  const administratorEndedAt = new Date();
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .updateTable("scorm_attempt")
+      .set({
+        writerMode: "online",
+        offlineEntitlementId: null,
+        credentialGeneration: administratorCleanupIssuance.writerGeneration + 1,
+        updatedAt: administratorEndedAt,
+      })
+      .where("id", "=", administratorCleanupIssuance.attemptId)
+      .executeTakeFirstOrThrow();
+    await transaction
+      .updateTable("offline_learning_entitlement")
+      .set({
+        status: "resolved",
+        resolution: "administrator_resolved",
+        resolvedByUserId: user.id,
+        endedAt: administratorEndedAt,
+      })
+      .where("id", "=", administratorCleanupIssuance.entitlementId)
+      .executeTakeFirstOrThrow();
+  });
+  const administratorResolutionReasonCodes: unknown[] = [];
+  const administratorCleanupResolution = await (async () => {
+    const originalConsoleInfo = console.info;
+    console.info = (...data: unknown[]) => {
+      originalConsoleInfo(...data);
+      const [message] = data;
+      if (typeof message !== "string") return;
+      try {
+        const entry = JSON.parse(message) as Record<string, unknown>;
+        if (entry.type === "scorm.offline_writer_resolved")
+          administratorResolutionReasonCodes.push(entry.reasonCode);
+      } catch {
+        // Unstructured output is unrelated to this telemetry assertion.
+      }
+    };
+    try {
+      return await resolveOfflineScormCourseEntitlement(
+        {
+          schemaVersion: 1,
+          entitlementId: administratorCleanupIssuance.entitlementId,
+          resolution: "discarded",
+        },
+        user,
+      );
+    } finally {
+      console.info = originalConsoleInfo;
+    }
+  })();
+  assert.equal(administratorCleanupResolution.status, "cleanup-required");
+  assert.deepEqual(administratorResolutionReasonCodes, [
+    "administrator_resolved",
+  ]);
+  assert.deepEqual(
+    await database
+      .selectFrom("offline_learning_entitlement")
+      .select(["status", "resolution", "resolvedByUserId"])
+      .where("id", "=", administratorCleanupIssuance.entitlementId)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "resolved",
+      resolution: "administrator_resolved",
+      resolvedByUserId: user.id,
+    },
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("offline_scorm_cleanup_inventory")
+        .select("state")
+        .where("entitlementId", "=", administratorCleanupIssuance.entitlementId)
+        .executeTakeFirstOrThrow()
+    ).state,
+    "clearing",
   );
 
   const eventAttempt = await database

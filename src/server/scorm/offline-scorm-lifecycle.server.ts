@@ -71,6 +71,9 @@ export async function resolveOfflineScormCourseEntitlement(
       if (!cleanup || cleanup.state === "cleared")
         return { status: "denied", reason: "unavailable" } as const;
 
+      let authoritativeResolution:
+        "administrator_resolved" | "discarded" | "reconciled" =
+        request.resolution;
       if (entitlement.status === "active") {
         const attempt = await transaction
           .selectFrom("scorm_attempt")
@@ -112,9 +115,11 @@ export async function resolveOfflineScormCourseEntitlement(
           .executeTakeFirstOrThrow();
       } else if (
         entitlement.status !== "resolved" ||
-        entitlement.resolution !== request.resolution
+        (entitlement.resolution !== "administrator_resolved" &&
+          entitlement.resolution !== request.resolution)
       )
         return { status: "denied", reason: "unavailable" } as const;
+      else authoritativeResolution = entitlement.resolution;
 
       const clearRequestedAt = cleanup.clearRequestedAt ?? new Date();
       if (cleanup.state === "pending" || cleanup.state === "needs_attention")
@@ -131,21 +136,24 @@ export async function resolveOfflineScormCourseEntitlement(
           .where("entitlementId", "=", entitlement.id)
           .executeTakeFirstOrThrow();
 
-      return offlineScormResolutionSuccessSchema.parse({
-        status: "cleanup-required",
-        entitlementId: entitlement.id,
-        packageSiteOrigin: cleanup.packageSiteOrigin,
-        cleanupCapability: createOfflineScormPackageCleanupCapability(
-          environment,
-          {
-            entitlementId: entitlement.id,
-            packageSiteOrigin: cleanup.packageSiteOrigin,
-          },
-        ),
-      });
+      return {
+        ...offlineScormResolutionSuccessSchema.parse({
+          status: "cleanup-required",
+          entitlementId: entitlement.id,
+          packageSiteOrigin: cleanup.packageSiteOrigin,
+          cleanupCapability: createOfflineScormPackageCleanupCapability(
+            environment,
+            {
+              entitlementId: entitlement.id,
+              packageSiteOrigin: cleanup.packageSiteOrigin,
+            },
+          ),
+        }),
+        authoritativeResolution,
+      };
     });
 
-  if (result.status === "cleanup-required")
+  if (result.status === "cleanup-required") {
     logServerEvent({
       level: "info",
       event: "scorm.offline_writer_resolved",
@@ -153,9 +161,16 @@ export async function resolveOfflineScormCourseEntitlement(
         actorUserId: user.id,
         entityType: "offline_learning_entitlement",
         entityId: request.entitlementId,
-        reasonCode: request.resolution,
+        reasonCode: result.authoritativeResolution,
       },
     });
+    return {
+      status: result.status,
+      entitlementId: result.entitlementId,
+      packageSiteOrigin: result.packageSiteOrigin,
+      cleanupCapability: result.cleanupCapability,
+    };
+  }
   return result;
 }
 

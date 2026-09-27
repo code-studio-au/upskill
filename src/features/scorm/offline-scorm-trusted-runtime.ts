@@ -144,7 +144,8 @@ export const offlineScormPackageRecordSchema = z
       const loopbackDevelopmentOrigin =
         packageOrigin.protocol === "http:" &&
         (packageOrigin.hostname === "127.0.0.1" ||
-          packageOrigin.hostname === "localhost");
+          packageOrigin.hostname === "localhost" ||
+          packageOrigin.hostname.endsWith(".localhost"));
       if (packageOrigin.protocol !== "https:" && !loopbackDevelopmentOrigin)
         context.addIssue({
           code: "custom",

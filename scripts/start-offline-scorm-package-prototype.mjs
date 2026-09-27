@@ -3,18 +3,23 @@ import { randomBytes } from "node:crypto";
 import { getOfflineScormPrototypeAsset } from "./offline-scorm-package-prototype-assets.mjs";
 
 const applicationOrigin = new URL(
-  process.env.OFFLINE_SCORM_PROTOTYPE_APP_ORIGIN ?? "http://127.0.0.1:3300",
+  process.env.OFFLINE_SCORM_PROTOTYPE_APP_ORIGIN ?? "http://app.localhost:3300",
 );
 const learningOrigin = new URL(
   process.env.OFFLINE_SCORM_PROTOTYPE_LEARNING_ORIGIN ??
-    "http://127.0.0.1:3301",
+    "http://learn.localhost:3300",
 );
 const packageOrigin = new URL(
-  process.env.OFFLINE_SCORM_PROTOTYPE_ORIGIN ?? "http://127.0.0.2:3302",
+  process.env.OFFLINE_SCORM_PROTOTYPE_ORIGIN ??
+    "http://p-prototype.localhost:3300",
 );
 const origins = [applicationOrigin, learningOrigin, packageOrigin];
 for (const [index, origin] of origins.entries()) {
-  const expectedHost = index === 2 ? "127.0.0.2" : "127.0.0.1";
+  const expectedHost = [
+    "app.localhost",
+    "learn.localhost",
+    "p-prototype.localhost",
+  ][index];
   if (
     origin.protocol !== "http:" ||
     origin.hostname !== expectedHost ||
@@ -25,6 +30,8 @@ for (const [index, origin] of origins.entries()) {
 }
 if (new Set(origins.map((origin) => origin.origin)).size !== origins.length)
   throw new Error("Prototype origins must be distinct");
+if (new Set(origins.map((origin) => origin.port)).size !== 1)
+  throw new Error("Prototype localhost origins must share one port");
 
 const configuration = {
   applicationOrigin: applicationOrigin.origin,
@@ -34,62 +41,61 @@ const configuration = {
   packageOrigin: packageOrigin.origin,
 };
 
-function createServer(origin) {
-  return http.createServer((request, response) => {
-    if (request.url === "/health") {
-      response.writeHead(200, {
-        "Cache-Control": "no-store",
-        "Content-Type": "application/json",
-      });
-      response.end('{"status":"ready"}');
-      return;
-    }
-    if (
-      request.method !== "GET" &&
-      request.method !== "HEAD" &&
-      request.method !== "POST"
-    ) {
-      response.writeHead(405, { Allow: "GET, HEAD, POST" });
-      response.end();
-      return;
-    }
-    const asset = getOfflineScormPrototypeAsset(
-      new URL(request.url ?? "/", origin),
-      configuration,
-      request.method,
-    );
-    if (!asset) {
-      response.writeHead(404, {
-        "Cache-Control": "no-store",
-        "Content-Type": "text/plain; charset=utf-8",
-      });
-      response.end("Not found");
-      return;
-    }
-    response.writeHead(asset.status, {
-      ...asset.headers,
-      "Content-Length": Buffer.byteLength(asset.body),
+const configuredOrigins = new Map(
+  origins.map((origin) => [origin.host.toLowerCase(), origin.origin]),
+);
+const server = http.createServer((request, response) => {
+  if (request.url === "/health") {
+    response.writeHead(200, {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
     });
-    response.end(request.method === "HEAD" ? undefined : asset.body);
+    response.end('{"status":"ready"}');
+    return;
+  }
+  const origin = configuredOrigins.get(
+    request.headers.host?.trim().toLowerCase() ?? "",
+  );
+  if (!origin) {
+    response.writeHead(404, { "Cache-Control": "no-store" });
+    response.end();
+    return;
+  }
+  if (
+    request.method !== "GET" &&
+    request.method !== "HEAD" &&
+    request.method !== "POST"
+  ) {
+    response.writeHead(405, { Allow: "GET, HEAD, POST" });
+    response.end();
+    return;
+  }
+  const asset = getOfflineScormPrototypeAsset(
+    new URL(request.url ?? "/", origin),
+    configuration,
+    request.method,
+  );
+  if (!asset) {
+    response.writeHead(404, {
+      "Cache-Control": "no-store",
+      "Content-Type": "text/plain; charset=utf-8",
+    });
+    response.end("Not found");
+    return;
+  }
+  response.writeHead(asset.status, {
+    ...asset.headers,
+    "Content-Length": Buffer.byteLength(asset.body),
   });
-}
-
-const servers = origins.map((origin) => {
-  const server = createServer(origin.origin);
-  server.listen(Number(origin.port), origin.hostname);
-  return server;
+  response.end(request.method === "HEAD" ? undefined : asset.body);
 });
+server.listen(Number(applicationOrigin.port), "127.0.0.1");
 
 let stopping = false;
 function stop() {
   if (stopping) return;
   stopping = true;
-  let remaining = servers.length;
-  for (const server of servers)
-    server.close(() => {
-      remaining -= 1;
-      if (remaining === 0) process.exit(0);
-    });
+  server.close(() => process.exit(0));
   setTimeout(() => process.exit(1), 10_000).unref();
 }
 

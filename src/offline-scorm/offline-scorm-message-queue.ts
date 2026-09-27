@@ -15,3 +15,14 @@ export function createOfflineScormMessageQueue<Message>(input: {
       });
   };
 }
+
+export function createOfflineScormLaunchInitializer(
+  initialize: () => Promise<void>,
+): () => Promise<void> {
+  let started = false;
+  return async () => {
+    if (started) return;
+    started = true;
+    await initialize();
+  };
+}

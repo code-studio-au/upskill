@@ -161,6 +161,10 @@ export class ApplicationStack extends Stack {
     new CfnAccessGrant(this, "RecordingAccessGrant", {
       accessGrantsLocationId:
         recordingAccessGrantsLocation.attrAccessGrantsLocationId,
+      // Preserve the property emitted by the original deployed template.
+      // S3 Access Grants rejects every non-tag property update, including
+      // removing this semantically equivalent wildcard configuration.
+      accessGrantsLocationConfiguration: { s3SubPrefix: "*" },
       grantee: {
         granteeType: "IAM",
         granteeIdentifier: role.roleArn,

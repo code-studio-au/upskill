@@ -11,7 +11,16 @@ import {
   createOfflineScormDeviceKeyRecord,
   offlineScormReceiptSchema,
 } from "#/features/scorm/offline-scorm-trusted-runtime";
-import { createOfflineScormMessageQueue } from "#/offline-scorm/offline-scorm-message-queue";
+import {
+  offlineScormCanRecoverAbsentLocalBinding,
+  offlineScormPackageStateSupportsOperation,
+  offlineScormRemovalRecoveryCanBypassPackageChannel,
+  offlineScormRemovalResolution,
+} from "#/offline-scorm/offline-scorm-application-recovery";
+import {
+  createOfflineScormLaunchInitializer,
+  createOfflineScormMessageQueue,
+} from "#/offline-scorm/offline-scorm-message-queue";
 
 const PROTOCOL_VERSION = 1;
 const parentOrigin = document.referrer
@@ -36,6 +45,7 @@ let context:
       removalRecovery?: {
         locallyCompleted: boolean;
         resolution: "discarded" | "reconciled";
+        trustedBindingAbsent: boolean;
       };
     }
   | undefined;
@@ -46,6 +56,26 @@ function postParent(message: Record<string, unknown>): void {
     { ...message, protocolVersion: PROTOCOL_VERSION },
     parentOrigin,
   );
+}
+
+function postContextReady(): void {
+  if (!context) throw new Error("The offline runtime context is unavailable");
+  postParent({
+    type: "offline-scorm-context-ready",
+    attemptId: context.attemptId,
+  });
+  if (
+    offlineScormRemovalRecoveryCanBypassPackageChannel({
+      mode: context.mode,
+      removalRecoveryAvailable: context.removalRecovery !== undefined,
+    }) &&
+    context.removalRecovery
+  )
+    postParent({
+      type: "offline-scorm-sync-complete",
+      attemptId: context.attemptId,
+      ...context.removalRecovery,
+    });
 }
 
 function bytesFromBase64Url(value: string): Uint8Array<ArrayBuffer> {
@@ -150,18 +180,55 @@ async function loadContext(input: {
   learnerName: string;
   mode: "launch" | "remove" | "sync";
   packageOrigin: string;
+  recoveryResolution:
+    "administrator_resolved" | "discarded" | "reconciled" | undefined;
 }): Promise<void> {
+  const optionalAttemptSnapshot = async () => {
+    try {
+      return await store.getAttemptJournalSnapshot(input.attemptId);
+    } catch (error) {
+      if (
+        error instanceof OfflineScormRuntimeError &&
+        error.code === "attempt_unavailable"
+      )
+        return undefined;
+      throw error;
+    }
+  };
   const [packageRecord, snapshot] = await Promise.all([
     store.getPackage(input.attemptId),
-    store.getAttemptJournalSnapshot(input.attemptId),
+    optionalAttemptSnapshot(),
   ]);
   if (
+    offlineScormCanRecoverAbsentLocalBinding({
+      attemptAvailable: snapshot !== undefined,
+      mode: input.mode,
+      packageAvailable: packageRecord !== undefined,
+    })
+  ) {
+    if (!input.recoveryResolution)
+      throw new Error("The trusted offline package binding is unavailable");
+    context = {
+      ...input,
+      removalRecovery: {
+        locallyCompleted: false,
+        resolution: offlineScormRemovalResolution({
+          hasDiscardedJournal: false,
+          serverResolution: input.recoveryResolution,
+        }),
+        trustedBindingAbsent: true,
+      },
+    };
+    postContextReady();
+    return;
+  }
+  if (
     !packageRecord ||
-    (input.mode === "remove"
-      ? packageRecord.status !== "ready" &&
-        packageRecord.status !== "cleanup_pending" &&
-        packageRecord.status !== "cleared"
-      : packageRecord.status !== "ready") ||
+    !snapshot ||
+    !offlineScormPackageStateSupportsOperation({
+      mode: input.mode,
+      status: packageRecord.status,
+    }) ||
     packageRecord.packageOrigin !== input.packageOrigin ||
     snapshot.entitlement.attemptId !== input.attemptId ||
     snapshot.entitlement.packageVersionId !== packageRecord.packageVersionId ||
@@ -171,25 +238,25 @@ async function loadContext(input: {
   )
     throw new Error("The trusted offline package binding is unavailable");
   context =
-    input.mode === "remove" && packageRecord.status !== "ready"
+    input.mode === "remove" &&
+    (packageRecord.status !== "ready" || input.recoveryResolution)
       ? {
           ...input,
           removalRecovery: {
             locallyCompleted:
               snapshot.attempt.currentSnapshot.lessonStatus === "completed" ||
               snapshot.attempt.currentSnapshot.lessonStatus === "passed",
-            resolution: snapshot.records.some(
-              (record) => record.status === "discarded",
-            )
-              ? "discarded"
-              : "reconciled",
+            resolution: offlineScormRemovalResolution({
+              hasDiscardedJournal: snapshot.records.some(
+                (record) => record.status === "discarded",
+              ),
+              serverResolution: input.recoveryResolution,
+            }),
+            trustedBindingAbsent: false,
           },
         }
       : input;
-  postParent({
-    type: "offline-scorm-context-ready",
-    attemptId: input.attemptId,
-  });
+  postContextReady();
 }
 
 async function importSpoolEntry(entry: unknown): Promise<void> {
@@ -306,6 +373,8 @@ async function initializePlayer(): Promise<void> {
 function acceptPort(nextPort: MessagePort): void {
   if (!context) throw new Error("The offline runtime context is unavailable");
   const acceptedContext = context;
+  const initializeAfterInitialDrain =
+    createOfflineScormLaunchInitializer(initializePlayer);
   port?.close();
   port = nextPort;
   const queueMessage = createOfflineScormMessageQueue<MessageEvent>({
@@ -315,7 +384,8 @@ function acceptPort(nextPort: MessagePort): void {
       if (message.type === "offline-scorm-spool-entry")
         await importSpoolEntry(message.entry);
       else if (message.type === "offline-scorm-spool-drained") {
-        if (acceptedContext.mode === "launch") await initializePlayer();
+        if (acceptedContext.mode === "launch")
+          await initializeAfterInitialDrain();
         else await sendSyncBatch();
       } else if (message.type === "offline-scorm-package-installed") {
         const record = await store.getPackage(acceptedContext.attemptId);
@@ -329,7 +399,14 @@ function acceptPort(nextPort: MessagePort): void {
           type: "offline-scorm-download-complete",
           attemptId: acceptedContext.attemptId,
         });
-      }
+      } else if (message.type === "offline-scorm-package-progress")
+        postParent({
+          type: "offline-scorm-package-progress",
+          completedBytes: message.completedBytes,
+          completedFiles: message.completedFiles,
+          totalBytes: message.totalBytes,
+          totalFiles: message.totalFiles,
+        });
     },
     onError(error) {
       postParent({
@@ -349,13 +426,12 @@ function acceptPort(nextPort: MessagePort): void {
       protocolVersion: PROTOCOL_VERSION,
       manifest: acceptedContext.activation.packageManifest,
     });
-  else if (acceptedContext.removalRecovery)
-    postParent({
-      type: "offline-scorm-sync-complete",
-      attemptId: acceptedContext.attemptId,
-      ...acceptedContext.removalRecovery,
-    });
-  else
+  else if (
+    !offlineScormRemovalRecoveryCanBypassPackageChannel({
+      mode: acceptedContext.mode,
+      removalRecoveryAvailable: acceptedContext.removalRecovery !== undefined,
+    })
+  )
     port.postMessage({
       type: "offline-scorm-drain-request",
       protocolVersion: PROTOCOL_VERSION,
@@ -370,9 +446,14 @@ async function beginCleanup(input: {
   if (!context || input.packageSiteOrigin !== context.packageOrigin)
     throw new Error("The cleanup origin does not match the trusted package");
   const record = await store.getPackage(context.attemptId);
-  if (!record || record.entitlementId !== input.entitlementId)
+  const trustedBindingAbsent =
+    context.removalRecovery?.trustedBindingAbsent === true;
+  if (
+    (!record && !trustedBindingAbsent) ||
+    (record && record.entitlementId !== input.entitlementId)
+  )
     throw new Error("The cleanup entitlement is unavailable");
-  if (record.status === "cleared" && record.cleanupReceiptSha256) {
+  if (record?.status === "cleared" && record.cleanupReceiptSha256) {
     postParent({
       type: "offline-scorm-cleanup-complete",
       entitlementId: input.entitlementId,
@@ -380,15 +461,16 @@ async function beginCleanup(input: {
     });
     return;
   }
-  const cleanupPendingRecord =
-    record.status === "cleared"
+  const cleanupPendingRecord = record
+    ? record.status === "cleared"
       ? record
       : {
           ...record,
           status: "cleanup_pending" as const,
           updatedAt: packageUpdatedAtAfter(record.updatedAt),
-        };
-  await store.putPackage(cleanupPendingRecord);
+        }
+    : undefined;
+  if (cleanupPendingRecord) await store.putPackage(cleanupPendingRecord);
   const cleanupUrl = new URL(
     "/.__upskill_offline__/clear-site-data",
     input.packageSiteOrigin,
@@ -410,12 +492,13 @@ async function beginCleanup(input: {
     !/^[a-f0-9]{64}$/u.test(cleanupResponse.cleanupReceiptSha256)
   )
     throw new Error("The package cleanup receipt is invalid");
-  await store.putPackage({
-    ...cleanupPendingRecord,
-    status: "cleared",
-    cleanupReceiptSha256: cleanupResponse.cleanupReceiptSha256,
-    updatedAt: packageUpdatedAtAfter(cleanupPendingRecord.updatedAt),
-  });
+  if (cleanupPendingRecord)
+    await store.putPackage({
+      ...cleanupPendingRecord,
+      status: "cleared",
+      cleanupReceiptSha256: cleanupResponse.cleanupReceiptSha256,
+      updatedAt: packageUpdatedAtAfter(cleanupPendingRecord.updatedAt),
+    });
   postParent({
     type: "offline-scorm-cleanup-complete",
     entitlementId: input.entitlementId,
@@ -480,6 +563,12 @@ window.addEventListener("message", (event) => {
               ? "remove"
               : "launch",
         packageOrigin: new URL(String(message.packageOrigin)).origin,
+        recoveryResolution:
+          message.recoveryResolution === "administrator_resolved" ||
+          message.recoveryResolution === "discarded" ||
+          message.recoveryResolution === "reconciled"
+            ? message.recoveryResolution
+            : undefined,
       });
     else if (
       message.type === "offline-scorm-sibling-channel" &&
@@ -499,7 +588,8 @@ window.addEventListener("message", (event) => {
       });
     else if (message.type === "offline-scorm-cleanup-confirmed") {
       if (!context) return;
-      await store.clearAcknowledgedAttempt(context.attemptId);
+      if (!context.removalRecovery?.trustedBindingAbsent)
+        await store.clearAcknowledgedAttempt(context.attemptId);
       postParent({
         type: "offline-scorm-local-cleanup-complete",
         attemptId: context.attemptId,

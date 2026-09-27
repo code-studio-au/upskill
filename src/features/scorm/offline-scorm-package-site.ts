@@ -17,6 +17,7 @@ export function parseExactOfflineScormOrigin(value: string): URL {
 function isLoopbackHostname(hostname: string): boolean {
   return (
     hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
     hostname === "[::1]" ||
     hostname === "::1" ||
     /^127(?:\.\d{1,3}){3}$/u.test(hostname)
@@ -62,7 +63,7 @@ export function assertOfflineScormPackageOriginIsolation(input: {
     );
 }
 
-export function parseOfflineScormPrivateSiteSuffix(value: string): string {
+function parseOfflineScormPrivateSiteSuffix(value: string): string {
   if (
     value.length < 3 ||
     value.length > 253 ||
@@ -85,4 +86,48 @@ export function parseOfflineScormPrivateSiteSuffix(value: string): string {
       "The offline SCORM package-site suffix must be registered in the private Public Suffix List",
     );
   return value;
+}
+
+export function parseOfflineScormPackageSiteSuffix(
+  value: string,
+  environment: "development" | "test" | "staging" | "production",
+): string {
+  if (
+    (environment === "development" || environment === "test") &&
+    value === "localhost"
+  )
+    return value;
+  return parseOfflineScormPrivateSiteSuffix(value);
+}
+
+export function buildOfflineScormPackageWildcardSource(input: {
+  environment: "development" | "test" | "staging" | "production";
+  origin: string;
+  suffix: string;
+}): string {
+  if (
+    (input.environment === "development" || input.environment === "test") &&
+    input.suffix === "localhost"
+  ) {
+    const origin = parseExactOfflineScormOrigin(input.origin);
+    if (
+      origin.protocol !== "http:" ||
+      (origin.hostname !== "localhost" &&
+        !origin.hostname.endsWith(".localhost"))
+    )
+      throw new Error(
+        "Local offline SCORM CSP requires an HTTP localhost origin",
+      );
+    return `http://*.localhost${origin.port ? `:${origin.port}` : ""}`;
+  }
+  return `https://*.${input.suffix}`;
+}
+
+export function offlineScormPackageHostSuffixForPolicy(input: {
+  environment: "development" | "test" | "staging" | "production";
+  suffix: string | undefined;
+}): string | undefined {
+  // Staging activation is prohibited. Its unprovisioned, production-intended
+  // suffix must therefore never broaden a staging document policy.
+  return input.environment === "staging" ? undefined : input.suffix;
 }

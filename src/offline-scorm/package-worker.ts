@@ -1,6 +1,7 @@
 import {
   installOfflineScormPackage,
   matchInstalledOfflineScormPackage,
+  OfflineScormPackagePrototypeError,
   offlineScormPackageManifestSchema,
   type OfflineScormPackageManifest,
 } from "#/features/scorm/offline-scorm-package-prototype";
@@ -45,9 +46,15 @@ async function readManifest(): Promise<
   return parsed.success ? parsed.data : undefined;
 }
 
-async function install(manifestValue: unknown): Promise<void> {
+async function install(
+  manifestValue: unknown,
+  onProgress: NonNullable<
+    Parameters<typeof installOfflineScormPackage>[0]["onProgress"]
+  >,
+): Promise<void> {
   const manifest = offlineScormPackageManifestSchema.parse(manifestValue);
   const workerUrl = new URL(workerSelf.location.href);
+  const packageFetch: typeof fetch = (request, init) => fetch(request, init);
   await installOfflineScormPackage({
     manifest,
     applicationOrigin:
@@ -56,9 +63,10 @@ async function install(manifestValue: unknown): Promise<void> {
     learningOrigin:
       workerUrl.searchParams.get("learningOrigin") ?? "https://invalid.invalid",
     caches,
-    fetch,
+    fetch: packageFetch,
     subtle: crypto.subtle,
     randomUUID: () => crypto.randomUUID(),
+    onProgress,
   });
   const runtimeCache = await caches.open(RUNTIME_CACHE);
   for (const pathname of RUNTIME_PATHS) {
@@ -91,12 +99,20 @@ self.addEventListener("message", (event) => {
   if (!responsePort) return;
   if (message.type === "offline-scorm-install-package")
     messageEvent.waitUntil(
-      install(message.manifest).then(
+      install(message.manifest, (progress) => {
+        responsePort.postMessage({ status: "progress", progress });
+      }).then(
         () => {
           responsePort.postMessage({ status: "ready" });
         },
-        () => {
-          responsePort.postMessage({ status: "failed" });
+        (error: unknown) => {
+          responsePort.postMessage({
+            status: "failed",
+            reason:
+              error instanceof OfflineScormPackagePrototypeError
+                ? error.code
+                : "cache_failed",
+          });
         },
       ),
     );

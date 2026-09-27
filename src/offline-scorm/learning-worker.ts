@@ -1,4 +1,4 @@
-const CACHE_NAME = "upskill-offline-scorm-learning-runtime-v1";
+const CACHE_NAME = "upskill-offline-scorm-learning-runtime-v5";
 const CACHE_PREFIX = "upskill-offline-scorm-learning-runtime-";
 const ASSETS = [
   "/api/scorm/offline-runtime/frame.html",
@@ -18,11 +18,15 @@ interface WorkerFetchEvent extends WorkerExtendableEvent {
 const workerSelf = self as unknown as {
   clients: { claim(): Promise<void> };
   location: Location;
+  skipWaiting(): Promise<void>;
 };
 
 self.addEventListener("install", (event) => {
   (event as WorkerExtendableEvent).waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)),
+    caches
+      .open(CACHE_NAME)
+      .then((cache) => cache.addAll(ASSETS))
+      .then(() => workerSelf.skipWaiting()),
   );
 });
 
@@ -58,3 +62,5 @@ self.addEventListener("fetch", (event) => {
       .then((cached) => cached ?? fetch(fetchEvent.request)),
   );
 });
+
+export {};

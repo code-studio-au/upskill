@@ -1,4 +1,8 @@
 import { buildLearningContentSecurityPolicy } from "#/features/scorm/learning-content-security-policy";
+import {
+  buildOfflineScormPackageWildcardSource,
+  offlineScormPackageHostSuffixForPolicy,
+} from "#/features/scorm/offline-scorm-package-site";
 
 export { buildLearningContentSecurityPolicy } from "#/features/scorm/learning-content-security-policy";
 
@@ -68,9 +72,24 @@ export function applySecurityHeaders(
         `${liveKitUrl.protocol === "wss:" ? "https:" : "http:"}//${liveKitUrl.host}`,
       ]
     : [];
-  const offlinePackageFrameSource = process.env
-    .OFFLINE_SCORM_PACKAGE_HOST_SUFFIX
-    ? [`https://*.${process.env.OFFLINE_SCORM_PACKAGE_HOST_SUFFIX}`]
+  const applicationEnvironment =
+    process.env.APP_ENV === "test" ||
+    process.env.APP_ENV === "staging" ||
+    process.env.APP_ENV === "production"
+      ? process.env.APP_ENV
+      : "development";
+  const offlinePackageHostSuffix = offlineScormPackageHostSuffixForPolicy({
+    environment: applicationEnvironment,
+    suffix: process.env.OFFLINE_SCORM_PACKAGE_HOST_SUFFIX,
+  });
+  const offlinePackageFrameSource = offlinePackageHostSuffix
+    ? [
+        buildOfflineScormPackageWildcardSource({
+          environment: applicationEnvironment,
+          origin: normalizedApplicationOrigin,
+          suffix: offlinePackageHostSuffix,
+        }),
+      ]
     : [];
   headers.set(
     "Content-Security-Policy",

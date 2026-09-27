@@ -8,6 +8,10 @@ body {
   margin: 0;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 main {
   margin: 0 auto;
   max-width: 44rem;
@@ -17,6 +21,22 @@ main {
 .eyebrow {
   color: #3157a4;
   font-weight: 700;
+}
+
+.download-progress {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.download-progress label {
+  font-weight: 700;
+}
+
+.download-progress progress {
+  accent-color: #3157a4;
+  min-height: 1rem;
+  width: 100%;
 }
 
 .course,

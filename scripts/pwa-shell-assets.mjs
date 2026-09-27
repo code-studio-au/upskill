@@ -4,7 +4,7 @@ export const OFFLINE_COURSES_PAGE_PATH = "/offline-learning.html";
 export const OFFLINE_COURSES_SCRIPT_PATH = "/pwa/offline-learning.js";
 export const OFFLINE_COURSES_SHARED_PATH = "/pwa/shared.js";
 export const OFFLINE_COURSES_STYLE_PATH = "/pwa/offline-learning.css";
-export const APPLICATION_SERVICE_WORKER_SOURCE = `const APPLICATION_SHELL_CACHE = "upskill-application-shell-v2";
+export const APPLICATION_SERVICE_WORKER_SOURCE = `const APPLICATION_SHELL_CACHE = "upskill-application-shell-v8";
 const APPLICATION_SHELL_CACHE_PREFIX = "upskill-application-shell-";
 const OFFLINE_FALLBACK_URL = "/offline.html";
 const OFFLINE_COURSES_PAGE_PATH = "/offline-learning.html";
@@ -29,7 +29,8 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(APPLICATION_SHELL_CACHE)
-      .then((cache) => cache.addAll(APPLICATION_SHELL_ASSETS)),
+      .then((cache) => cache.addAll(APPLICATION_SHELL_ASSETS))
+      .then(() => self.skipWaiting()),
   );
 });
 
@@ -81,7 +82,45 @@ self.addEventListener("fetch", (event) => {
 
 export const REGISTRATION_SCRIPT_PATH = "/pwa/register.js";
 export const MOBILE_PWA_MEDIA_QUERY = "(hover: none) and (pointer: coarse)";
-export const REGISTRATION_SCRIPT_SOURCE = `if (
+export const PWA_HANDOFF_STORAGE_KEY =
+  "upskill:offline-scorm:pending-handoff:v1";
+export const REGISTRATION_SCRIPT_SOURCE = `const PWA_HANDOFF_STORAGE_KEY = ${JSON.stringify(PWA_HANDOFF_STORAGE_KEY)};
+const currentUrl = new URL(window.location.href);
+const standaloneApplication =
+  window.matchMedia("(display-mode: standalone)").matches ||
+  Boolean(navigator.standalone);
+function resumePendingOfflineHandoff() {
+  let pendingHandoff;
+  try {
+    pendingHandoff = window.localStorage.getItem(PWA_HANDOFF_STORAGE_KEY);
+    window.localStorage.removeItem(PWA_HANDOFF_STORAGE_KEY);
+  } catch {
+    pendingHandoff = undefined;
+  }
+  if (pendingHandoff)
+    try {
+      const target = new URL(pendingHandoff, currentUrl.origin);
+      if (
+        target.origin === currentUrl.origin &&
+        target.pathname === "/offline-learning.html" &&
+        target.href.length <= 4096
+      )
+        window.location.replace(target.href);
+    } catch {
+      // Ignore malformed handoff state and continue to the application home.
+    }
+}
+if (standaloneApplication && currentUrl.searchParams.get("source") === "pwa")
+  resumePendingOfflineHandoff();
+if (
+  "launchQueue" in window &&
+  typeof window.launchQueue.setConsumer === "function"
+)
+  window.launchQueue.setConsumer(() => {
+    resumePendingOfflineHandoff();
+  });
+
+if (
   "serviceWorker" in navigator &&
   window.matchMedia("${MOBILE_PWA_MEDIA_QUERY}").matches
 )
@@ -99,10 +138,24 @@ export const REGISTRATION_SCRIPT_SOURCE = `if (
   );
 `;
 
-function offlineCoursesPage(learningOrigin, packageHostSuffix) {
+function offlineCoursesPage(
+  applicationOrigin,
+  learningOrigin,
+  packageHostSuffix,
+) {
+  const applicationUrl = new URL(applicationOrigin);
+  const packageFrameSource =
+    packageHostSuffix === "localhost" &&
+    applicationUrl.protocol === "http:" &&
+    (applicationUrl.hostname === "localhost" ||
+      applicationUrl.hostname.endsWith(".localhost"))
+      ? `http://*.localhost${applicationUrl.port ? `:${applicationUrl.port}` : ""}`
+      : packageHostSuffix
+        ? `https://*.${packageHostSuffix}`
+        : undefined;
   const frameSources = [
     new URL(learningOrigin).origin,
-    ...(packageHostSuffix ? [`https://*.${packageHostSuffix}`] : []),
+    ...(packageFrameSource ? [packageFrameSource] : []),
   ].join(" ");
   return `<!doctype html>
 <html lang="en-AU">
@@ -122,12 +175,16 @@ function offlineCoursesPage(learningOrigin, packageHostSuffix) {
       <p class="eyebrow">Upskill Institute</p>
       <h1>Offline courses</h1>
       <p id="offline-status" role="status">Checking this device…</p>
+      <div class="download-progress" id="offline-download-progress" hidden>
+        <label id="offline-download-progress-label" for="offline-download-progress-bar">Preparing secure offline storage…</label>
+        <progress id="offline-download-progress-bar" max="1"></progress>
+      </div>
       <section id="offline-download" hidden>
         <strong id="offline-download-title"></strong>
         <button id="offline-download-button" type="button">Prepare offline</button>
       </section>
       <div id="offline-courses"></div>
-      <a class="action" href="/">Reconnect to Upskill</a>
+      <a class="action" id="offline-reconnect" href="/">Reconnect to Upskill</a>
     </main>
     <div id="offline-player" hidden>
       <div class="toolbar"><strong id="offline-player-title"></strong><button id="offline-player-close" type="button">Close</button></div>
@@ -150,7 +207,11 @@ export function getPwaShellScriptAsset(
 ) {
   const source =
     requestUrl.pathname === OFFLINE_COURSES_PAGE_PATH && options.learningOrigin
-      ? offlineCoursesPage(options.learningOrigin, options.packageHostSuffix)
+      ? offlineCoursesPage(
+          applicationOrigin,
+          options.learningOrigin,
+          options.packageHostSuffix,
+        )
       : requestUrl.pathname === OFFLINE_COURSES_SCRIPT_PATH
         ? options.offlineCoursesScript
         : requestUrl.pathname === OFFLINE_COURSES_SHARED_PATH

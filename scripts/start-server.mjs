@@ -32,9 +32,16 @@ const offlineScormPrototypeOrigin =
     : null;
 const offlineScormPackageHostSuffix =
   process.env.OFFLINE_SCORM_PACKAGE_HOST_SUFFIX?.trim();
+const offlineScormPolicyPackageHostSuffix =
+  process.env.APP_ENV === "staging" ? undefined : offlineScormPackageHostSuffix;
 const offlineScormPackagePort = 3002;
+const localEnvironment =
+  process.env.APP_ENV === "development" || process.env.APP_ENV === "test";
+const localOfflineScormPackageHost =
+  localEnvironment && offlineScormPackageHostSuffix === "localhost";
 if (
   offlineScormPackageHostSuffix &&
+  !localOfflineScormPackageHost &&
   (offlineScormPackageHostSuffix !==
     offlineScormPackageHostSuffix.toLowerCase() ||
     !/^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(
@@ -187,15 +194,19 @@ function requestOrigin(incoming) {
   if (configuredOrigin) return configuredOrigin;
   if (offlineScormPackageHostSuffix) {
     try {
-      const candidate = new URL(`https://${host}`);
+      const candidate = new URL(
+        `${localOfflineScormPackageHost ? "http" : "https"}://${host}`,
+      );
       const hostname = candidate.hostname.endsWith(".")
         ? candidate.hostname.slice(0, -1)
         : candidate.hostname;
       if (
-        !candidate.port &&
+        (localOfflineScormPackageHost
+          ? candidate.port === new URL(applicationOrigin).port
+          : !candidate.port) &&
         hostname.endsWith(`.${offlineScormPackageHostSuffix}`)
       )
-        return `https://${hostname}`;
+        return candidate.origin;
     } catch {
       // Unknown or malformed Host headers fall back to the application origin.
     }
@@ -232,7 +243,7 @@ function servePwaShellScript(incoming, outgoing) {
         offlineCoursesScript,
         offlineCoursesShared,
         offlineCoursesStyle,
-        packageHostSuffix: offlineScormPackageHostSuffix,
+        packageHostSuffix: offlineScormPolicyPackageHostSuffix,
       },
     );
   } catch {
@@ -415,7 +426,7 @@ async function handleRequest(incoming, outgoing, packageOnly = false) {
     const packageOriginRequest = isOfflineScormPackageOrigin(
       requestOrigin(incoming),
     );
-    if (packageOnly !== packageOriginRequest) {
+    if (!localOfflineScormPackageHost && packageOnly !== packageOriginRequest) {
       outgoing.statusCode = 421;
       outgoing.setHeader("cache-control", "no-store");
       outgoing.setHeader("content-type", "text/plain; charset=utf-8");
@@ -546,11 +557,12 @@ const server = tlsCertificateFile
     )
   : http.createServer(handleRequest);
 
-const packageServer = offlineScormPackageHostSuffix
-  ? http.createServer((incoming, outgoing) =>
-      handleRequest(incoming, outgoing, true),
-    )
-  : null;
+const packageServer =
+  offlineScormPackageHostSuffix && !localOfflineScormPackageHost
+    ? http.createServer((incoming, outgoing) =>
+        handleRequest(incoming, outgoing, true),
+      )
+    : null;
 
 server.listen(port, listenHost, () => {
   logBootstrapEvent("info", "server.started", {
