@@ -2476,6 +2476,8 @@ for (const invariant of [
   "OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN",
   "OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY",
   "offlineScormCloudFrontOriginKey.grantRead(role)",
+  "OfflineScormCloudFrontOriginDomainParameter",
+  "offline-scorm/cloudfront-origin-domain",
 ])
   if (!applicationInfrastructure.includes(invariant))
     failures.push(
@@ -2491,6 +2493,18 @@ if (
   failures.push(
     "The deployed host must install package-site routing and refresh its provisioned suffix",
   );
+for (const invariant of [
+  '"/${secret_prefix}/offline-scorm/cloudfront-origin-domain"',
+  '"${secret_prefix}/offline-scorm/cloudfront-origin-key"',
+  "ParameterNotFound",
+  "OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN",
+  "OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY",
+  '>> "$web_environment_tmp"',
+])
+  if (!environmentRefresh.includes(invariant))
+    failures.push(
+      `Release environment refresh must preserve the dormant CloudFront origin boundary: ${invariant}`,
+    );
 const serverLauncher = fs.readFileSync(
   path.join(root, "scripts/start-server.mjs"),
   "utf8",

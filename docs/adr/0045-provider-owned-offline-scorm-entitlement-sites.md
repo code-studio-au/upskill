@@ -120,8 +120,12 @@ entitlement, runtime and cleanup checks, and their entitlement evidence must
 match the capability binding. Every other allocation state is rejected across
 package content, runtime assets and whole-site cleanup. The generated HMAC key
 is exposed only to the web process environment when qualification context is
-present. Runtime composition deliberately hard-codes this mode off; no
-deployment flag or learner path is added by this slice.
+present. A conditional non-secret SSM parameter records the direct origin so
+both first boot and every release refresh reconstruct the same web-only
+authority; only an absent parameter disables that reconstruction, while other
+SSM or secret failures abort the refresh. Runtime composition deliberately
+hard-codes this mode off; no deployment flag or learner path is added by this
+slice.
 
 The reservation intentionally precedes `offline_learning_entitlement`, so it
 does not have a foreign key to an entitlement that does not yet exist. The

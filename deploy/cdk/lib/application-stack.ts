@@ -209,6 +209,15 @@ export class ApplicationStack extends Stack {
         stringValue: String(props.config.liveKitApprovedMonthlySpendAud),
       },
     );
+    const offlineScormCloudFrontOriginDomainParameterName = `/upskill/${props.config.name}/offline-scorm/cloudfront-origin-domain`;
+    if (props.config.offlineScormCloudFrontQualification)
+      new StringParameter(this, "OfflineScormCloudFrontOriginDomainParameter", {
+        parameterName: offlineScormCloudFrontOriginDomainParameterName,
+        description:
+          "Direct package-host origin for dormant CloudFront qualification",
+        stringValue:
+          props.config.offlineScormCloudFrontQualification.originDomain,
+      });
     const offlineScormPackageHostSuffixParameterName = `/upskill/${props.config.name}/offline-scorm/package-host-suffix`;
     const offlineScormPackageHostSuffixParameterArn = this.formatArn({
       service: "ssm",
@@ -444,8 +453,23 @@ export class ApplicationStack extends Stack {
     configurationSecret.grantRead(role);
     liveKitConfigurationSecret.grantRead(role);
     offlineScormConfigurationSecret.grantRead(role);
-    if (props.config.offlineScormCloudFrontQualification)
+    if (props.config.offlineScormCloudFrontQualification) {
       offlineScormCloudFrontOriginKey.grantRead(role);
+    }
+    role.addToPolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ["ssm:GetParameter"],
+        resources: [
+          this.formatArn({
+            service: "ssm",
+            resource: "parameter",
+            resourceName:
+              offlineScormCloudFrontOriginDomainParameterName.slice(1),
+          }),
+        ],
+      }),
+    );
     accessCodeEncryptionSecret.grantRead(role);
     webDatabaseCredentials.grantRead(role);
     workerDatabaseCredentials.grantRead(role);
