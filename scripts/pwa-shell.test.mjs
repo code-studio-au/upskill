@@ -257,6 +257,22 @@ describe("application PWA shell", () => {
     );
   });
 
+  it("keeps player and terminal course actions accessible", () => {
+    const offlineStyle = fs.readFileSync(
+      path.join(root, "src/offline-scorm/application-offline.css"),
+      "utf8",
+    );
+    const offlineApplication = fs.readFileSync(
+      path.join(root, "src/offline-scorm/application-offline.ts"),
+      "utf8",
+    );
+    const closeRule = offlineStyle.match(/\.toolbar__close\s*\{([^}]*)\}/u);
+
+    expect(closeRule?.[1]).toMatch(/min-height:\s*2\.75rem;/u);
+    expect(offlineApplication).toContain("? `Access ended: ${record.title}`");
+    expect(offlineApplication).toContain(": `Open ${record.title} offline`");
+  });
+
   it("registers the application worker only on a mobile form factor", async () => {
     const mobile = createRegistrationHarness({ mobile: true });
     expect(mobile.matchMedia).toHaveBeenCalledWith(MOBILE_PWA_MEDIA_QUERY);

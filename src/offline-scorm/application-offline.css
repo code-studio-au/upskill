@@ -347,7 +347,7 @@ button:focus-visible,
 }
 
 .toolbar__close {
-  min-height: 2.5rem;
+  min-height: 2.75rem;
   border-color: #fff;
   color: #081d40;
   background: #fff;

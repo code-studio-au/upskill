@@ -690,7 +690,12 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
     open.type = "button";
     open.disabled = expired || Boolean(active);
     open.textContent = expired ? "Access ended" : "Open offline";
-    open.setAttribute("aria-label", `Open ${record.title} offline`);
+    open.setAttribute(
+      "aria-label",
+      expired
+        ? `Access ended: ${record.title}`
+        : `Open ${record.title} offline`,
+    );
     open.addEventListener("click", () => {
       void beginExistingOperation("launch", record).catch((error: unknown) => {
         setStatus(error instanceof Error ? error.message : "Launch failed.");
