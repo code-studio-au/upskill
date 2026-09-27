@@ -15,6 +15,13 @@ interface OfflineScormCourseInventoryRow {
   courseVersionItemId: string;
   enrollmentId: string | null;
   entitlementId: string;
+  entitlementResolution:
+    | "administrator_resolved"
+    | "device_replaced"
+    | "discarded"
+    | "hard_revoked"
+    | "reconciled"
+    | null;
   entitlementStatus: "active" | "hard_revoked" | "replaced" | "resolved";
   intendedLaunchExpiresAt: Date;
   modulePosition: number | null;
@@ -28,6 +35,7 @@ export interface OfflineScormCourseRecoveryRecord {
   courseVersionItemId: string;
   enrollmentId: string;
   entitlementId: string;
+  entitlementResolution: "discarded" | "reconciled" | null;
   entitlementStatus: EntitlementStatus;
   intendedLaunchExpiresAt: string;
   modulePosition: number;
@@ -75,6 +83,7 @@ const defaultDependencies: OfflineScormInventoryDependencies = {
         "item.id as courseVersionItemId",
         "attempt.enrollmentId",
         "entitlement.id as entitlementId",
+        "entitlement.resolution as entitlementResolution",
         "entitlement.status as entitlementStatus",
         "entitlement.intendedLaunchExpiresAt",
         "item.modulePosition",
@@ -148,6 +157,11 @@ export async function listOfflineScormCourseRecoveryInventory(
       row.enrollmentId.length === 0 ||
       (row.entitlementStatus !== "active" &&
         row.entitlementStatus !== "resolved") ||
+      (row.entitlementStatus === "active" &&
+        row.entitlementResolution !== null) ||
+      (row.entitlementStatus === "resolved" &&
+        row.entitlementResolution !== "discarded" &&
+        row.entitlementResolution !== "reconciled") ||
       row.modulePosition === null ||
       row.modulePosition < 0
     )
@@ -158,6 +172,11 @@ export async function listOfflineScormCourseRecoveryInventory(
       courseVersionItemId: row.courseVersionItemId,
       enrollmentId: row.enrollmentId,
       entitlementId: row.entitlementId,
+      entitlementResolution:
+        row.entitlementResolution === "discarded" ||
+        row.entitlementResolution === "reconciled"
+          ? row.entitlementResolution
+          : null,
       entitlementStatus: row.entitlementStatus,
       intendedLaunchExpiresAt: row.intendedLaunchExpiresAt.toISOString(),
       modulePosition: row.modulePosition,

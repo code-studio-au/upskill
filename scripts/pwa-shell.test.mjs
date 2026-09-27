@@ -258,7 +258,7 @@ describe("application PWA shell", () => {
 
     await expect(response).resolves.toBe(offlineFallback);
     expect(cacheStorage.match).toHaveBeenCalledWith("/offline.html", {
-      cacheName: "upskill-application-shell-v3",
+      cacheName: "upskill-application-shell-v4",
     });
   });
 
@@ -280,7 +280,7 @@ describe("application PWA shell", () => {
     await expect(response).resolves.toBe(cachedScript);
     expect(cacheStorage.match).toHaveBeenCalledWith(
       "/pwa/offline-learning.js",
-      { cacheName: "upskill-application-shell-v3" },
+      { cacheName: "upskill-application-shell-v4" },
     );
   });
 

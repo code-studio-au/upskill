@@ -38,6 +38,7 @@ interface RetainedCourse {
   courseVersionItemId: string;
   enrollmentId: string;
   entitlementId: string;
+  entitlementResolution: "discarded" | "reconciled" | null;
   entitlementStatus: "active" | "resolved";
   intendedLaunchExpiresAt: string;
   modulePosition: number;
@@ -112,6 +113,10 @@ let deferredInstallPrompt: DeferredInstallPrompt | undefined;
 let installedApplicationHandoff = false;
 let synchronizingAll = false;
 let serverCleanupStates = new Map<string, OfflineScormServerCleanupState>();
+let serverResolutionStates = new Map<
+  string,
+  "discarded" | "reconciled" | null
+>();
 let visibleLearnerId: string | undefined;
 
 class BootstrapResponseError extends Error {}
@@ -128,8 +133,15 @@ function isRetainedCourse(value: unknown): value is RetainedCourse {
     typeof record.courseVersionItemId === "string" &&
     typeof record.enrollmentId === "string" &&
     typeof record.entitlementId === "string" &&
+    (record.entitlementResolution === null ||
+      record.entitlementResolution === "discarded" ||
+      record.entitlementResolution === "reconciled") &&
     (record.entitlementStatus === "active" ||
       record.entitlementStatus === "resolved") &&
+    ((record.entitlementStatus === "active" &&
+      record.entitlementResolution === null) ||
+      (record.entitlementStatus === "resolved" &&
+        record.entitlementResolution !== null)) &&
     typeof record.intendedLaunchExpiresAt === "string" &&
     Number.isFinite(Date.parse(record.intendedLaunchExpiresAt)) &&
     typeof record.modulePosition === "number" &&
@@ -453,6 +465,12 @@ async function reconcileServerRecoveryInventory(
       record.cleanupState,
     ]),
   );
+  serverResolutionStates = new Map(
+    runtimeBootstrap.retainedCourses.map((record) => [
+      record.entitlementId,
+      record.entitlementResolution,
+    ]),
+  );
   for (const retained of runtimeBootstrap.retainedCourses) {
     const existing = records.find(
       (record) =>
@@ -667,6 +685,9 @@ async function handleLearningMessage(
                 ? "remove"
                 : "sync",
           packageOrigin: current.record.packageOrigin,
+          recoveryResolution: serverResolutionStates.get(
+            current.record.entitlementId,
+          ),
         },
         learningOrigin,
       );

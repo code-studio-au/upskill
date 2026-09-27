@@ -11,6 +11,7 @@ function inventoryRow(
     courseVersionItemId: string;
     enrollmentId: string;
     entitlementId: string;
+    entitlementResolution: "discarded" | "reconciled" | null;
     entitlementStatus: "active" | "resolved";
     intendedLaunchExpiresAt: Date;
     modulePosition: number | null;
@@ -24,6 +25,7 @@ function inventoryRow(
     courseVersionItemId: "item_1",
     enrollmentId: "enrollment_1",
     entitlementId: "entitlement_1",
+    entitlementResolution: null,
     entitlementStatus: "active" as const,
     intendedLaunchExpiresAt: new Date("2026-10-26T00:00:00.000Z"),
     modulePosition: 0,
@@ -43,6 +45,7 @@ describe("offline SCORM server recovery inventory", () => {
           cleanupState: "cleared",
           courseVersionItemId: "item_2",
           entitlementId: "entitlement_2",
+          entitlementResolution: "discarded",
           entitlementStatus: "resolved",
           modulePosition: 1,
         }),
@@ -71,6 +74,7 @@ describe("offline SCORM server recovery inventory", () => {
           cleanupState: "cleared",
           courseVersionItemId: "item_2",
           entitlementId: "entitlement_2",
+          entitlementResolution: "discarded",
           entitlementStatus: "resolved",
           modulePosition: 1,
         }),
@@ -86,6 +90,21 @@ describe("offline SCORM server recovery inventory", () => {
         {
           findCourseRows: () =>
             Promise.resolve([inventoryRow({ modulePosition: null })]),
+          findRetainedState: vi.fn(),
+        },
+      ),
+    ).rejects.toThrow("inconsistent");
+    await expect(
+      listOfflineScormCourseRecoveryInventory(
+        { requestedEntitlementIds: [], userId: "learner_1" },
+        {
+          findCourseRows: () =>
+            Promise.resolve([
+              inventoryRow({
+                entitlementResolution: null,
+                entitlementStatus: "resolved",
+              }),
+            ]),
           findRetainedState: vi.fn(),
         },
       ),

@@ -4,7 +4,7 @@ export const OFFLINE_COURSES_PAGE_PATH = "/offline-learning.html";
 export const OFFLINE_COURSES_SCRIPT_PATH = "/pwa/offline-learning.js";
 export const OFFLINE_COURSES_SHARED_PATH = "/pwa/shared.js";
 export const OFFLINE_COURSES_STYLE_PATH = "/pwa/offline-learning.css";
-export const APPLICATION_SERVICE_WORKER_SOURCE = `const APPLICATION_SHELL_CACHE = "upskill-application-shell-v3";
+export const APPLICATION_SERVICE_WORKER_SOURCE = `const APPLICATION_SHELL_CACHE = "upskill-application-shell-v4";
 const APPLICATION_SHELL_CACHE_PREFIX = "upskill-application-shell-";
 const OFFLINE_FALLBACK_URL = "/offline.html";
 const OFFLINE_COURSES_PAGE_PATH = "/offline-learning.html";
