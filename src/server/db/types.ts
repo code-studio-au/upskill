@@ -562,6 +562,11 @@ interface OfflineScormCloudFrontAllocationTable {
   disabledAt: Timestamp | null;
   deletionRequestedAt: Timestamp | null;
   deletedAt: Timestamp | null;
+  attempts: Generated<number>;
+  leaseVersion: Generated<number>;
+  availableAt: Generated<Date>;
+  leasedUntil: Timestamp | null;
+  lastAttemptAt: Timestamp | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

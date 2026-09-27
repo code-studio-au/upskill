@@ -662,6 +662,9 @@ triggered and do not reopen the delivered webinar foundation.
   package inventory implemented as a dormant activation-readiness increment;
 - deterministic exact-site allocation and retained cleanup inventory created
   atomically with dormant entitlement issuance;
+- dormant provider-owned CloudFront allocation/activation recovery for
+  pre-existing reservations, with learner issuance, retirement and a distinct
+  worker AWS principal still pending;
 - explicit wildcard DNS, separately scoped DNS-01 TLS and a credential-free,
   fail-closed production package host implemented but disabled by default;
 - one complete Course path before Event reuse and support operations; and

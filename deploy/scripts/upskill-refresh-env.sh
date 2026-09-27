@@ -55,6 +55,23 @@ if [[ -n "$offline_scorm_cloudfront_origin_domain" ]]; then
   fi
   offline_scorm_cloudfront_origin_key=$(aws secretsmanager get-secret-value --region "$refresh_region" --secret-id "${secret_prefix}/offline-scorm/cloudfront-origin-key" --query SecretString --output text)
 fi
+offline_scorm_cloudfront_allocator_function_name=""
+offline_scorm_cloudfront_allocator_parameter_error=$(mktemp)
+if offline_scorm_cloudfront_allocator_function_name=$(aws ssm get-parameter --region "$refresh_region" --name "/${secret_prefix}/offline-scorm/cloudfront-allocator-function-name" --query Parameter.Value --output text 2>"$offline_scorm_cloudfront_allocator_parameter_error"); then
+  :
+elif grep -Fq "ParameterNotFound" "$offline_scorm_cloudfront_allocator_parameter_error"; then
+  offline_scorm_cloudfront_allocator_function_name=""
+else
+  cat "$offline_scorm_cloudfront_allocator_parameter_error" >&2
+  rm -f -- "$offline_scorm_cloudfront_allocator_parameter_error"
+  echo "Unable to resolve Offline SCORM CloudFront allocator configuration" >&2
+  exit 1
+fi
+rm -f -- "$offline_scorm_cloudfront_allocator_parameter_error"
+if [[ -n "$offline_scorm_cloudfront_allocator_function_name" && ! "$offline_scorm_cloudfront_allocator_function_name" =~ ^[A-Za-z0-9_-]{1,64}$ ]]; then
+  echo "Offline SCORM CloudFront allocator function name is invalid" >&2
+  exit 1
+fi
 database_json=$(aws secretsmanager get-secret-value --region "$refresh_region" --secret-id "${secret_prefix}/database" --query SecretString --output text)
 web_database_json=$(aws secretsmanager get-secret-value --region "$refresh_region" --secret-id "${secret_prefix}/database/web" --query SecretString --output text)
 worker_database_json=$(aws secretsmanager get-secret-value --region "$refresh_region" --secret-id "${secret_prefix}/database/worker" --query SecretString --output text)
@@ -108,10 +125,14 @@ worker_database_url=$(jq -rn --argjson credentials "$worker_database_json" --arg
 cp "$base_environment_tmp" "$web_environment_tmp"
 cp "$base_environment_tmp" "$worker_environment_tmp"
 cp "$base_environment_tmp" "$deploy_environment_tmp"
+printf '%s\n' 'UPSKILL_PROCESS_ROLE="worker"' >> "$worker_environment_tmp"
 jq -r 'to_entries[] | select(.key == "OFFLINE_SCORM_ENABLED" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8" or .key == "OFFLINE_SCORM_PACKAGE_SITE_SUFFIX" or .key == "OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY") | "\(.key)=\(.value|tostring|@json)"' <<< "$offline_scorm_json" >> "$web_environment_tmp"
 if [[ -n "$offline_scorm_cloudfront_origin_domain" ]]; then
   jq -rn --arg value "$offline_scorm_cloudfront_origin_domain" '"OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN=\($value|@json)"' >> "$web_environment_tmp"
   jq -rn --arg value "$offline_scorm_cloudfront_origin_key" '"OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY=\($value|@json)"' >> "$web_environment_tmp"
+fi
+if [[ -n "$offline_scorm_cloudfront_allocator_function_name" ]]; then
+  jq -rn --arg value "$offline_scorm_cloudfront_allocator_function_name" '"OFFLINE_SCORM_CLOUDFRONT_ALLOCATOR_FUNCTION_NAME=\($value|@json)"' >> "$worker_environment_tmp"
 fi
 jq -rn --arg value "$web_database_url" '"DATABASE_URL=\($value|@json)"' >> "$web_environment_tmp"
 jq -rn --arg value "$worker_database_url" '"DATABASE_URL=\($value|@json)"' >> "$worker_environment_tmp"

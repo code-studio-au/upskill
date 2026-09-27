@@ -2,8 +2,9 @@
 
 ## Status
 
-Proposed; CloudFront qualification infrastructure, durable allocation model and
-origin validation boundary implemented but disabled by default.
+Proposed; CloudFront qualification infrastructure, durable allocation model,
+origin validation and dormant worker allocation/recovery are implemented but
+disabled by default.
 Date: 2026-09-27
 
 ## Context
@@ -51,8 +52,9 @@ custom origin:
    must still validate the capability in constant time and resolve the stored
    entitlement-to-distribution binding before serving a package response.
 3. The allocator returns the AWS distribution identifier and assigned
-   `https://*.cloudfront.net` origin. A later database slice must persist both
-   atomically with the cleanup inventory before activation.
+   `https://*.cloudfront.net` origin. The worker persists that immutable binding
+   before any entitlement or cleanup evidence can make it eligible for
+   activation.
 4. Only after that binding is durable may the allocator enable the
    distribution. A lost response is recovered through a stable caller
    reference, exact tags and a deterministic non-secret marker.
@@ -67,16 +69,27 @@ authorization, range, runtime-version and `Clear-Site-Data` behaviour while the
 security boundary is qualified. Immutable package caching may be introduced
 later only as a separate reviewed slice with cache-key and invalidation tests.
 
-The allocator is an operator-only dormant capability in this slice:
+The allocator remains a dormant capability:
 
 - it is absent unless the explicit CDK context
   `offlineScormCloudFrontOriginDomain` is configured;
-- the application and worker roles receive no permission to invoke it;
+- the qualification stack grants the shared host role permission to invoke
+  only the exact allocator, exposes its function name only in the root-owned
+  worker environment and requires the worker process marker before constructing
+  the provider;
 - every created distribution starts disabled;
 - mutation requires the exact environment, purpose and entitlement ownership
   tags plus an exact match for the expected origin, capability, cache, logging,
   certificate and isolation configuration; and
 - application Offline SCORM remains disabled.
+
+The current low-cost staging topology runs web and worker processes on one EC2
+host and therefore one IAM instance role. Worker-only environment configuration
+and runtime validation are conventions within that trust boundary, not process
+or AWS-principal isolation. No
+learner path is enabled by this increment. Before learner activation, either
+move this provider to a dedicated compute identity or explicitly accept and
+document the shared-host privilege boundary after threat review.
 
 AWS documents that CloudFront custom origin headers overwrite same-named viewer
 headers, which is required by the origin-capability design:
@@ -96,8 +109,8 @@ whole configuration rather than merging fields:
 | Downstream effects      | Package-origin CSP, signed entitlement envelope, offline course index, service-worker registration, synchronous spool, cleanup receipt, reconciliation and retained audit evidence.                                                                   |
 | Failure and concurrency | Lost allocator response, duplicate allocation, CloudFront deployment delay, quota exhaustion, stale ETag, tag mismatch, origin-key rotation, partial database binding, concurrent activation/retirement, cleanup while disabled and deletion failure. |
 
-The future application boundary must own these transitions in one locked
-transactional workflow. A distribution being `Deployed` is infrastructure
+The server-owned workflow must own these transitions through locked,
+retry-safe database work. A distribution being `Deployed` is infrastructure
 evidence, not authority to issue or activate an entitlement.
 
 Migration 0120 adds the dormant
@@ -135,8 +148,21 @@ does not have a foreign key to an entitlement that does not yet exist. The
 future issuance workflow must lock the reservation and atomically create the
 entitlement plus cleanup inventory for
 `https://<distributionDomain>` before moving the reservation from
-`binding_pending` to `enabling`. This migration grants no allocator invocation
-permission and does not change current entitlement issuance.
+`binding_pending` to `enabling`.
+
+Migration 0121 adds bounded provider-failure, availability and versioned lease
+evidence for the allocation worker. The worker claims work with `FOR UPDATE
+SKIP LOCKED`, invokes the exact configured allocator outside the transaction,
+and recovers expired or failed allocation and activation calls without
+replacing a stored binding. Normal CloudFront deployment polling advances the
+lease version but does not consume the provider-failure budget. Allocation ends
+at `binding_pending`. Activation can begin only when an active entitlement and
+pending cleanup inventory already exist and the cleanup origin exactly matches
+`https://<distributionDomain>`. The worker revalidates that authority while
+claiming and finalising every activation call; if it disappears, the retained
+allocation moves to `disabling` for the pending retirement workflow rather than
+becoming active. This increment does not create reservations, issue
+entitlements, process distribution retirement or expose learner UI.
 
 ## Threat model and controls
 
@@ -260,16 +286,21 @@ deleted stack still requires the normal retained-resource recovery process.
 
 ## Delivery sequence
 
-1. Record this ADR and add the dormant, operator-only allocator with encrypted
-   access logging and no application invoke permission.
+1. Record this ADR and add the initially operator-only allocator with encrypted
+   access logging and no learner activation path.
 2. Add a forward-only database model for distribution ID/domain and the explicit
    allocation lifecycle, including lost-response recovery. **Implemented,
    dormant, by migration 0120.**
 3. Add constant-time CloudFront-origin capability validation to the package
    host, still disabled and covered across every route and lifecycle state.
    **Implemented, dormant, with no deployment-mode flag.**
-4. Add an asynchronous server-owned issuance/recovery workflow and grant only
-   that boundary permission to invoke the allocator.
+4. Add the asynchronous server-owned workflow in bounded increments:
+   - allocation and activation recovery for pre-existing reservations is
+     **implemented and dormant** with migration 0121;
+   - reservation creation, atomic entitlement/cleanup issuance and retirement
+     remain pending; and
+   - a distinct AWS worker principal or explicit shared-host risk acceptance
+     remains required before learner activation.
 5. Run the browser, cleanup, latency, quota, WAF and cost qualification matrix.
 6. Amend this ADR to Accepted or Rejected. Only an Accepted amendment may add a
    deployment-mode flag and activate staging learners.

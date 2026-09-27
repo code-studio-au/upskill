@@ -10,9 +10,14 @@ import { processAvailableEventVirtualLobbyEligibilityRevocations } from "#/serve
 import { processAvailableLiveKitRecordingReceipts } from "#/server/events/event-virtual-recording-receipts.server";
 import { processAvailableEventVirtualRecordingDeletions } from "#/server/events/event-virtual-recording-retention.server";
 import { processAvailableEventVirtualAttendanceReconciliations } from "#/server/events/event-virtual-attendance.server";
+import { getServerEnv } from "#/server/env.server";
+import { processAvailableOfflineScormCloudFrontAllocations } from "#/server/scorm/offline-scorm-cloudfront-allocation.server";
+import { createConfiguredOfflineScormCloudFrontProvider } from "#/server/scorm/offline-scorm-cloudfront-provider.server";
 import { runScormWorkerIteration } from "./scorm-worker-iteration";
 
 const shutdown = new AbortController();
+const offlineScormCloudFrontProvider =
+  createConfiguredOfflineScormCloudFrontProvider(getServerEnv());
 
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.once(signal, () => {
@@ -33,6 +38,7 @@ try {
       virtualLobbyEligibilityRevocations,
       virtualRecoveryDeliveries,
       virtualAttendanceReconciliations,
+      offlineScormCloudFrontAllocations,
       dispatch,
       consumption,
     } = await runScormWorkerIteration({
@@ -43,6 +49,10 @@ try {
       processAvailableEventVirtualLobbyEligibilityRevocations,
       processAvailableEventVirtualRecoveryDeliveries,
       processAvailableEventVirtualAttendanceReconciliations,
+      processAvailableOfflineScormCloudFrontAllocations: () =>
+        processAvailableOfflineScormCloudFrontAllocations(
+          offlineScormCloudFrontProvider,
+        ),
       dispatchAvailableOutboxEvents,
       consumeNextWorkMessage,
     });
@@ -138,6 +148,21 @@ try {
           roomId: outcome.roomId,
           ...(outcome.status === "retry"
             ? { reasonCode: outcome.reasonCode }
+            : {}),
+        },
+      });
+    for (const outcome of offlineScormCloudFrontAllocations.outcomes)
+      logServerEvent({
+        level: outcome.status === "needs_attention" ? "warn" : "info",
+        event: "worker.offline_scorm_cloudfront_allocation_processed",
+        fields: {
+          status: outcome.status,
+          entitlementId: outcome.entitlementId,
+          ...(outcome.status === "needs_attention"
+            ? {
+                operation: outcome.operation,
+                reasonCode: outcome.reasonCode,
+              }
             : {}),
         },
       });

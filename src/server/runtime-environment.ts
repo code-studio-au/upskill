@@ -45,6 +45,13 @@ const environmentSchema = z.object({
     .optional(),
   OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN: z.string().min(3).max(253).optional(),
   OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY: z.string().min(43).max(512).optional(),
+  OFFLINE_SCORM_CLOUDFRONT_ALLOCATOR_FUNCTION_NAME: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[A-Za-z0-9_-]+$/u)
+    .optional(),
+  UPSKILL_PROCESS_ROLE: z.enum(["worker"]).optional(),
   STRIPE_SECRET_KEY: z.string().regex(/^(?:sk|rk)_/u, {
     message: "Stripe secret key must start with sk_ or rk_",
   }),
@@ -316,6 +323,20 @@ function requireOfflineScormCloudFrontOriginConfiguration(
     );
 }
 
+function requireOfflineScormCloudFrontAllocatorConfiguration(
+  validated: ServerEnv,
+): void {
+  if (!validated.OFFLINE_SCORM_CLOUDFRONT_ALLOCATOR_FUNCTION_NAME) return;
+  if (validated.APP_ENV !== "staging" && validated.APP_ENV !== "production")
+    throw new Error(
+      "Offline SCORM CloudFront allocator access is only available in staging or production",
+    );
+  if (validated.UPSKILL_PROCESS_ROLE !== "worker")
+    throw new Error(
+      "Offline SCORM CloudFront allocator access is restricted to the worker process",
+    );
+}
+
 function requireCanonicalHttpsOrigin(label: string, value: string): URL {
   const url = new URL(value);
   if (url.protocol !== "https:")
@@ -347,6 +368,7 @@ export function parseServerEnvironment(
   };
   requireLiveKitConfiguration(validated);
   requireOfflineScormCloudFrontOriginConfiguration(validated);
+  requireOfflineScormCloudFrontAllocatorConfiguration(validated);
   requireOfflineScormConfiguration(validated);
   if (validated.EMAIL_PROVIDER === "mailgun") {
     if (!validated.MAILGUN_API_KEY)
