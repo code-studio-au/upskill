@@ -384,6 +384,21 @@ inventory before enabling. The private-PSL package host and localhost
 development topology remain the executable design until ADR 0045 passes its
 browser, cleanup, quota, WAF, latency and cost gates and is amended to Accepted.
 
+The package host now claims either reserved CloudFront origin header before the
+application router and validates the complete pair against the environment and
+exact entitlement HMAC in constant time. It then requires an `active` retained
+allocation, derives the AWS-owned package origin from its immutable binding and
+reuses the existing entitlement, runtime and cleanup authorization. All other
+allocation states fail closed for every package-host route. CDK supplies the
+generated key only to the web environment when qualification context is
+present. Its conditional non-secret SSM origin marker lets first boot and every
+release refresh reconstruct the same web-only authority; unexpected SSM or
+secret failures fail the refresh instead of silently removing it. Runtime
+composition keeps the mode hard-disabled and exposes no activation flag. The
+bootstrap server defers readiness, PWA, prototype and static-asset shortcuts
+whenever either reserved origin header is present, ensuring those requests
+cannot bypass package-origin validation through a colliding application path.
+
 The AWS-owned CloudFront hostname and default-certificate viewer policy were
 accepted for this qualification path on 2026-09-27. This resolves the TLS
 policy decision recorded by ADR 0045 but does not activate the path or waive

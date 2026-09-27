@@ -29,6 +29,32 @@ secret_prefix="upskill/${refresh_environment}"
 application_json=$(aws secretsmanager get-secret-value --region "$refresh_region" --secret-id "${secret_prefix}/application" --query SecretString --output text)
 livekit_json=$(aws secretsmanager get-secret-value --region "$refresh_region" --secret-id "${secret_prefix}/livekit" --query SecretString --output text)
 offline_scorm_json=$(aws secretsmanager get-secret-value --region "$refresh_region" --secret-id "${secret_prefix}/offline-scorm" --query SecretString --output text)
+offline_scorm_cloudfront_origin_domain=""
+offline_scorm_cloudfront_origin_parameter_error=$(mktemp)
+if offline_scorm_cloudfront_origin_domain=$(aws ssm get-parameter --region "$refresh_region" --name "/${secret_prefix}/offline-scorm/cloudfront-origin-domain" --query Parameter.Value --output text 2>"$offline_scorm_cloudfront_origin_parameter_error"); then
+  :
+elif grep -Fq "ParameterNotFound" "$offline_scorm_cloudfront_origin_parameter_error"; then
+  echo "Offline SCORM CloudFront qualification is not provisioned; continuing with its origin boundary disabled" >&2
+  offline_scorm_cloudfront_origin_domain=""
+else
+  cat "$offline_scorm_cloudfront_origin_parameter_error" >&2
+  rm -f -- "$offline_scorm_cloudfront_origin_parameter_error"
+  echo "Unable to resolve Offline SCORM CloudFront qualification configuration" >&2
+  exit 1
+fi
+rm -f -- "$offline_scorm_cloudfront_origin_parameter_error"
+offline_scorm_cloudfront_origin_key=""
+if [[ -n "$offline_scorm_cloudfront_origin_domain" ]]; then
+  if [[
+    "$offline_scorm_cloudfront_origin_domain" != "${offline_scorm_cloudfront_origin_domain,,}" ||
+    ! "$offline_scorm_cloudfront_origin_domain" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ||
+    "$offline_scorm_cloudfront_origin_domain" == *.cloudfront.net
+  ]]; then
+    echo "Offline SCORM CloudFront origin domain is invalid" >&2
+    exit 1
+  fi
+  offline_scorm_cloudfront_origin_key=$(aws secretsmanager get-secret-value --region "$refresh_region" --secret-id "${secret_prefix}/offline-scorm/cloudfront-origin-key" --query SecretString --output text)
+fi
 database_json=$(aws secretsmanager get-secret-value --region "$refresh_region" --secret-id "${secret_prefix}/database" --query SecretString --output text)
 web_database_json=$(aws secretsmanager get-secret-value --region "$refresh_region" --secret-id "${secret_prefix}/database/web" --query SecretString --output text)
 worker_database_json=$(aws secretsmanager get-secret-value --region "$refresh_region" --secret-id "${secret_prefix}/database/worker" --query SecretString --output text)
@@ -83,6 +109,10 @@ cp "$base_environment_tmp" "$web_environment_tmp"
 cp "$base_environment_tmp" "$worker_environment_tmp"
 cp "$base_environment_tmp" "$deploy_environment_tmp"
 jq -r 'to_entries[] | select(.key == "OFFLINE_SCORM_ENABLED" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8" or .key == "OFFLINE_SCORM_PACKAGE_SITE_SUFFIX" or .key == "OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY") | "\(.key)=\(.value|tostring|@json)"' <<< "$offline_scorm_json" >> "$web_environment_tmp"
+if [[ -n "$offline_scorm_cloudfront_origin_domain" ]]; then
+  jq -rn --arg value "$offline_scorm_cloudfront_origin_domain" '"OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN=\($value|@json)"' >> "$web_environment_tmp"
+  jq -rn --arg value "$offline_scorm_cloudfront_origin_key" '"OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY=\($value|@json)"' >> "$web_environment_tmp"
+fi
 jq -rn --arg value "$web_database_url" '"DATABASE_URL=\($value|@json)"' >> "$web_environment_tmp"
 jq -rn --arg value "$worker_database_url" '"DATABASE_URL=\($value|@json)"' >> "$worker_environment_tmp"
 jq -rn --arg value "$web_database_url" '"DATABASE_URL=\($value|@json)"' >> "$deploy_environment_tmp"

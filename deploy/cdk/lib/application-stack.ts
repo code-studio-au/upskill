@@ -209,6 +209,15 @@ export class ApplicationStack extends Stack {
         stringValue: String(props.config.liveKitApprovedMonthlySpendAud),
       },
     );
+    const offlineScormCloudFrontOriginDomainParameterName = `/upskill/${props.config.name}/offline-scorm/cloudfront-origin-domain`;
+    if (props.config.offlineScormCloudFrontQualification)
+      new StringParameter(this, "OfflineScormCloudFrontOriginDomainParameter", {
+        parameterName: offlineScormCloudFrontOriginDomainParameterName,
+        description:
+          "Direct package-host origin for dormant CloudFront qualification",
+        stringValue:
+          props.config.offlineScormCloudFrontQualification.originDomain,
+      });
     const offlineScormPackageHostSuffixParameterName = `/upskill/${props.config.name}/offline-scorm/package-host-suffix`;
     const offlineScormPackageHostSuffixParameterArn = this.formatArn({
       service: "ssm",
@@ -444,6 +453,23 @@ export class ApplicationStack extends Stack {
     configurationSecret.grantRead(role);
     liveKitConfigurationSecret.grantRead(role);
     offlineScormConfigurationSecret.grantRead(role);
+    if (props.config.offlineScormCloudFrontQualification) {
+      offlineScormCloudFrontOriginKey.grantRead(role);
+    }
+    role.addToPolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ["ssm:GetParameter"],
+        resources: [
+          this.formatArn({
+            service: "ssm",
+            resource: "parameter",
+            resourceName:
+              offlineScormCloudFrontOriginDomainParameterName.slice(1),
+          }),
+        ],
+      }),
+    );
     accessCodeEncryptionSecret.grantRead(role);
     webDatabaseCredentials.grantRead(role);
     workerDatabaseCredentials.grantRead(role);
@@ -497,6 +523,11 @@ set -euo pipefail
 application_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${configurationSecret.secretArn}' --query SecretString --output text)
 livekit_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${liveKitConfigurationSecret.secretArn}' --query SecretString --output text)
 offline_scorm_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${offlineScormConfigurationSecret.secretArn}' --query SecretString --output text)
+offline_scorm_cloudfront_origin_domain='${props.config.offlineScormCloudFrontQualification?.originDomain ?? ""}'
+offline_scorm_cloudfront_origin_key=''
+if [[ -n "$offline_scorm_cloudfront_origin_domain" ]]; then
+  offline_scorm_cloudfront_origin_key=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${offlineScormCloudFrontOriginKey.secretArn}' --query SecretString --output text)
+fi
 database_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${props.databaseSecretArn}' --query SecretString --output text)
 web_database_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${webDatabaseCredentials.secretArn}' --query SecretString --output text)
 worker_database_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${workerDatabaseCredentials.secretArn}' --query SecretString --output text)
@@ -530,6 +561,10 @@ cp "$base_environment_tmp" "$web_environment_tmp"
 cp "$base_environment_tmp" "$worker_environment_tmp"
 cp "$base_environment_tmp" "$deploy_environment_tmp"
 jq -r 'to_entries[] | select(.key == "OFFLINE_SCORM_ENABLED" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8" or .key == "OFFLINE_SCORM_PACKAGE_SITE_SUFFIX" or .key == "OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY") | "\\(.key)=\\(.value|tostring|@json)"' <<< "$offline_scorm_json" >> "$web_environment_tmp"
+if [[ -n "$offline_scorm_cloudfront_origin_domain" ]]; then
+  jq -rn --arg value "$offline_scorm_cloudfront_origin_domain" '"OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN=\\($value|@json)"' >> "$web_environment_tmp"
+  jq -rn --arg value "$offline_scorm_cloudfront_origin_key" '"OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY=\\($value|@json)"' >> "$web_environment_tmp"
+fi
 jq -rn --arg value "$web_database_url" '"DATABASE_URL=\\($value|@json)"' >> "$web_environment_tmp"
 jq -rn --arg value "$worker_database_url" '"DATABASE_URL=\\($value|@json)"' >> "$worker_environment_tmp"
 jq -rn --arg value "$web_database_url" '"DATABASE_URL=\\($value|@json)"' >> "$deploy_environment_tmp"

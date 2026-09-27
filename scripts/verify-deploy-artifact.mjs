@@ -60,6 +60,7 @@ try {
     "dist/offline-scorm/package-runtime.js",
     "dist/offline-scorm/package-worker.js",
     "dist/offline-scorm/shared.js",
+    "scripts/offline-scorm-origin-headers.mjs",
     "scripts/offline-scorm-package-prototype-assets.mjs",
     "scripts/pwa-shell-assets.mjs",
     "scripts/bootstrap-platform-admin.mjs",

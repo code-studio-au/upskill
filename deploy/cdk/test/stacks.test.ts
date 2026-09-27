@@ -808,6 +808,11 @@ test("CloudFront entitlement qualification is dormant and operator-only", () => 
       PasswordLength: 64,
     },
   });
+  template.hasResourceProperties("AWS::SSM::Parameter", {
+    Name: "/upskill/staging/offline-scorm/cloudfront-origin-domain",
+    Type: "String",
+    Value: "staging.upskill.institute",
+  });
   template.hasResourceProperties("AWS::Lambda::Function", {
     Description: Match.stringLikeRegexp("operator-only allocator"),
     ReservedConcurrentExecutions: 1,
@@ -820,6 +825,9 @@ test("CloudFront entitlement qualification is dormant and operator-only", () => 
     },
   });
   const serialized = JSON.stringify(template.toJSON());
+  expect(serialized).toContain("OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN");
+  expect(serialized).toContain("OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY");
+  expect(serialized).toContain("upskill-web.env");
   expect(serialized).toContain("cloudfront:CreateDistributionWithTags");
   expect(serialized).toContain("cloudfront:UpdateDistribution");
   expect(serialized).toContain("cloudfront:DeleteDistribution");
@@ -853,6 +861,12 @@ test("CloudFront entitlement qualification is dormant and operator-only", () => 
   );
   expect(JSON.stringify(instancePolicies)).not.toContain(
     "lambda:InvokeFunction",
+  );
+  expect(JSON.stringify(instancePolicies)).toContain(
+    "OfflineScormCloudFrontOriginKey",
+  );
+  expect(JSON.stringify(instancePolicies)).toContain(
+    "offline-scorm/cloudfront-origin-domain",
   );
   expect(serialized).toContain(
     "Dormant qualification allocator; the application role has no invoke permission",

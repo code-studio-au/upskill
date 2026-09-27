@@ -2,8 +2,8 @@
 
 ## Status
 
-Proposed; CloudFront qualification infrastructure and durable allocation model
-in progress and disabled by default.
+Proposed; CloudFront qualification infrastructure, durable allocation model and
+origin validation boundary implemented but disabled by default.
 Date: 2026-09-27
 
 ## Context
@@ -109,6 +109,26 @@ both immutable. Guarded transitions cover binding pending, enabling, active,
 disabling, deletion pending, deleted and operation-specific needs-attention
 recovery. Lifecycle timestamps are write-once and runtime database roles cannot
 delete the evidence.
+
+The package host now also contains the dormant CloudFront-origin validation
+boundary. Any request carrying either reserved origin header is claimed before
+the application router and fails closed unless both headers are present, the
+HMAC capability matches in constant time, the request reached the configured
+direct custom origin and the exact retained allocation is `active`. The bound
+AWS distribution domain becomes the package-site origin used for the existing
+entitlement, runtime and cleanup checks, and their entitlement evidence must
+match the capability binding. Every other allocation state is rejected across
+package content, runtime assets and whole-site cleanup. The generated HMAC key
+is exposed only to the web process environment when qualification context is
+present. A conditional non-secret SSM parameter records the direct origin so
+both first boot and every release refresh reconstruct the same web-only
+authority; only an absent parameter disables that reconstruction, while other
+SSM or secret failures abort the refresh. Runtime composition deliberately
+hard-codes this mode off; no deployment flag or learner path is added by this
+slice. The bootstrap server also claims either reserved origin header before
+its readiness, PWA, prototype or static-asset shortcuts, so malformed,
+incomplete and colliding package paths always reach the same validation
+boundary.
 
 The reservation intentionally precedes `offline_learning_entitlement`, so it
 does not have a foreign key to an entitlement that does not yet exist. The
@@ -247,6 +267,7 @@ deleted stack still requires the normal retained-resource recovery process.
    dormant, by migration 0120.**
 3. Add constant-time CloudFront-origin capability validation to the package
    host, still disabled and covered across every route and lifecycle state.
+   **Implemented, dormant, with no deployment-mode flag.**
 4. Add an asynchronous server-owned issuance/recovery workflow and grant only
    that boundary permission to invoke the allocator.
 5. Run the browser, cleanup, latency, quota, WAF and cost qualification matrix.

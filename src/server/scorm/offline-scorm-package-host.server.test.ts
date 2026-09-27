@@ -1,4 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  createOfflineScormCloudFrontOriginCapability,
+  OFFLINE_SCORM_CLOUDFRONT_CAPABILITY_HEADER,
+  OFFLINE_SCORM_CLOUDFRONT_ENTITLEMENT_HEADER,
+} from "./offline-scorm-cloudfront-origin.server";
 import { createOfflineScormPackageHostHandler } from "./offline-scorm-package-host.server";
 import {
   createOfflineScormPackageCleanupCapability,
@@ -9,6 +14,15 @@ const packageLabel = `p-${"a".repeat(56)}`;
 const packageOrigin = `https://${packageLabel}.github.io`;
 const fileSha256 = "b".repeat(64);
 const packageSiteOriginKey = Buffer.alloc(32, 7).toString("base64url");
+const cloudFrontOriginKey = "cloudfront-origin-key-".padEnd(64, "7");
+const cloudFrontEntitlementId = "entitlement_cloudfront";
+const cloudFrontDomain = "d111111abcdef8.cloudfront.net";
+const cloudFrontOrigin = `https://${cloudFrontDomain}`;
+const cloudFrontCapability = createOfflineScormCloudFrontOriginCapability(
+  cloudFrontOriginKey,
+  "production",
+  cloudFrontEntitlementId,
+);
 
 function storedObject(body = "hello") {
   return {
@@ -24,12 +38,14 @@ function storedObject(body = "hello") {
 describe("offline SCORM credential-free package host", () => {
   const findAuthorizedPackage = vi.fn();
   const findAuthorizedRuntime = vi.fn();
+  const findCloudFrontOriginBinding = vi.fn();
   const getObject = vi.fn();
   const readRuntimeAsset = vi.fn(() => Promise.resolve("runtime"));
 
   beforeEach(() => {
     findAuthorizedPackage.mockReset();
     findAuthorizedRuntime.mockReset();
+    findCloudFrontOriginBinding.mockReset();
     getObject.mockReset();
     readRuntimeAsset.mockClear();
   });
@@ -47,15 +63,17 @@ describe("offline SCORM credential-free package host", () => {
       },
       findAuthorizedPackage,
       findAuthorizedRuntime,
+      findCloudFrontOriginBinding,
       getObject,
       readRuntimeAsset,
       now: () => new Date("2026-09-26T00:00:00.000Z"),
     });
   }
 
-  function authorize() {
+  function authorize(entitlementId = "entitlement_current") {
     findAuthorizedPackage.mockResolvedValue({
       contentPrefix: "scorm/packages/version-one",
+      entitlementId,
       entitlementPackageSha256: "c".repeat(64),
       manifest: {
         files: [
@@ -68,6 +86,45 @@ describe("offline SCORM credential-free package host", () => {
         ],
       },
       packageSha256: "c".repeat(64),
+    });
+  }
+
+  function cloudFrontHandler(cloudFrontOriginEnabled = true) {
+    return createOfflineScormPackageHostHandler({
+      configuration: {
+        applicationOrigin: "https://app.example.com",
+        cloudFrontOriginDomain: "app.example.com",
+        cloudFrontOriginEnabled,
+        cloudFrontOriginKey,
+        environment: "production",
+        learningOrigin: "https://learn.example.net",
+        learningBucket: "learning-bucket",
+        packageHostSuffix: undefined,
+        packageSiteOriginKey,
+        enabled: false,
+      },
+      findAuthorizedPackage,
+      findAuthorizedRuntime,
+      findCloudFrontOriginBinding,
+      getObject,
+      readRuntimeAsset,
+      now: () => new Date("2026-09-26T00:00:00.000Z"),
+    });
+  }
+
+  function cloudFrontRequest(path: string, init: RequestInit = {}): Request {
+    const headers = new Headers(init.headers);
+    headers.set(
+      OFFLINE_SCORM_CLOUDFRONT_ENTITLEMENT_HEADER,
+      cloudFrontEntitlementId,
+    );
+    headers.set(
+      OFFLINE_SCORM_CLOUDFRONT_CAPABILITY_HEADER,
+      cloudFrontCapability,
+    );
+    return new Request(`https://app.example.com${path}`, {
+      ...init,
+      headers,
     });
   }
 
@@ -101,6 +158,181 @@ describe("offline SCORM credential-free package host", () => {
       ),
     ).resolves.toBeNull();
     expect(findAuthorizedPackage).not.toHaveBeenCalled();
+  });
+
+  it("keeps the CloudFront origin path hard-disabled in runtime composition", async () => {
+    for (const path of [
+      "/index.html",
+      "/.__upskill_offline__/host.html",
+      "/.__upskill_offline__/package-runtime.js",
+      "/.__upskill_offline__/shared.js",
+      "/.__upskill_offline__/worker.js",
+      "/.__upskill_offline__/clear-site-data",
+    ]) {
+      const response = await cloudFrontHandler(false)(cloudFrontRequest(path));
+      expect(response?.status).toBe(404);
+    }
+    expect(findCloudFrontOriginBinding).not.toHaveBeenCalled();
+    expect(findAuthorizedPackage).not.toHaveBeenCalled();
+    expect(findAuthorizedRuntime).not.toHaveBeenCalled();
+  });
+
+  it("claims forged or incomplete CloudFront origin headers without falling through", async () => {
+    const requests = [
+      new Request("https://app.example.com/index.html", {
+        headers: {
+          [OFFLINE_SCORM_CLOUDFRONT_ENTITLEMENT_HEADER]:
+            cloudFrontEntitlementId,
+        },
+      }),
+      new Request("https://app.example.com/index.html", {
+        headers: {
+          [OFFLINE_SCORM_CLOUDFRONT_CAPABILITY_HEADER]: cloudFrontCapability,
+        },
+      }),
+      new Request("https://app.example.com/index.html", {
+        headers: {
+          [OFFLINE_SCORM_CLOUDFRONT_CAPABILITY_HEADER]: "A".repeat(43),
+          [OFFLINE_SCORM_CLOUDFRONT_ENTITLEMENT_HEADER]:
+            cloudFrontEntitlementId,
+        },
+      }),
+      new Request("https://app.example.com/index.html", {
+        headers: {
+          [OFFLINE_SCORM_CLOUDFRONT_CAPABILITY_HEADER]: cloudFrontCapability,
+          [OFFLINE_SCORM_CLOUDFRONT_ENTITLEMENT_HEADER]: "invalid/id",
+        },
+      }),
+      new Request("https://learn.example.net/index.html", {
+        headers: {
+          [OFFLINE_SCORM_CLOUDFRONT_CAPABILITY_HEADER]: cloudFrontCapability,
+          [OFFLINE_SCORM_CLOUDFRONT_ENTITLEMENT_HEADER]:
+            cloudFrontEntitlementId,
+        },
+      }),
+    ];
+
+    for (const request of requests) {
+      const response = await cloudFrontHandler()(request);
+      expect(response?.status).toBe(404);
+    }
+    expect(findCloudFrontOriginBinding).not.toHaveBeenCalled();
+    expect(findAuthorizedPackage).not.toHaveBeenCalled();
+    expect(findAuthorizedRuntime).not.toHaveBeenCalled();
+  });
+
+  it("resolves an active binding before each package-host route category", async () => {
+    findCloudFrontOriginBinding.mockResolvedValue({
+      distributionDomain: cloudFrontDomain,
+      state: "active",
+    });
+    await expect(
+      cloudFrontHandler()(cloudFrontRequest("/index.html")),
+    ).resolves.toMatchObject({ status: 404 });
+    for (const path of [
+      "/.__upskill_offline__/host.html",
+      "/.__upskill_offline__/package-runtime.js",
+      "/.__upskill_offline__/shared.js",
+      "/.__upskill_offline__/worker.js",
+      "/.__upskill_offline__/clear-site-data",
+    ])
+      await expect(
+        cloudFrontHandler()(cloudFrontRequest(path)),
+      ).resolves.toMatchObject({ status: 404 });
+
+    expect(findAuthorizedPackage).toHaveBeenCalledTimes(1);
+    expect(findAuthorizedPackage).toHaveBeenCalledWith(
+      cloudFrontOrigin,
+      expect.any(Date),
+    );
+    expect(findAuthorizedRuntime).toHaveBeenCalledTimes(5);
+    expect(findAuthorizedRuntime).toHaveBeenCalledWith(cloudFrontOrigin);
+  });
+
+  it("rejects unallocated, non-active or malformed bindings before every package-host route", async () => {
+    const rejectedBindings = [
+      undefined,
+      ...(
+        [
+          "allocating",
+          "binding_pending",
+          "enabling",
+          "disabling",
+          "deletion_pending",
+          "deleted",
+          "needs_attention",
+        ] as const
+      ).map((state) => ({ distributionDomain: cloudFrontDomain, state })),
+      { distributionDomain: null, state: "active" as const },
+      { distributionDomain: "attacker.example.com", state: "active" as const },
+    ];
+    const routes = [
+      "/index.html",
+      "/.__upskill_offline__/host.html",
+      "/.__upskill_offline__/package-runtime.js",
+      "/.__upskill_offline__/shared.js",
+      "/.__upskill_offline__/worker.js",
+      "/.__upskill_offline__/clear-site-data",
+    ];
+
+    for (const binding of rejectedBindings) {
+      findCloudFrontOriginBinding.mockResolvedValue(binding);
+      for (const path of routes) {
+        const response = await cloudFrontHandler()(cloudFrontRequest(path));
+        expect(response?.status).toBe(404);
+      }
+    }
+    expect(findCloudFrontOriginBinding).toHaveBeenCalledTimes(
+      rejectedBindings.length * routes.length,
+    );
+    expect(findAuthorizedPackage).not.toHaveBeenCalled();
+    expect(findAuthorizedRuntime).not.toHaveBeenCalled();
+  });
+
+  it("maps an active capability to its bound CloudFront origin", async () => {
+    findCloudFrontOriginBinding.mockResolvedValue({
+      distributionDomain: cloudFrontDomain,
+      state: "active",
+    });
+    authorize(cloudFrontEntitlementId);
+    getObject.mockResolvedValue(storedObject());
+
+    const response = await cloudFrontHandler()(
+      cloudFrontRequest("/index.html"),
+    );
+
+    expect(response?.status).toBe(200);
+    expect(findCloudFrontOriginBinding).toHaveBeenCalledWith(
+      cloudFrontEntitlementId,
+    );
+    expect(findAuthorizedPackage).toHaveBeenCalledWith(
+      cloudFrontOrigin,
+      new Date("2026-09-26T00:00:00.000Z"),
+    );
+  });
+
+  it("requires downstream entitlement evidence to match the capability binding", async () => {
+    findCloudFrontOriginBinding.mockResolvedValue({
+      distributionDomain: cloudFrontDomain,
+      state: "active",
+    });
+    authorize("entitlement_other");
+
+    const content = await cloudFrontHandler()(cloudFrontRequest("/index.html"));
+    expect(content?.status).toBe(404);
+    expect(getObject).not.toHaveBeenCalled();
+
+    findAuthorizedRuntime.mockResolvedValue({
+      cleanupState: "pending",
+      entitlementId: "entitlement_other",
+      entitlementStatus: "active",
+      intendedLaunchExpiresAt: new Date("2026-09-27T00:00:00.000Z"),
+    });
+    const runtime = await cloudFrontHandler()(
+      cloudFrontRequest("/.__upskill_offline__/host.html"),
+    );
+    expect(runtime?.status).toBe(404);
+    expect(readRuntimeAsset).not.toHaveBeenCalled();
   });
 
   it("claims every configured wildcard request but fails closed while disabled", async () => {

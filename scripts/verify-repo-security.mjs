@@ -1078,6 +1078,14 @@ const offlineScormCloudFrontAllocationMigration = fs.readFileSync(
   ),
   "utf8",
 );
+const offlineScormCloudFrontOrigin = fs.readFileSync(
+  path.join(root, "src/server/scorm/offline-scorm-cloudfront-origin.server.ts"),
+  "utf8",
+);
+const offlineScormPackageHost = fs.readFileSync(
+  path.join(root, "src/server/scorm/offline-scorm-package-host.server.ts"),
+  "utf8",
+);
 const offlineScormSigningRuntime = fs.readFileSync(
   path.join(
     root,
@@ -1294,6 +1302,30 @@ for (const boundary of [
   if (!offlineScormCloudFrontAllocationMigration.includes(boundary))
     failures.push(
       `Offline SCORM CloudFront allocation guard is missing: ${boundary}`,
+    );
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  "upskill-offline-scorm-cloudfront-origin-capability-v1",
+  'createHmac("sha256", originKey)',
+  "timingSafeEqual(",
+  '"X-Upskill-Offline-Entitlement"',
+  '"X-Upskill-Offline-Origin-Capability"',
+])
+  if (!offlineScormCloudFrontOrigin.includes(boundary))
+    failures.push(
+      `Offline SCORM CloudFront origin capability boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  'selectFrom("offline_scorm_cloudfront_allocation")',
+  'binding?.state !== "active"',
+  "CLOUDFRONT_DISTRIBUTION_DOMAIN.test(binding.distributionDomain)",
+  "runtime.entitlementId !== packageOrigin.cloudFrontEntitlementId",
+  "authorization.entitlementId !== packageOrigin.cloudFrontEntitlementId",
+  "cloudFrontOriginEnabled: false",
+])
+  if (!offlineScormPackageHost.includes(boundary))
+    failures.push(
+      `Offline SCORM CloudFront package-host boundary is missing: ${boundary}`,
     );
 for (const boundary of [
   'import "@tanstack/react-start/server-only"',
@@ -2441,6 +2473,11 @@ for (const invariant of [
   'actions: ["ssm:PutParameter", "ssm:DeleteParameter"]',
   '"route53:ChangeResourceRecordSetsRecordTypes": ["A"]',
   '"route53:ChangeResourceRecordSetsActions": [',
+  "OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN",
+  "OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY",
+  "offlineScormCloudFrontOriginKey.grantRead(role)",
+  "OfflineScormCloudFrontOriginDomainParameter",
+  "offline-scorm/cloudfront-origin-domain",
 ])
   if (!applicationInfrastructure.includes(invariant))
     failures.push(
@@ -2456,10 +2493,36 @@ if (
   failures.push(
     "The deployed host must install package-site routing and refresh its provisioned suffix",
   );
+for (const invariant of [
+  '"/${secret_prefix}/offline-scorm/cloudfront-origin-domain"',
+  '"${secret_prefix}/offline-scorm/cloudfront-origin-key"',
+  "ParameterNotFound",
+  "OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN",
+  "OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY",
+  '>> "$web_environment_tmp"',
+])
+  if (!environmentRefresh.includes(invariant))
+    failures.push(
+      `Release environment refresh must preserve the dormant CloudFront origin boundary: ${invariant}`,
+    );
 const serverLauncher = fs.readFileSync(
   path.join(root, "scripts/start-server.mjs"),
   "utf8",
 );
+const offlineScormOriginHeaders = fs.readFileSync(
+  path.join(root, "scripts/offline-scorm-origin-headers.mjs"),
+  "utf8",
+);
+for (const invariant of [
+  '"x-upskill-offline-entitlement"',
+  '"x-upskill-offline-origin-capability"',
+  "headers[OFFLINE_SCORM_CLOUDFRONT_ENTITLEMENT_HEADER] !== undefined",
+  "headers[OFFLINE_SCORM_CLOUDFRONT_CAPABILITY_HEADER] !== undefined",
+])
+  if (!offlineScormOriginHeaders.includes(invariant))
+    failures.push(
+      `The bootstrap server must claim every reserved CloudFront origin header: ${invariant}`,
+    );
 for (const invariant of [
   "OFFLINE_SCORM_PACKAGE_HOST_SUFFIX",
   "const offlineScormPackagePort = 3002;",
@@ -2470,11 +2533,27 @@ for (const invariant of [
   "if (isOfflineScormPackageOrigin(requestOrigin(incoming))) return false;",
   "isOfflineScormPackageOrigin(origin)",
   "requestOrigin(incoming) === applicationOrigin",
+  "mayServeBootstrapShortcuts(incoming.headers)",
 ])
   if (!serverLauncher.includes(invariant))
     failures.push(
       `The offline SCORM package host must not fall through to application assets: ${invariant}`,
     );
+const cloudFrontBootstrapClaim = serverLauncher.indexOf(
+  "if (mayServeBootstrapShortcuts(incoming.headers))",
+);
+for (const shortcut of [
+  'requestPath === "/api/ready"',
+  "servePwaShellScript(incoming, outgoing)",
+  "serveOfflineScormPrototypeAsset(incoming, outgoing)",
+  "serveClientAsset(incoming, outgoing)",
+]) {
+  const shortcutIndex = serverLauncher.lastIndexOf(shortcut);
+  if (cloudFrontBootstrapClaim < 0 || shortcutIndex < cloudFrontBootstrapClaim)
+    failures.push(
+      `Reserved CloudFront origin headers must bypass the bootstrap shortcut: ${shortcut}`,
+    );
+}
 
 if (!packageJson.scripts?.build?.includes("precompress-client-assets.mjs"))
   failures.push("Production builds must create verified compression sidecars");
