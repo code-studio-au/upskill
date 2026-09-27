@@ -19,6 +19,7 @@ import {
   lockOrCreateScormAttempt,
   lockExistingScormAttempt,
   resolveScormLaunchPolicy,
+  type AllowedScormLaunchPolicy,
   type ScormLaunchPolicyDenial,
   type ScormLaunchTarget,
 } from "#/server/scorm/scorm-launch-policy.server";
@@ -79,6 +80,27 @@ type RecoveredOfflineScormEntitlement = Extract<
   OfflineScormEntitlementIssueResult,
   { status: "issued" }
 > & { recovered: true };
+
+export type OfflineScormEntitlementTransactionResult =
+  | (Extract<OfflineScormEntitlementIssueResult, { status: "issued" }> & {
+      recovered: boolean;
+    })
+  | Extract<OfflineScormEntitlementIssueResult, { status: "denied" }>;
+
+interface OfflineScormReservedPackageSite {
+  entitlementId: string;
+  packageSiteOrigin: string;
+  afterAuthorityCreated?: (
+    transaction: Transaction<Database>,
+    issuedAt: Date,
+  ) => Promise<void>;
+}
+
+export type OfflineScormReservedPackageSiteFactory = (input: {
+  attemptId: string;
+  policy: AllowedScormLaunchPolicy;
+}) =>
+  OfflineScormReservedPackageSite | Promise<OfflineScormReservedPackageSite>;
 
 async function recoverActiveOfflineScormEntitlement(
   transaction: Transaction<Database>,
@@ -226,6 +248,219 @@ async function recoverActiveOfflineScormEntitlement(
   };
 }
 
+export async function issueOfflineScormEntitlementInTransaction(
+  transaction: Transaction<Database>,
+  input: {
+    target: ScormLaunchTarget;
+    installationId: string;
+    sessionId: string;
+  },
+  user: AuthenticatedUser,
+  signEntitlement: OfflineScormEntitlementSigner,
+  reservePackageSite: OfflineScormReservedPackageSiteFactory,
+  expectedPackage?: { packageVersionId: string; packageSha256: string },
+): Promise<OfflineScormEntitlementTransactionResult> {
+  if (
+    !(await lockActiveOfflineScormSession(transaction, {
+      sessionId: input.sessionId,
+      userId: user.id,
+    }))
+  )
+    return { status: "denied", reason: "session-unavailable" } as const;
+  const installation = await transaction
+    .selectFrom("offline_learning_installation")
+    .select(["id", "publicKeySha256"])
+    .where("id", "=", input.installationId)
+    .where("userId", "=", user.id)
+    .where("status", "=", "active")
+    .forUpdate()
+    .executeTakeFirst();
+  if (!installation)
+    return {
+      status: "denied",
+      reason: "installation-unavailable",
+    } as const;
+
+  // A lost-response retry replays the already-issued authority. Mutable
+  // access policy only governs creating a fresh offline delegation.
+  const recovered = await recoverActiveOfflineScormEntitlement(transaction, {
+    target: input.target,
+    installation,
+    userId: user.id,
+  });
+  if (recovered) {
+    if (
+      expectedPackage &&
+      (recovered.packageVersionId !== expectedPackage.packageVersionId ||
+        recovered.packageSha256 !== expectedPackage.packageSha256)
+    )
+      return {
+        status: "denied",
+        reason: "package-inventory-unavailable",
+      } as const;
+    return recovered;
+  }
+
+  const issuedAt = new Date();
+  const policy = await resolveScormLaunchPolicy(
+    transaction,
+    input.target,
+    user.id,
+    issuedAt,
+  );
+  if (policy.status === "denied") return policy;
+  if (!policy.intendedLaunchExpiresAt)
+    return {
+      status: "denied",
+      reason: "finite-access-expiry-required",
+    } as const;
+  if (
+    expectedPackage &&
+    (policy.packageVersionId !== expectedPackage.packageVersionId ||
+      policy.packageSha256 !== expectedPackage.packageSha256)
+  )
+    return {
+      status: "denied",
+      reason: "package-inventory-unavailable",
+    } as const;
+
+  const attempt = await lockOrCreateScormAttempt(transaction, policy);
+  if (attempt.writerMode === "offline")
+    return {
+      status: "denied",
+      reason: "offline-writer-active",
+    } as const;
+
+  const reservedPackageSite = await reservePackageSite({
+    attemptId: attempt.id,
+    policy,
+  });
+  const { entitlementId, packageSiteOrigin } = reservedPackageSite;
+  const environment = getServerEnv();
+  assertOfflineScormPackageOriginIsolation({
+    applicationOrigin: environment.APP_ORIGIN,
+    learningOrigin: environment.LEARNING_ORIGIN,
+    packageOrigin: packageSiteOrigin,
+  });
+  const writerGeneration = attempt.credentialGeneration + 1;
+  const commitAcceptanceDeadline = addElapsedMilliseconds(
+    policy.intendedLaunchExpiresAt,
+    MAXIMUM_ACCEPTANCE_DELAY_MS,
+  );
+  const entitlement = offlineScormTrustedEntitlementSchema.parse({
+    schemaVersion: 1,
+    entitlementId,
+    attemptId: attempt.id,
+    installationId: installation.id,
+    learnerId: user.id,
+    devicePublicKeySha256: installation.publicKeySha256,
+    historyBaseRevision: attempt.progressRevision,
+    runtimeVersion: OFFLINE_SCORM_RUNTIME_VERSION,
+    offering: policy.offering,
+    packageVersionId: policy.packageVersionId,
+    packageSha256: policy.packageSha256,
+    initialSnapshot: {
+      lessonStatus: attempt.lessonStatus,
+      location: attempt.location,
+      suspendData: attempt.suspendData,
+      scoreRaw: attempt.scoreRaw,
+      scoreMin: attempt.scoreMin,
+      scoreMax: attempt.scoreMax,
+      totalTimeSeconds: attempt.totalTimeSeconds,
+    },
+    issuedAt: issuedAt.toISOString(),
+    intendedLaunchExpiresAt: policy.intendedLaunchExpiresAt.toISOString(),
+    commitAcceptanceDeadline: commitAcceptanceDeadline.toISOString(),
+  });
+  const envelope = signEntitlement(entitlement);
+  const signedCanonical = canonicalizeOfflineScormEntitlementEnvelope({
+    schemaVersion: envelope.schemaVersion,
+    algorithm: envelope.algorithm,
+    signingKeyId: envelope.signingKeyId,
+    entitlement: envelope.entitlement,
+  });
+  const intendedCanonical = canonicalizeOfflineScormEntitlementEnvelope({
+    schemaVersion: envelope.schemaVersion,
+    algorithm: envelope.algorithm,
+    signingKeyId: envelope.signingKeyId,
+    entitlement,
+  });
+  if (signedCanonical !== intendedCanonical)
+    throw new Error("Offline SCORM signer changed the entitlement payload");
+  await transaction
+    .insertInto("offline_learning_entitlement")
+    .values({
+      id: entitlementId,
+      userId: user.id,
+      attemptId: attempt.id,
+      installationId: installation.id,
+      scormPackageVersionId: policy.packageVersionId,
+      packageSha256: policy.packageSha256,
+      runtimeVersion: OFFLINE_SCORM_RUNTIME_VERSION,
+      historyBaseRevision: attempt.progressRevision,
+      writerGeneration,
+      reconciliationCursorRevision: attempt.progressRevision,
+      signedEnvelope: JSON.stringify(envelope),
+      resolution: null,
+      resolvedByUserId: null,
+      issuedAt,
+      intendedLaunchExpiresAt: policy.intendedLaunchExpiresAt,
+      commitAcceptanceDeadline,
+      endedAt: null,
+    })
+    .executeTakeFirstOrThrow();
+  await transaction
+    .insertInto("offline_scorm_cleanup_inventory")
+    .values({
+      id: randomUUID(),
+      entitlementId,
+      installationId: installation.id,
+      userId: user.id,
+      packageSiteOrigin,
+      clearRequestedAt: null,
+      clearedAt: null,
+      cleanupReceiptSha256: null,
+      lastErrorCode: null,
+      createdAt: issuedAt,
+      updatedAt: issuedAt,
+    })
+    .executeTakeFirstOrThrow();
+  await reservedPackageSite.afterAuthorityCreated?.(transaction, issuedAt);
+  await transaction
+    .updateTable("scorm_attempt_session")
+    .set({ revokedAt: issuedAt })
+    .where("attemptId", "=", attempt.id)
+    .where("revokedAt", "is", null)
+    .execute();
+  await transaction
+    .updateTable("scorm_attempt")
+    .set({
+      writerMode: "offline",
+      offlineEntitlementId: entitlementId,
+      credentialGeneration: writerGeneration,
+      updatedAt: issuedAt,
+    })
+    .where("id", "=", attempt.id)
+    .executeTakeFirstOrThrow();
+
+  return {
+    status: "issued",
+    entitlementId,
+    attemptId: attempt.id,
+    historyBaseRevision: attempt.progressRevision,
+    writerGeneration,
+    packageVersionId: policy.packageVersionId,
+    packageSha256: policy.packageSha256,
+    packageSiteOrigin,
+    runtimeVersion: OFFLINE_SCORM_RUNTIME_VERSION,
+    issuedAt,
+    intendedLaunchExpiresAt: policy.intendedLaunchExpiresAt,
+    commitAcceptanceDeadline,
+    envelope,
+    recovered: false,
+  } as const;
+}
+
 /**
  * Establishes the exclusive offline writer and signs its exact initial state.
  * The activated Course boundary supplies the immutable package precondition;
@@ -244,209 +479,26 @@ export async function issueOfflineScormEntitlement(
 ): Promise<OfflineScormEntitlementIssueResult> {
   const result = await getDatabase()
     .transaction()
-    .execute(async (transaction) => {
-      if (
-        !(await lockActiveOfflineScormSession(transaction, {
-          sessionId: input.sessionId,
-          userId: user.id,
-        }))
-      )
-        return { status: "denied", reason: "session-unavailable" } as const;
-      const installation = await transaction
-        .selectFrom("offline_learning_installation")
-        .select(["id", "publicKeySha256"])
-        .where("id", "=", input.installationId)
-        .where("userId", "=", user.id)
-        .where("status", "=", "active")
-        .forUpdate()
-        .executeTakeFirst();
-      if (!installation)
-        return {
-          status: "denied",
-          reason: "installation-unavailable",
-        } as const;
-
-      // A lost-response retry replays the already-issued authority. Mutable
-      // access policy only governs creating a fresh offline delegation.
-      const recovered = await recoverActiveOfflineScormEntitlement(
-        transaction,
-        {
-          target: input.target,
-          installation,
-          userId: user.id,
-        },
-      );
-      if (recovered) {
-        if (
-          expectedPackage &&
-          (recovered.packageVersionId !== expectedPackage.packageVersionId ||
-            recovered.packageSha256 !== expectedPackage.packageSha256)
-        )
-          return {
-            status: "denied",
-            reason: "package-inventory-unavailable",
-          } as const;
-        return recovered;
-      }
-
-      const issuedAt = new Date();
-      const policy = await resolveScormLaunchPolicy(
-        transaction,
-        input.target,
-        user.id,
-        issuedAt,
-      );
-      if (policy.status === "denied") return policy;
-      if (!policy.intendedLaunchExpiresAt)
-        return {
-          status: "denied",
-          reason: "finite-access-expiry-required",
-        } as const;
-      if (
-        expectedPackage &&
-        (policy.packageVersionId !== expectedPackage.packageVersionId ||
-          policy.packageSha256 !== expectedPackage.packageSha256)
-      )
-        return {
-          status: "denied",
-          reason: "package-inventory-unavailable",
-        } as const;
-
-      const attempt = await lockOrCreateScormAttempt(transaction, policy);
-      if (attempt.writerMode === "offline")
-        return {
-          status: "denied",
-          reason: "offline-writer-active",
-        } as const;
-
-      const entitlementId = randomUUID();
-      const packageSiteOrigin = provisionPackageSite({
-        attemptId: attempt.id,
-        entitlementId,
-      });
-      const environment = getServerEnv();
-      assertOfflineScormPackageOriginIsolation({
-        applicationOrigin: environment.APP_ORIGIN,
-        learningOrigin: environment.LEARNING_ORIGIN,
-        packageOrigin: packageSiteOrigin,
-      });
-      const writerGeneration = attempt.credentialGeneration + 1;
-      const commitAcceptanceDeadline = addElapsedMilliseconds(
-        policy.intendedLaunchExpiresAt,
-        MAXIMUM_ACCEPTANCE_DELAY_MS,
-      );
-      const entitlement = offlineScormTrustedEntitlementSchema.parse({
-        schemaVersion: 1,
-        entitlementId,
-        attemptId: attempt.id,
-        installationId: installation.id,
-        learnerId: user.id,
-        devicePublicKeySha256: installation.publicKeySha256,
-        historyBaseRevision: attempt.progressRevision,
-        runtimeVersion: OFFLINE_SCORM_RUNTIME_VERSION,
-        offering: policy.offering,
-        packageVersionId: policy.packageVersionId,
-        packageSha256: policy.packageSha256,
-        initialSnapshot: {
-          lessonStatus: attempt.lessonStatus,
-          location: attempt.location,
-          suspendData: attempt.suspendData,
-          scoreRaw: attempt.scoreRaw,
-          scoreMin: attempt.scoreMin,
-          scoreMax: attempt.scoreMax,
-          totalTimeSeconds: attempt.totalTimeSeconds,
-        },
-        issuedAt: issuedAt.toISOString(),
-        intendedLaunchExpiresAt: policy.intendedLaunchExpiresAt.toISOString(),
-        commitAcceptanceDeadline: commitAcceptanceDeadline.toISOString(),
-      });
-      const envelope = signEntitlement(entitlement);
-      const signedCanonical = canonicalizeOfflineScormEntitlementEnvelope({
-        schemaVersion: envelope.schemaVersion,
-        algorithm: envelope.algorithm,
-        signingKeyId: envelope.signingKeyId,
-        entitlement: envelope.entitlement,
-      });
-      const intendedCanonical = canonicalizeOfflineScormEntitlementEnvelope({
-        schemaVersion: envelope.schemaVersion,
-        algorithm: envelope.algorithm,
-        signingKeyId: envelope.signingKeyId,
-        entitlement,
-      });
-      if (signedCanonical !== intendedCanonical)
-        throw new Error("Offline SCORM signer changed the entitlement payload");
-      await transaction
-        .insertInto("offline_learning_entitlement")
-        .values({
-          id: entitlementId,
-          userId: user.id,
-          attemptId: attempt.id,
-          installationId: installation.id,
-          scormPackageVersionId: policy.packageVersionId,
-          packageSha256: policy.packageSha256,
-          runtimeVersion: OFFLINE_SCORM_RUNTIME_VERSION,
-          historyBaseRevision: attempt.progressRevision,
-          writerGeneration,
-          reconciliationCursorRevision: attempt.progressRevision,
-          signedEnvelope: JSON.stringify(envelope),
-          resolution: null,
-          resolvedByUserId: null,
-          issuedAt,
-          intendedLaunchExpiresAt: policy.intendedLaunchExpiresAt,
-          commitAcceptanceDeadline,
-          endedAt: null,
-        })
-        .executeTakeFirstOrThrow();
-      await transaction
-        .insertInto("offline_scorm_cleanup_inventory")
-        .values({
-          id: randomUUID(),
-          entitlementId,
-          installationId: installation.id,
-          userId: user.id,
-          packageSiteOrigin,
-          clearRequestedAt: null,
-          clearedAt: null,
-          cleanupReceiptSha256: null,
-          lastErrorCode: null,
-          createdAt: issuedAt,
-          updatedAt: issuedAt,
-        })
-        .executeTakeFirstOrThrow();
-      await transaction
-        .updateTable("scorm_attempt_session")
-        .set({ revokedAt: issuedAt })
-        .where("attemptId", "=", attempt.id)
-        .where("revokedAt", "is", null)
-        .execute();
-      await transaction
-        .updateTable("scorm_attempt")
-        .set({
-          writerMode: "offline",
-          offlineEntitlementId: entitlementId,
-          credentialGeneration: writerGeneration,
-          updatedAt: issuedAt,
-        })
-        .where("id", "=", attempt.id)
-        .executeTakeFirstOrThrow();
-
-      return {
-        status: "issued",
-        entitlementId,
-        attemptId: attempt.id,
-        historyBaseRevision: attempt.progressRevision,
-        writerGeneration,
-        packageVersionId: policy.packageVersionId,
-        packageSha256: policy.packageSha256,
-        packageSiteOrigin,
-        runtimeVersion: OFFLINE_SCORM_RUNTIME_VERSION,
-        issuedAt,
-        intendedLaunchExpiresAt: policy.intendedLaunchExpiresAt,
-        commitAcceptanceDeadline,
-        envelope,
-        recovered: false,
-      } as const;
-    });
+    .execute(
+      async (transaction) =>
+        await issueOfflineScormEntitlementInTransaction(
+          transaction,
+          input,
+          user,
+          signEntitlement,
+          ({ attemptId }) => {
+            const entitlementId = randomUUID();
+            return {
+              entitlementId,
+              packageSiteOrigin: provisionPackageSite({
+                attemptId,
+                entitlementId,
+              }),
+            };
+          },
+          expectedPackage,
+        ),
+    );
 
   if (result.status === "issued") {
     const { recovered, ...response } = result;

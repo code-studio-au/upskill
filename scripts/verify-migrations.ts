@@ -208,6 +208,7 @@ try {
     "offline_scorm_receipt_accepted_sequence_uq",
     "offline_scorm_receipt_attempt_received_idx",
     "offline_scorm_cloudfront_allocation_work_idx",
+    "offline_scorm_cloudfront_reservation_attempt_uq",
     "offline_scorm_cleanup_user_state_idx",
     "survey_response_enrollment_idx",
     "survey_progress_enrollment_idx",
@@ -320,6 +321,11 @@ try {
           'offline_scorm_cloudfront_allocation_timeline_ck',
           'offline_scorm_cloudfront_allocation_attempts_ck',
           'offline_scorm_cloudfront_allocation_work_timeline_ck',
+          'offline_scorm_cloudfront_reservation_shape_ck',
+          'offline_scorm_cloudfront_reservation_installation_fk',
+          'offline_scorm_cloudfront_reservation_attempt_package_fk',
+          'offline_scorm_cloudfront_reservation_enrollment_fk',
+          'offline_scorm_cloudfront_reservation_item_fk',
           'offline_scorm_cleanup_inventory_entitlement_uq',
           'offline_scorm_cleanup_inventory_origin_uq',
           'offline_scorm_cleanup_inventory_entitlement_fk',
@@ -329,7 +335,7 @@ try {
         )`.execute(db);
   assert.equal(
     offlineScormConstraints.rows.length,
-    38,
+    43,
     "Offline SCORM identity, writer, deadline, receipt, allocation and cleanup constraints must exist",
   );
   for (const [triggerName, operations] of [
@@ -345,6 +351,7 @@ try {
       "offline_scorm_cloudfront_allocation_guard_trg",
       ["INSERT", "UPDATE", "DELETE"],
     ],
+    ["offline_scorm_cloudfront_reservation_guard_trg", ["UPDATE"]],
     [
       "offline_scorm_cleanup_inventory_guard_trg",
       ["INSERT", "UPDATE", "DELETE"],

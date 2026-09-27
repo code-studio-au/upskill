@@ -1085,10 +1085,24 @@ const offlineScormCloudFrontWorkLeaseMigration = fs.readFileSync(
   ),
   "utf8",
 );
+const offlineScormCloudFrontIssuanceMigration = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/db/migrations/0122_offline_scorm_cloudfront_issuance.ts",
+  ),
+  "utf8",
+);
 const offlineScormCloudFrontAllocationWorker = fs.readFileSync(
   path.join(
     root,
     "src/server/scorm/offline-scorm-cloudfront-allocation.server.ts",
+  ),
+  "utf8",
+);
+const offlineScormCloudFrontEntitlementWorkflow = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/scorm/offline-scorm-cloudfront-entitlement.server.ts",
   ),
   "utf8",
 );
@@ -1335,6 +1349,36 @@ for (const boundary of [
   if (!offlineScormCloudFrontWorkLeaseMigration.includes(boundary))
     failures.push(
       `Offline SCORM CloudFront work-lease guard is missing: ${boundary}`,
+    );
+for (const boundary of [
+  "offline_scorm_cloudfront_reservation_shape_ck",
+  "offline_scorm_cloudfront_reservation_installation_fk",
+  "offline_scorm_cloudfront_reservation_attempt_package_fk",
+  "offline_scorm_cloudfront_reservation_attempt_uq",
+  "guard_offline_scorm_cloudfront_reservation",
+  "CloudFront reservation authority is immutable",
+  "offline_scorm_cloudfront_reservation_guard_trg",
+])
+  if (!offlineScormCloudFrontIssuanceMigration.includes(boundary))
+    failures.push(
+      `Offline SCORM CloudFront issuance model is missing: ${boundary}`,
+    );
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  "lockActiveOfflineScormSession(",
+  'where("status", "=", "active")',
+  "resolveScormLaunchPolicy(",
+  "lockOrCreateScormAttempt(",
+  'where("state", "!=", "deleted")',
+  ".forUpdate()",
+  "reservationMatches(",
+  "issueOfflineScormEntitlementInTransaction(",
+  'state: "enabling"',
+  'where("state", "=", "binding_pending")',
+])
+  if (!offlineScormCloudFrontEntitlementWorkflow.includes(boundary))
+    failures.push(
+      `Offline SCORM CloudFront entitlement workflow is missing: ${boundary}`,
     );
 for (const boundary of [
   'import "@tanstack/react-start/server-only"',

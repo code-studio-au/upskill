@@ -539,6 +539,14 @@ interface OfflineScormCleanupInventoryTable {
 
 interface OfflineScormCloudFrontAllocationTable {
   entitlementId: string;
+  userId: Generated<string | null>;
+  installationId: Generated<string | null>;
+  attemptId: Generated<string | null>;
+  courseEnrollmentId: Generated<string | null>;
+  courseModulePosition: Generated<number | null>;
+  courseVersionItemId: Generated<string | null>;
+  scormPackageVersionId: Generated<string | null>;
+  packageSha256: Generated<string | null>;
   distributionId: string | null;
   distributionDomain: string | null;
   state: Generated<
