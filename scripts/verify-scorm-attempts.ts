@@ -2293,6 +2293,80 @@ try {
     { state: "cleared", cleanupReceiptSha256 },
   );
 
+  const administratorCleanupIssuance = await issueOfflineScormEntitlement(
+    {
+      target: {
+        kind: "course",
+        enrollmentId: ids.enrollment,
+        modulePosition: 0,
+      },
+      installationId: ids.installation,
+      sessionId: ids.session,
+    },
+    user,
+    signEntitlement,
+    provisionPackageSite,
+  );
+  if (administratorCleanupIssuance.status !== "issued")
+    assert.fail(
+      `Expected administrator-cleanup issuance, received ${administratorCleanupIssuance.reason}`,
+    );
+  const administratorEndedAt = new Date();
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .updateTable("scorm_attempt")
+      .set({
+        writerMode: "online",
+        offlineEntitlementId: null,
+        credentialGeneration: administratorCleanupIssuance.writerGeneration + 1,
+        updatedAt: administratorEndedAt,
+      })
+      .where("id", "=", administratorCleanupIssuance.attemptId)
+      .executeTakeFirstOrThrow();
+    await transaction
+      .updateTable("offline_learning_entitlement")
+      .set({
+        status: "resolved",
+        resolution: "administrator_resolved",
+        resolvedByUserId: user.id,
+        endedAt: administratorEndedAt,
+      })
+      .where("id", "=", administratorCleanupIssuance.entitlementId)
+      .executeTakeFirstOrThrow();
+  });
+  const administratorCleanupResolution =
+    await resolveOfflineScormCourseEntitlement(
+      {
+        schemaVersion: 1,
+        entitlementId: administratorCleanupIssuance.entitlementId,
+        resolution: "discarded",
+      },
+      user,
+    );
+  assert.equal(administratorCleanupResolution.status, "cleanup-required");
+  assert.deepEqual(
+    await database
+      .selectFrom("offline_learning_entitlement")
+      .select(["status", "resolution", "resolvedByUserId"])
+      .where("id", "=", administratorCleanupIssuance.entitlementId)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "resolved",
+      resolution: "administrator_resolved",
+      resolvedByUserId: user.id,
+    },
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("offline_scorm_cleanup_inventory")
+        .select("state")
+        .where("entitlementId", "=", administratorCleanupIssuance.entitlementId)
+        .executeTakeFirstOrThrow()
+    ).state,
+    "clearing",
+  );
+
   const eventAttempt = await database
     .selectFrom("scorm_attempt")
     .select([

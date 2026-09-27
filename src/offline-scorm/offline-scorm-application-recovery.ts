@@ -40,8 +40,10 @@ export function offlineScormPackageStateSupportsOperation(input: {
 
 export function offlineScormRemovalResolution(input: {
   hasDiscardedJournal: boolean;
-  serverResolution: "discarded" | "reconciled" | undefined;
+  serverResolution:
+    "administrator_resolved" | "discarded" | "reconciled" | undefined;
 }): "discarded" | "reconciled" {
+  if (input.serverResolution === "administrator_resolved") return "discarded";
   return (
     input.serverResolution ??
     (input.hasDiscardedJournal ? "discarded" : "reconciled")

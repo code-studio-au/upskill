@@ -90,6 +90,12 @@ describe("offline SCORM application recovery", () => {
     expect(
       offlineScormRemovalResolution({
         hasDiscardedJournal: false,
+        serverResolution: "administrator_resolved",
+      }),
+    ).toBe("discarded");
+    expect(
+      offlineScormRemovalResolution({
+        hasDiscardedJournal: false,
         serverResolution: "discarded",
       }),
     ).toBe("discarded");

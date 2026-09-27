@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  OFFLINE_SCORM_PWA_HANDOFF_STORAGE_KEY,
   isRelatedWebApplicationInstalled,
   isStandaloneApplication,
+  rememberOfflineScormPwaHandoff,
 } from "#/offline-scorm/pwa-installation";
 
 describe("offline application installation detection", () => {
@@ -40,5 +42,26 @@ describe("offline application installation detection", () => {
         ),
       }),
     ).resolves.toBe(false);
+  });
+
+  it("stores only a bounded offline-learning handoff path", () => {
+    const storage = { setItem: vi.fn() };
+    expect(
+      rememberOfflineScormPwaHandoff(
+        "https://app.example.test/offline-learning.html?enrollmentId=enrollment_1#module",
+        storage,
+      ),
+    ).toBe(true);
+    expect(storage.setItem).toHaveBeenCalledWith(
+      OFFLINE_SCORM_PWA_HANDOFF_STORAGE_KEY,
+      "/offline-learning.html?enrollmentId=enrollment_1#module",
+    );
+    expect(
+      rememberOfflineScormPwaHandoff(
+        "https://app.example.test/dashboard",
+        storage,
+      ),
+    ).toBe(false);
+    expect(rememberOfflineScormPwaHandoff("not a URL", storage)).toBe(false);
   });
 });

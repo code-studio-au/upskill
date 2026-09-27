@@ -5,6 +5,7 @@ import {
   type OfflineScormPackageManifest,
 } from "#/features/scorm/offline-scorm-package-prototype";
 import { scormProgressInputSchema } from "#/features/scorm/scorm.schema";
+import { OFFLINE_SCORM_PACKAGE_WORKER_REGISTRATION_OPTIONS } from "#/offline-scorm/service-worker-registration";
 
 const PROTOCOL_VERSION = 1;
 const parentOrigin = document.referrer
@@ -344,7 +345,7 @@ window.addEventListener("pagehide", () => {
 void navigator.serviceWorker
   .register(
     `/.__upskill_offline__/worker.js?applicationOrigin=${encodeURIComponent(parentOrigin ?? "")}&learningOrigin=${encodeURIComponent(learningOrigin ?? "")}`,
-    { scope: "/", updateViaCache: "none" },
+    OFFLINE_SCORM_PACKAGE_WORKER_REGISTRATION_OPTIONS,
   )
   .then(() => navigator.serviceWorker.ready)
   .then(() =>

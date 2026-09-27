@@ -110,9 +110,13 @@ export function buildOfflineScormPackageWildcardSource(input: {
     input.suffix === "localhost"
   ) {
     const origin = parseExactOfflineScormOrigin(input.origin);
-    if (origin.protocol !== "http:" || !origin.hostname.endsWith(".localhost"))
+    if (
+      origin.protocol !== "http:" ||
+      (origin.hostname !== "localhost" &&
+        !origin.hostname.endsWith(".localhost"))
+    )
       throw new Error(
-        "Local offline SCORM CSP requires an HTTP .localhost origin",
+        "Local offline SCORM CSP requires an HTTP localhost origin",
       );
     return `http://*.localhost${origin.port ? `:${origin.port}` : ""}`;
   }

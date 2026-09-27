@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { environment } = vi.hoisted(() => ({
   environment: {
     APP_ENV: "test",
-    APP_ORIGIN: "http://app.localhost:8080",
+    APP_ORIGIN: "http://localhost:8080",
     LEARNING_ORIGIN: "http://learn.localhost:8080",
     OFFLINE_SCORM_PACKAGE_HOST_SUFFIX: "localhost",
   },
@@ -19,7 +19,7 @@ describe("offline SCORM learning runtime assets", () => {
   beforeEach(() => {
     Object.assign(environment, {
       APP_ENV: "test",
-      APP_ORIGIN: "http://app.localhost:8080",
+      APP_ORIGIN: "http://localhost:8080",
       LEARNING_ORIGIN: "http://learn.localhost:8080",
       OFFLINE_SCORM_PACKAGE_HOST_SUFFIX: "localhost",
     });

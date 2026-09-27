@@ -8,6 +8,10 @@ body {
   margin: 0;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 main {
   margin: 0 auto;
   max-width: 44rem;

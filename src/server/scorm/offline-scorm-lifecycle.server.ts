@@ -112,7 +112,8 @@ export async function resolveOfflineScormCourseEntitlement(
           .executeTakeFirstOrThrow();
       } else if (
         entitlement.status !== "resolved" ||
-        entitlement.resolution !== request.resolution
+        (entitlement.resolution !== "administrator_resolved" &&
+          entitlement.resolution !== request.resolution)
       )
         return { status: "denied", reason: "unavailable" } as const;
 

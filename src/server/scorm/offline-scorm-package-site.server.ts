@@ -80,13 +80,14 @@ export function createOfflineScormPackageSiteProvisioner(
       const learningOrigin = new URL(configuration.LEARNING_ORIGIN);
       if (
         applicationOrigin.protocol !== "http:" ||
-        !applicationOrigin.hostname.endsWith(".localhost") ||
+        (applicationOrigin.hostname !== "localhost" &&
+          !applicationOrigin.hostname.endsWith(".localhost")) ||
         learningOrigin.protocol !== "http:" ||
         !learningOrigin.hostname.endsWith(".localhost") ||
         applicationOrigin.port !== learningOrigin.port
       )
         throw new Error(
-          "Local offline SCORM requires HTTP .localhost application and learning origins on one port",
+          "Local offline SCORM requires HTTP localhost application and .localhost learning origins on one port",
         );
       return `http://${hostnameLabel}.${suffix}${applicationOrigin.port ? `:${applicationOrigin.port}` : ""}`;
     })();

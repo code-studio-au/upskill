@@ -177,7 +177,8 @@ async function loadContext(input: {
   learnerName: string;
   mode: "launch" | "remove" | "sync";
   packageOrigin: string;
-  recoveryResolution: "discarded" | "reconciled" | undefined;
+  recoveryResolution:
+    "administrator_resolved" | "discarded" | "reconciled" | undefined;
 }): Promise<void> {
   const optionalAttemptSnapshot = async () => {
     try {
@@ -208,7 +209,10 @@ async function loadContext(input: {
       ...input,
       removalRecovery: {
         locallyCompleted: false,
-        resolution: input.recoveryResolution,
+        resolution: offlineScormRemovalResolution({
+          hasDiscardedJournal: false,
+          serverResolution: input.recoveryResolution,
+        }),
         trustedBindingAbsent: true,
       },
     };
@@ -547,6 +551,7 @@ window.addEventListener("message", (event) => {
               : "launch",
         packageOrigin: new URL(String(message.packageOrigin)).origin,
         recoveryResolution:
+          message.recoveryResolution === "administrator_resolved" ||
           message.recoveryResolution === "discarded" ||
           message.recoveryResolution === "reconciled"
             ? message.recoveryResolution

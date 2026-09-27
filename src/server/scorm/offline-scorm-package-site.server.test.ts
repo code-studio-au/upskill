@@ -93,7 +93,7 @@ describe("offline SCORM package-site provisioner", () => {
   it("uses certificate-free sibling localhost sites only in local environments", () => {
     const localConfiguration = configuration({
       APP_ENV: "development",
-      APP_ORIGIN: "http://app.localhost:8080",
+      APP_ORIGIN: "http://localhost:8080",
       LEARNING_ORIGIN: "http://learn.localhost:8080",
       OFFLINE_SCORM_PACKAGE_SITE_SUFFIX: "localhost",
     });

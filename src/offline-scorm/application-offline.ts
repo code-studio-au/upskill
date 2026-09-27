@@ -19,6 +19,7 @@ import {
 import {
   isRelatedWebApplicationInstalled,
   isStandaloneApplication,
+  rememberOfflineScormPwaHandoff,
 } from "#/offline-scorm/pwa-installation";
 import "./application-offline.css";
 
@@ -38,7 +39,8 @@ interface RetainedCourse {
   courseVersionItemId: string;
   enrollmentId: string;
   entitlementId: string;
-  entitlementResolution: "discarded" | "reconciled" | null;
+  entitlementResolution:
+    "administrator_resolved" | "discarded" | "reconciled" | null;
   entitlementStatus: "active" | "resolved";
   intendedLaunchExpiresAt: string;
   modulePosition: number;
@@ -104,22 +106,33 @@ const courseList = element("offline-courses", HTMLElement);
 const downloadPanel = element("offline-download", HTMLElement);
 const downloadTitle = element("offline-download-title", HTMLElement);
 const downloadButton = element("offline-download-button", HTMLButtonElement);
+const reconnectLink = element("offline-reconnect", HTMLAnchorElement);
 const player = element("offline-player", HTMLElement);
 const playerTitle = element("offline-player-title", HTMLElement);
 const learningFrame = element("offline-learning-frame", HTMLIFrameElement);
 const packageFrame = element("offline-package-frame", HTMLIFrameElement);
 let active: Operation | undefined;
 let deferredInstallPrompt: DeferredInstallPrompt | undefined;
-let installedApplicationHandoff = false;
 let synchronizingAll = false;
 let serverCleanupStates = new Map<string, OfflineScormServerCleanupState>();
 let serverResolutionStates = new Map<
   string,
-  "discarded" | "reconciled" | null
+  "administrator_resolved" | "discarded" | "reconciled" | null
 >();
 let visibleLearnerId: string | undefined;
 
 class BootstrapResponseError extends Error {}
+
+function configureReconnectLink(requiresSignIn: boolean): void {
+  if (!requiresSignIn) {
+    reconnectLink.href = "/";
+    reconnectLink.textContent = "Reconnect to Upskill";
+    return;
+  }
+  const returnPath = `${location.pathname}${location.search}${location.hash}`;
+  reconnectLink.href = `/login?redirect=${encodeURIComponent(returnPath)}`;
+  reconnectLink.textContent = "Sign in to Upskill";
+}
 
 function isRetainedCourse(value: unknown): value is RetainedCourse {
   if (!value || typeof value !== "object") return false;
@@ -134,6 +147,7 @@ function isRetainedCourse(value: unknown): value is RetainedCourse {
     typeof record.enrollmentId === "string" &&
     typeof record.entitlementId === "string" &&
     (record.entitlementResolution === null ||
+      record.entitlementResolution === "administrator_resolved" ||
       record.entitlementResolution === "discarded" ||
       record.entitlementResolution === "reconciled") &&
     (record.entitlementStatus === "active" ||
@@ -170,18 +184,11 @@ function supportedMobileRuntime(): boolean {
 }
 
 function offerInstalledApplicationHandoff(message: string): void {
-  installedApplicationHandoff = true;
+  rememberOfflineScormPwaHandoff(location.href);
   deferredInstallPrompt = undefined;
-  downloadButton.disabled = false;
-  downloadButton.textContent = "Open installed Upskill";
+  downloadButton.disabled = true;
+  downloadButton.textContent = "Open Upskill from home screen";
   setStatus(message);
-}
-
-function openInstalledApplication(): void {
-  window.open(location.href, "_blank", "noopener,noreferrer");
-  setStatus(
-    "Continue in the installed Upskill app. If Chrome stays open, choose Open in Upskill from its menu or open Upskill from your home screen.",
-  );
 }
 
 async function jsonResponse<T>(response: Response): Promise<T> {
@@ -202,6 +209,12 @@ async function bootstrap(
     credentials: "same-origin",
   });
   if (!response.ok) {
+    if (response.status === 401) {
+      configureReconnectLink(true);
+      throw new BootstrapResponseError(
+        "Sign in to Upskill to continue with offline learning.",
+      );
+    }
     let message = "The signed-in learner could not be verified";
     try {
       const body = (await response.json()) as { error?: unknown };
@@ -244,6 +257,7 @@ async function bootstrap(
     throw new BootstrapResponseError(
       "The signed-in learner response could not be verified",
     );
+  configureReconnectLink(false);
   return body as Bootstrap;
 }
 
@@ -524,6 +538,9 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
   const records = visibleLearnerId
     ? allRecords.filter((record) => record.learnerId === visibleLearnerId)
     : [];
+  const targetRecord = target
+    ? records.find((record) => record.key === target.key)
+    : undefined;
   courseList.replaceChildren();
   for (const record of records) {
     const card = document.createElement("section");
@@ -535,7 +552,7 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
     if (record.state === "activating" || record.state === "downloading") {
       const resume = document.createElement("button");
       resume.type = "button";
-      resume.disabled = !navigator.onLine;
+      resume.disabled = !navigator.onLine || Boolean(active);
       resume.textContent =
         record.state === "activating" ? "Retry download" : "Resume download";
       resume.addEventListener("click", () => {
@@ -555,7 +572,7 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
     if (record.state === "blocked" || record.state === "removing") {
       const remove = document.createElement("button");
       remove.type = "button";
-      remove.disabled = !navigator.onLine;
+      remove.disabled = !navigator.onLine || Boolean(active);
       remove.textContent =
         record.state === "blocked" ? "Resolve and remove" : "Resume removal";
       remove.addEventListener("click", () => {
@@ -575,7 +592,7 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
     const expired = Date.now() >= Date.parse(record.intendedLaunchExpiresAt);
     const open = document.createElement("button");
     open.type = "button";
-    open.disabled = expired;
+    open.disabled = expired || Boolean(active);
     open.textContent = expired ? "Access ended" : "Open offline";
     open.addEventListener("click", () => {
       void beginExistingOperation("launch", record).catch((error: unknown) => {
@@ -584,7 +601,7 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
     });
     const sync = document.createElement("button");
     sync.type = "button";
-    sync.disabled = !navigator.onLine;
+    sync.disabled = !navigator.onLine || Boolean(active);
     sync.textContent = "Sync now";
     sync.addEventListener("click", () => {
       void beginExistingOperation("sync", record).catch((error: unknown) => {
@@ -593,7 +610,7 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
     });
     const remove = document.createElement("button");
     remove.type = "button";
-    remove.disabled = !navigator.onLine;
+    remove.disabled = !navigator.onLine || Boolean(active);
     remove.textContent = "Remove download";
     remove.addEventListener("click", () => {
       void beginExistingOperation("remove", record).catch((error: unknown) => {
@@ -605,7 +622,8 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
     courseList.append(card);
   }
   if (target) {
-    const existing = records.find((record) => record.key === target.key);
+    const existing = targetRecord;
+    downloadPanel.hidden = Boolean(existing);
     downloadButton.disabled =
       existing?.state === "ready" ||
       existing?.state === "blocked" ||
@@ -1027,10 +1045,6 @@ if (target) {
     ? "Download for offline"
     : "Offline on Android";
   downloadButton.addEventListener("click", () => {
-    if (installedApplicationHandoff) {
-      openInstalledApplication();
-      return;
-    }
     void beginInstall(target).catch((error: unknown) => {
       downloadButton.disabled = false;
       setStatus(

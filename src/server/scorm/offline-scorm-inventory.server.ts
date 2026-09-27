@@ -35,7 +35,8 @@ export interface OfflineScormCourseRecoveryRecord {
   courseVersionItemId: string;
   enrollmentId: string;
   entitlementId: string;
-  entitlementResolution: "discarded" | "reconciled" | null;
+  entitlementResolution:
+    "administrator_resolved" | "discarded" | "reconciled" | null;
   entitlementStatus: EntitlementStatus;
   intendedLaunchExpiresAt: string;
   modulePosition: number;
@@ -160,6 +161,7 @@ export async function listOfflineScormCourseRecoveryInventory(
       (row.entitlementStatus === "active" &&
         row.entitlementResolution !== null) ||
       (row.entitlementStatus === "resolved" &&
+        row.entitlementResolution !== "administrator_resolved" &&
         row.entitlementResolution !== "discarded" &&
         row.entitlementResolution !== "reconciled") ||
       row.modulePosition === null ||
@@ -173,6 +175,7 @@ export async function listOfflineScormCourseRecoveryInventory(
       enrollmentId: row.enrollmentId,
       entitlementId: row.entitlementId,
       entitlementResolution:
+        row.entitlementResolution === "administrator_resolved" ||
         row.entitlementResolution === "discarded" ||
         row.entitlementResolution === "reconciled"
           ? row.entitlementResolution

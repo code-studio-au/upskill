@@ -8,7 +8,10 @@ if (!/^\d{2,5}$/u.test(port) || Number(port) > 65_535)
   throw new Error("UPSKILL_ANDROID_PORT must be a valid user-space port");
 
 const adb = process.env.UPSKILL_ADB_PATH?.trim() || "adb";
-const applicationOrigin = `http://app.localhost:${port}`;
+// Android WebAPKs preserve the HTTP scheme only for the exact localhost
+// hostname. A subdomain such as app.localhost is installable, but Chrome
+// rewrites its packaged scope to HTTPS and opens its HTTP start URL in a tab.
+const applicationOrigin = `http://localhost:${port}`;
 const learningOrigin = `http://learn.localhost:${port}`;
 const runtime = await loadOrCreateOfflineScormAndroidRuntime();
 

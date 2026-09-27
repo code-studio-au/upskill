@@ -4,7 +4,7 @@ export const OFFLINE_COURSES_PAGE_PATH = "/offline-learning.html";
 export const OFFLINE_COURSES_SCRIPT_PATH = "/pwa/offline-learning.js";
 export const OFFLINE_COURSES_SHARED_PATH = "/pwa/shared.js";
 export const OFFLINE_COURSES_STYLE_PATH = "/pwa/offline-learning.css";
-export const APPLICATION_SERVICE_WORKER_SOURCE = `const APPLICATION_SHELL_CACHE = "upskill-application-shell-v4";
+export const APPLICATION_SERVICE_WORKER_SOURCE = `const APPLICATION_SHELL_CACHE = "upskill-application-shell-v7";
 const APPLICATION_SHELL_CACHE_PREFIX = "upskill-application-shell-";
 const OFFLINE_FALLBACK_URL = "/offline.html";
 const OFFLINE_COURSES_PAGE_PATH = "/offline-learning.html";
@@ -29,7 +29,8 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(APPLICATION_SHELL_CACHE)
-      .then((cache) => cache.addAll(APPLICATION_SHELL_ASSETS)),
+      .then((cache) => cache.addAll(APPLICATION_SHELL_ASSETS))
+      .then(() => self.skipWaiting()),
   );
 });
 
@@ -81,7 +82,45 @@ self.addEventListener("fetch", (event) => {
 
 export const REGISTRATION_SCRIPT_PATH = "/pwa/register.js";
 export const MOBILE_PWA_MEDIA_QUERY = "(hover: none) and (pointer: coarse)";
-export const REGISTRATION_SCRIPT_SOURCE = `if (
+export const PWA_HANDOFF_STORAGE_KEY =
+  "upskill:offline-scorm:pending-handoff:v1";
+export const REGISTRATION_SCRIPT_SOURCE = `const PWA_HANDOFF_STORAGE_KEY = ${JSON.stringify(PWA_HANDOFF_STORAGE_KEY)};
+const currentUrl = new URL(window.location.href);
+const standaloneApplication =
+  window.matchMedia("(display-mode: standalone)").matches ||
+  Boolean(navigator.standalone);
+function resumePendingOfflineHandoff() {
+  let pendingHandoff;
+  try {
+    pendingHandoff = window.localStorage.getItem(PWA_HANDOFF_STORAGE_KEY);
+    window.localStorage.removeItem(PWA_HANDOFF_STORAGE_KEY);
+  } catch {
+    pendingHandoff = undefined;
+  }
+  if (pendingHandoff)
+    try {
+      const target = new URL(pendingHandoff, currentUrl.origin);
+      if (
+        target.origin === currentUrl.origin &&
+        target.pathname === "/offline-learning.html" &&
+        target.href.length <= 4096
+      )
+        window.location.replace(target.href);
+    } catch {
+      // Ignore malformed handoff state and continue to the application home.
+    }
+}
+if (standaloneApplication && currentUrl.searchParams.get("source") === "pwa")
+  resumePendingOfflineHandoff();
+if (
+  "launchQueue" in window &&
+  typeof window.launchQueue.setConsumer === "function"
+)
+  window.launchQueue.setConsumer(() => {
+    resumePendingOfflineHandoff();
+  });
+
+if (
   "serviceWorker" in navigator &&
   window.matchMedia("${MOBILE_PWA_MEDIA_QUERY}").matches
 )
@@ -108,7 +147,8 @@ function offlineCoursesPage(
   const packageFrameSource =
     packageHostSuffix === "localhost" &&
     applicationUrl.protocol === "http:" &&
-    applicationUrl.hostname.endsWith(".localhost")
+    (applicationUrl.hostname === "localhost" ||
+      applicationUrl.hostname.endsWith(".localhost"))
       ? `http://*.localhost${applicationUrl.port ? `:${applicationUrl.port}` : ""}`
       : packageHostSuffix
         ? `https://*.${packageHostSuffix}`
@@ -140,7 +180,7 @@ function offlineCoursesPage(
         <button id="offline-download-button" type="button">Prepare offline</button>
       </section>
       <div id="offline-courses"></div>
-      <a class="action" href="/">Reconnect to Upskill</a>
+      <a class="action" id="offline-reconnect" href="/">Reconnect to Upskill</a>
     </main>
     <div id="offline-player" hidden>
       <div class="toolbar"><strong id="offline-player-title"></strong><button id="offline-player-close" type="button">Close</button></div>

@@ -10,10 +10,12 @@ import {
   OFFLINE_COURSES_SCRIPT_PATH,
   OFFLINE_COURSES_SHARED_PATH,
   OFFLINE_COURSES_STYLE_PATH,
+  PWA_HANDOFF_STORAGE_KEY,
   REGISTRATION_SCRIPT_PATH,
   REGISTRATION_SCRIPT_SOURCE,
   getPwaShellScriptAsset,
 } from "./pwa-shell-assets.mjs";
+import { OFFLINE_SCORM_PWA_HANDOFF_STORAGE_KEY } from "../src/offline-scorm/pwa-installation";
 
 const root = path.resolve(import.meta.dirname, "..");
 
@@ -33,6 +35,7 @@ function createWorkerHarness() {
   const serviceWorker = {
     addEventListener: vi.fn((type, listener) => listeners.set(type, listener)),
     location: { origin: "https://app.example.test" },
+    skipWaiting: vi.fn(async () => undefined),
   };
 
   vm.runInNewContext(APPLICATION_SERVICE_WORKER_SOURCE, {
@@ -44,25 +47,69 @@ function createWorkerHarness() {
     self: serviceWorker,
   });
 
-  return { cache, cacheStorage, clients, listeners, networkFetch };
+  return {
+    cache,
+    cacheStorage,
+    clients,
+    listeners,
+    networkFetch,
+    serviceWorker,
+  };
 }
 
-function createRegistrationHarness({ mobile }) {
+function createRegistrationHarness({
+  mobile,
+  pendingHandoff,
+  standalone = false,
+}) {
   const register = vi.fn(async () => undefined);
   const listeners = new Map();
-  const matchMedia = vi.fn(() => ({ matches: mobile }));
+  const matchMedia = vi.fn((query) => ({
+    matches:
+      query === MOBILE_PWA_MEDIA_QUERY
+        ? mobile
+        : query === "(display-mode: standalone)"
+          ? standalone
+          : false,
+  }));
+  const replace = vi.fn();
+  let launchConsumer;
+  const launchQueue = {
+    setConsumer: vi.fn((consumer) => {
+      launchConsumer = consumer;
+    }),
+  };
+  const localStorage = {
+    getItem: vi.fn(() => pendingHandoff),
+    removeItem: vi.fn(),
+  };
 
   vm.runInNewContext(REGISTRATION_SCRIPT_SOURCE, {
-    navigator: { serviceWorker: { register } },
+    URL,
+    navigator: { serviceWorker: { register }, standalone: false },
     window: {
       addEventListener: vi.fn((type, listener) =>
         listeners.set(type, listener),
       ),
+      localStorage,
+      launchQueue,
+      location: {
+        href: "https://app.example.test/?source=pwa",
+        replace,
+      },
       matchMedia,
     },
   });
 
-  return { listeners, matchMedia, register };
+  return {
+    launchConsumer: () => launchConsumer?.({ targetURL: undefined }),
+    launchQueue,
+    listeners,
+    localStorage,
+    matchMedia,
+    register,
+    replace,
+  };
 }
 
 describe("application PWA shell", () => {
@@ -144,6 +191,7 @@ describe("application PWA shell", () => {
     expect(page?.body).toContain("connect-src 'self'");
     expect(page?.body).toContain("script-src 'self'");
     expect(page?.body).toContain('id="offline-download-button"');
+    expect(page?.body).toContain('id="offline-reconnect" href="/"');
     expect(page?.body).toContain(`src="${OFFLINE_COURSES_SCRIPT_PATH}"`);
 
     expect(
@@ -181,8 +229,8 @@ describe("application PWA shell", () => {
     });
 
     const localPage = getPwaShellScriptAsset(
-      new URL(`http://app.localhost:8080${OFFLINE_COURSES_PAGE_PATH}`),
-      "http://app.localhost:8080",
+      new URL(`http://localhost:8080${OFFLINE_COURSES_PAGE_PATH}`),
+      "http://localhost:8080",
       {
         learningOrigin: "http://learn.localhost:8080",
         packageHostSuffix: "localhost",
@@ -190,6 +238,17 @@ describe("application PWA shell", () => {
     );
     expect(localPage?.body).toContain(
       "frame-src http://learn.localhost:8080 http://*.localhost:8080",
+    );
+  });
+
+  it("preserves native hidden semantics in the offline course shell", () => {
+    const offlineStyle = fs.readFileSync(
+      path.join(root, "src/offline-scorm/application-offline.css"),
+      "utf8",
+    );
+
+    expect(offlineStyle).toMatch(
+      /\[hidden\]\s*\{\s*display:\s*none\s*!important;/u,
     );
   });
 
@@ -210,8 +269,41 @@ describe("application PWA shell", () => {
     expect(desktop.register).not.toHaveBeenCalled();
   });
 
+  it("resumes a pending offline module only inside the standalone app", () => {
+    expect(PWA_HANDOFF_STORAGE_KEY).toBe(OFFLINE_SCORM_PWA_HANDOFF_STORAGE_KEY);
+    const browser = createRegistrationHarness({
+      mobile: true,
+      pendingHandoff: "/offline-learning.html?enrollmentId=enrollment_1",
+    });
+    expect(browser.replace).not.toHaveBeenCalled();
+    expect(browser.localStorage.removeItem).not.toHaveBeenCalled();
+    browser.launchConsumer();
+    expect(browser.replace).toHaveBeenCalledWith(
+      "https://app.example.test/offline-learning.html?enrollmentId=enrollment_1",
+    );
+
+    const application = createRegistrationHarness({
+      mobile: true,
+      pendingHandoff: "/offline-learning.html?enrollmentId=enrollment_1",
+      standalone: true,
+    });
+    expect(application.localStorage.removeItem).toHaveBeenCalledWith(
+      PWA_HANDOFF_STORAGE_KEY,
+    );
+    expect(application.replace).toHaveBeenCalledWith(
+      "https://app.example.test/offline-learning.html?enrollmentId=enrollment_1",
+    );
+
+    const malicious = createRegistrationHarness({
+      mobile: true,
+      pendingHandoff: "https://attacker.example/offline-learning.html",
+      standalone: true,
+    });
+    expect(malicious.replace).not.toHaveBeenCalled();
+  });
+
   it("pre-caches only the public offline shell", async () => {
-    const { cache, listeners } = createWorkerHarness();
+    const { cache, listeners, serviceWorker } = createWorkerHarness();
     let installation;
 
     listeners.get("install")({
@@ -234,6 +326,7 @@ describe("application PWA shell", () => {
       "/android-chrome-192x192.png",
       "/android-chrome-512x512.png",
     ]);
+    expect(serviceWorker.skipWaiting).toHaveBeenCalledOnce();
   });
 
   it("uses the static fallback only when a same-origin navigation is offline", async () => {
@@ -258,7 +351,7 @@ describe("application PWA shell", () => {
 
     await expect(response).resolves.toBe(offlineFallback);
     expect(cacheStorage.match).toHaveBeenCalledWith("/offline.html", {
-      cacheName: "upskill-application-shell-v4",
+      cacheName: "upskill-application-shell-v7",
     });
   });
 
@@ -280,7 +373,7 @@ describe("application PWA shell", () => {
     await expect(response).resolves.toBe(cachedScript);
     expect(cacheStorage.match).toHaveBeenCalledWith(
       "/pwa/offline-learning.js",
-      { cacheName: "upskill-application-shell-v4" },
+      { cacheName: "upskill-application-shell-v7" },
     );
   });
 
