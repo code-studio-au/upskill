@@ -362,6 +362,28 @@ static worker assets can be removed after active installations receive that
 cleanup version. The retained database model remains forward-only history
 until a later expand-and-contract migration can prove removal safe.
 
+ADR 0045 opens a separate, dormant qualification path for provider-owned
+package sites. Its first experiment allocates one disabled AWS CloudFront
+standard distribution per exact entitlement and forwards requests to the
+existing package-host boundary with an entitlement-bound HMAC origin header.
+The allocator is not present without explicit CDK context, is not invokable by
+the application or worker roles, and cannot activate a learner path in its
+current slice. Its generated HMAC authority remains managed across context
+removal and restoration so rollback cannot orphan a fixed-name production
+secret or replace active origin capabilities. The encrypted edge-log bucket
+also remains managed, and stable application-stack outputs retain its
+cross-stack imports so a multi-stack rollback cannot remove CloudFormation
+exports prematurely. A later forward-only model must persist the distribution
+identifier, AWS-owned origin and allocation lifecycle before any distribution
+can be enabled. The private-PSL package host and localhost development topology
+remain the executable design until ADR 0045 passes its browser, cleanup, quota,
+WAF, latency and cost gates and is amended to Accepted.
+
+The AWS-owned CloudFront hostname and default-certificate viewer policy were
+accepted for this qualification path on 2026-09-27. This resolves the TLS
+policy decision recorded by ADR 0045 but does not activate the path or waive
+its remaining browser-isolation, lifecycle, WAF, logging, quota and cost gates.
+
 ## Verification strategy
 
 - Unit-execute the worker to prove its precache allowlist, navigation-only
@@ -390,4 +412,5 @@ until a later expand-and-contract migration can prove removal safe.
 - [ADR 0042: Device-bound offline learning entitlements](../adr/0042-device-bound-offline-learning-entitlements.md)
 - [ADR 0043: Offline SCORM runtime and local progress journal](../adr/0043-offline-scorm-runtime-and-local-progress-journal.md)
 - [ADR 0044: Idempotent offline SCORM reconciliation](../adr/0044-idempotent-offline-scorm-reconciliation.md)
+- [ADR 0045: Provider-owned offline SCORM entitlement sites](../adr/0045-provider-owned-offline-scorm-entitlement-sites.md)
 - [Security architecture and threat boundaries](security-architecture-and-threat-boundaries.md)

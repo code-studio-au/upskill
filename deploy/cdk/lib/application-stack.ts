@@ -63,6 +63,7 @@ export interface ApplicationStackProps extends StackProps {
   vpc: Vpc;
   applicationSecurityGroup: SecurityGroup;
   artifactBucket: Bucket;
+  offlineScormEdgeLogBucket: Bucket;
   learningBucket: Bucket;
   privateBucket: Bucket;
   recordingBucket: Bucket;
@@ -382,6 +383,23 @@ export class ApplicationStack extends Stack {
             : RemovalPolicy.DESTROY,
       },
     );
+    const offlineScormCloudFrontOriginKey = new Secret(
+      this,
+      "OfflineScormCloudFrontOriginKey",
+      {
+        secretName: `upskill/${props.config.name}/offline-scorm/cloudfront-origin-key`,
+        description:
+          "Dormant HMAC authority for CloudFront origin requests, retained across qualification toggles",
+        generateSecretString: {
+          passwordLength: 64,
+          excludePunctuation: true,
+        },
+        removalPolicy:
+          props.config.name === "production"
+            ? RemovalPolicy.RETAIN
+            : RemovalPolicy.DESTROY,
+      },
+    );
     const accessCodeEncryptionSecret = new Secret(
       this,
       "AccessCodeEncryptionKey",
@@ -565,6 +583,105 @@ UPSKILL_ENV`,
       allocationId: elasticIp.attrAllocationId,
       instanceId: instance.instanceId,
     });
+    if (props.config.offlineScormCloudFrontQualification) {
+      const allocatorCode = Code.fromAsset(
+        fileURLToPath(
+          new URL(
+            "../lambda/offline-scorm-cloudfront-entitlement/",
+            import.meta.url,
+          ),
+        ),
+      );
+      const allocator = new LambdaFunction(
+        this,
+        "OfflineScormCloudFrontEntitlementAllocator",
+        {
+          runtime: Runtime.NODEJS_22_X,
+          handler: "index.handler",
+          code: allocatorCode,
+          timeout: Duration.minutes(2),
+          reservedConcurrentExecutions: 1,
+          description:
+            "Dormant operator-only allocator for exact-entitlement CloudFront qualification sites",
+          environment: {
+            UPSKILL_ENVIRONMENT: props.config.name,
+            UPSKILL_OFFLINE_SCORM_ORIGIN_DOMAIN:
+              props.config.offlineScormCloudFrontQualification.originDomain,
+            UPSKILL_OFFLINE_SCORM_ORIGIN_KEY_SECRET_ARN:
+              offlineScormCloudFrontOriginKey.secretArn,
+            UPSKILL_OFFLINE_SCORM_EDGE_LOG_BUCKET_DOMAIN:
+              props.offlineScormEdgeLogBucket.bucketDomainName,
+          },
+        },
+      );
+      offlineScormCloudFrontOriginKey.grantRead(allocator);
+      allocator.addToRolePolicy(
+        new PolicyStatement({
+          actions: ["s3:GetBucketAcl", "s3:PutBucketAcl"],
+          resources: [props.offlineScormEdgeLogBucket.bucketArn],
+        }),
+      );
+      allocator.addToRolePolicy(
+        new PolicyStatement({
+          actions: [
+            "cloudfront:CreateDistributionWithTags",
+            "cloudfront:ListDistributions",
+          ],
+          resources: ["*"],
+        }),
+      );
+      allocator.addToRolePolicy(
+        new PolicyStatement({
+          actions: [
+            "cloudfront:DeleteDistribution",
+            "cloudfront:GetDistribution",
+            "cloudfront:GetDistributionConfig",
+            "cloudfront:ListTagsForResource",
+            "cloudfront:UpdateDistribution",
+          ],
+          resources: [
+            this.formatArn({
+              service: "cloudfront",
+              region: "",
+              resource: "distribution",
+              resourceName: "*",
+            }),
+          ],
+        }),
+      );
+      const allocatorAlarmDefaults = {
+        evaluationPeriods: 1,
+        threshold: 1,
+        comparisonOperator:
+          ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: TreatMissingData.NOT_BREACHING,
+      } as const;
+      const allocatorErrorAlarm = new Alarm(
+        this,
+        "OfflineScormCloudFrontAllocatorErrorAlarm",
+        {
+          ...allocatorAlarmDefaults,
+          alarmName: `upskill-${props.config.name}-offline-scorm-cloudfront-allocator-errors`,
+          metric: allocator.metricErrors({ period: Duration.minutes(5) }),
+        },
+      );
+      const allocatorThrottleAlarm = new Alarm(
+        this,
+        "OfflineScormCloudFrontAllocatorThrottleAlarm",
+        {
+          ...allocatorAlarmDefaults,
+          alarmName: `upskill-${props.config.name}-offline-scorm-cloudfront-allocator-throttles`,
+          metric: allocator.metricThrottles({ period: Duration.minutes(5) }),
+        },
+      );
+      allocatorErrorAlarm.addAlarmAction(new SnsAction(props.alarmTopic));
+      allocatorThrottleAlarm.addAlarmAction(new SnsAction(props.alarmTopic));
+      new CfnOutput(this, "OfflineScormCloudFrontAllocatorFunctionName", {
+        value: allocator.functionName,
+        description:
+          "Dormant qualification allocator; the application role has no invoke permission",
+      });
+    }
     const packageHostLifecycleCode = Code.fromAsset(
       fileURLToPath(
         new URL(
@@ -933,6 +1050,16 @@ UPSKILL_ENV`,
       value: offlineScormConfigurationSecret.secretArn,
       description:
         "Populate the P-256 signing authority only before deliberate offline SCORM activation",
+    });
+    new CfnOutput(this, "OfflineScormEdgeLogBucketArn", {
+      value: props.offlineScormEdgeLogBucket.bucketArn,
+      description:
+        "Stable cross-stack binding retained across CloudFront qualification toggles",
+    });
+    new CfnOutput(this, "OfflineScormEdgeLogBucketDomain", {
+      value: props.offlineScormEdgeLogBucket.bucketDomainName,
+      description:
+        "Stable cross-stack binding retained across CloudFront qualification toggles",
     });
     if (props.config.offlineScormPackageHost)
       new CfnOutput(this, "OfflineScormPackageHostSuffix", {

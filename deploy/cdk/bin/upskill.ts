@@ -17,6 +17,7 @@ const config = environmentConfig(
     hostedZoneId: app.node.tryGetContext("offlineScormHostedZoneId"),
     hostedZoneName: app.node.tryGetContext("offlineScormHostedZoneName"),
   },
+  app.node.tryGetContext("offlineScormCloudFrontOriginDomain"),
 );
 const stackPrefix = `upskill-${config.name}`;
 const account = process.env.CDK_DEFAULT_ACCOUNT;
@@ -52,6 +53,7 @@ const application = new ApplicationStack(app, `${stackPrefix}-application`, {
   vpc: network.vpc,
   applicationSecurityGroup: network.applicationSecurityGroup,
   artifactBucket: storage.artifactBucket,
+  offlineScormEdgeLogBucket: storage.offlineScormEdgeLogBucket,
   learningBucket: storage.learningBucket,
   privateBucket: storage.privateBucket,
   recordingBucket: storage.recordingBucket,
