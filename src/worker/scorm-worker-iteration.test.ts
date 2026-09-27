@@ -380,4 +380,57 @@ describe("runScormWorkerIteration", () => {
     expect(order).toEqual(["attendance", "room"]);
     expect(outcome.virtualAttendanceReconciliations.outcomes).toHaveLength(1);
   });
+
+  it("keeps queue polling non-blocking after processing CloudFront allocation work", async () => {
+    const consumeNextWorkMessage = vi
+      .fn()
+      .mockResolvedValue({ status: "no-work" });
+    const processAvailableOfflineScormCloudFrontAllocations = vi
+      .fn()
+      .mockResolvedValue({
+        outcomes: [
+          {
+            status: "bound" as const,
+            entitlementId: "entitlement_1",
+            distributionId: "E123456789ABCD",
+          },
+        ],
+        limitReached: false,
+      });
+
+    const outcome = await runScormWorkerIteration({
+      processAvailableEventVirtualRecordingDeletions:
+        processNoRecordingDeletions,
+      processAvailableEventCommunicationSchedules: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      processAvailableEventVirtualRoomOperations: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      processAvailableLiveKitRecordingReceipts: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      processAvailableEventVirtualLobbyEligibilityRevocations: vi
+        .fn()
+        .mockResolvedValue({ outcomes: [], limitReached: false }),
+      processAvailableEventVirtualRecoveryDeliveries: vi
+        .fn()
+        .mockResolvedValue({ outcomes: [], limitReached: false }),
+      processAvailableOfflineScormCloudFrontAllocations,
+      dispatchAvailableOutboxEvents: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      consumeNextWorkMessage,
+    });
+
+    expect(
+      processAvailableOfflineScormCloudFrontAllocations,
+    ).toHaveBeenCalledOnce();
+    expect(outcome.offlineScormCloudFrontAllocations.outcomes).toHaveLength(1);
+    expect(consumeNextWorkMessage).toHaveBeenCalledWith(0);
+  });
 });

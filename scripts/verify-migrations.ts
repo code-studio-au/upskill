@@ -318,6 +318,8 @@ try {
           'offline_scorm_cloudfront_allocation_error_ck',
           'offline_scorm_cloudfront_allocation_state_ck',
           'offline_scorm_cloudfront_allocation_timeline_ck',
+          'offline_scorm_cloudfront_allocation_attempts_ck',
+          'offline_scorm_cloudfront_allocation_work_timeline_ck',
           'offline_scorm_cleanup_inventory_entitlement_uq',
           'offline_scorm_cleanup_inventory_origin_uq',
           'offline_scorm_cleanup_inventory_entitlement_fk',
@@ -327,7 +329,7 @@ try {
         )`.execute(db);
   assert.equal(
     offlineScormConstraints.rows.length,
-    36,
+    38,
     "Offline SCORM identity, writer, deadline, receipt, allocation and cleanup constraints must exist",
   );
   for (const [triggerName, operations] of [

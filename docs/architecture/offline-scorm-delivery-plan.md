@@ -366,9 +366,8 @@ ADR 0045 opens a separate, dormant qualification path for provider-owned
 package sites. Its first experiment allocates one disabled AWS CloudFront
 standard distribution per exact entitlement and forwards requests to the
 existing package-host boundary with an entitlement-bound HMAC origin header.
-The allocator is not present without explicit CDK context, is not invokable by
-the application or worker roles, and cannot activate a learner path in its
-current slice. Its generated HMAC authority remains managed across context
+The allocator is not present without explicit CDK context and cannot activate a
+learner path on its own. Its generated HMAC authority remains managed across context
 removal and restoration so rollback cannot orphan a fixed-name production
 secret or replace active origin capabilities. The encrypted edge-log bucket
 also remains managed, and stable application-stack outputs retain its
@@ -377,10 +376,21 @@ exports prematurely. Migration 0120 now adds the dormant reservation and
 retained lifecycle evidence for the unique distribution identifier and
 AWS-owned domain. The row is written in `allocating` before an external request,
 retains an exact needs-attention recovery phase after an uncertain response and
-makes a bound distribution identity immutable. It grants no allocator
-invocation and does not connect the model to learner issuance; a later
-server-owned workflow must atomically bind the entitlement and cleanup
-inventory before enabling. The private-PSL package host and localhost
+makes a bound distribution identity immutable. Migration 0121 now adds bounded
+attempt, availability and lease evidence. A dormant worker claims pre-existing
+reservations with row locks, allocates or recovers exactly one disabled
+distribution, preserves its immutable binding and waits at `binding_pending`.
+It promotes activation only after an active entitlement and pending cleanup
+inventory exist with the exact bound CloudFront origin. It does not create
+reservations, issue entitlements, retire distributions or expose learner UI.
+
+Under the current low-cost topology, web and worker share the EC2 instance IAM
+role. CDK grants that role invoke permission only for the exact allocator, while
+the function name and process marker are written only to the root-owned worker
+environment. This narrows normal composition but is not process isolation or a
+distinct AWS principal. A
+dedicated worker compute identity or explicit shared-host risk acceptance is a
+remaining activation gate. The private-PSL package host and localhost
 development topology remain the executable design until ADR 0045 passes its
 browser, cleanup, quota, WAF, latency and cost gates and is amended to Accepted.
 
@@ -415,7 +425,8 @@ its remaining browser-isolation, lifecycle, WAF, logging, quota and cost gates.
   activation, including Course/Event equivalence and malicious identifiers.
 - Run `pnpm run db:verify:offline-scorm-model` to prove installation,
   entitlement, writer-generation, receipt-idempotency and cleanup-lifecycle
-  constraints while the model remains unreachable.
+  constraints plus CloudFront allocation leases, retry recovery and the
+  binding-to-activation handoff while the model remains unreachable.
 - Add deterministic crash-point tests across spool, import, signing,
   reconciliation and receipt recovery.
 - Run `pnpm run verify:app` for every application slice,

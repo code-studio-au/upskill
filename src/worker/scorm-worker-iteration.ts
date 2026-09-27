@@ -7,6 +7,7 @@ import type { EventVirtualLobbyEligibilityRevocationBatch } from "#/server/event
 import type { LiveKitRecordingReceiptBatch } from "#/server/events/event-virtual-recording-receipts.server";
 import type { EventVirtualRecordingDeletionBatch } from "#/server/events/event-virtual-recording-retention.server";
 import type { EventVirtualAttendanceReconciliationBatch } from "#/server/events/event-virtual-attendance.server";
+import type { OfflineScormCloudFrontAllocationBatch } from "#/server/scorm/offline-scorm-cloudfront-allocation.server";
 
 const ELIGIBILITY_RECONCILIATION_MAX_QUEUE_WAIT_SECONDS = 1;
 
@@ -18,6 +19,7 @@ export interface ScormWorkerIterationDependencies {
   processAvailableEventVirtualLobbyEligibilityRevocations: () => Promise<EventVirtualLobbyEligibilityRevocationBatch>;
   processAvailableEventVirtualRecoveryDeliveries: () => Promise<EventVirtualRecoveryDeliveryBatch>;
   processAvailableEventVirtualAttendanceReconciliations?: () => Promise<EventVirtualAttendanceReconciliationBatch>;
+  processAvailableOfflineScormCloudFrontAllocations?: () => Promise<OfflineScormCloudFrontAllocationBatch>;
   dispatchAvailableOutboxEvents: () => Promise<OutboxDispatchBatch>;
   consumeNextWorkMessage: (
     waitTimeSeconds?: number,
@@ -32,6 +34,7 @@ export interface ScormWorkerIterationOutcome {
   virtualLobbyEligibilityRevocations: EventVirtualLobbyEligibilityRevocationBatch;
   virtualRecoveryDeliveries: EventVirtualRecoveryDeliveryBatch;
   virtualAttendanceReconciliations: EventVirtualAttendanceReconciliationBatch;
+  offlineScormCloudFrontAllocations: OfflineScormCloudFrontAllocationBatch;
   dispatch: OutboxDispatchBatch;
   consumption: WorkConsumerOutcome;
 }
@@ -54,6 +57,10 @@ export async function runScormWorkerIteration(
     dependencies.processAvailableEventVirtualAttendanceReconciliations
       ? await dependencies.processAvailableEventVirtualAttendanceReconciliations()
       : { outcomes: [], limitReached: false };
+  const offlineScormCloudFrontAllocations =
+    dependencies.processAvailableOfflineScormCloudFrontAllocations
+      ? await dependencies.processAvailableOfflineScormCloudFrontAllocations()
+      : { outcomes: [], limitReached: false };
   const virtualRooms =
     liveKitRecordingReceipts.limitReached ||
     virtualAttendanceReconciliations.limitReached
@@ -70,6 +77,7 @@ export async function runScormWorkerIteration(
       virtualLobbyEligibilityRevocations.outcomes.length > 0 ||
       virtualRecoveryDeliveries.outcomes.length > 0 ||
       virtualAttendanceReconciliations.outcomes.length > 0 ||
+      offlineScormCloudFrontAllocations.outcomes.length > 0 ||
       dispatch.outcomes.length > 0
       ? 0
       : ELIGIBILITY_RECONCILIATION_MAX_QUEUE_WAIT_SECONDS,
@@ -82,6 +90,7 @@ export async function runScormWorkerIteration(
     virtualLobbyEligibilityRevocations,
     virtualRecoveryDeliveries,
     virtualAttendanceReconciliations,
+    offlineScormCloudFrontAllocations,
     dispatch,
     consumption,
   };

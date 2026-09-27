@@ -1078,6 +1078,27 @@ const offlineScormCloudFrontAllocationMigration = fs.readFileSync(
   ),
   "utf8",
 );
+const offlineScormCloudFrontWorkLeaseMigration = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/db/migrations/0121_offline_scorm_cloudfront_work_leases.ts",
+  ),
+  "utf8",
+);
+const offlineScormCloudFrontAllocationWorker = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/scorm/offline-scorm-cloudfront-allocation.server.ts",
+  ),
+  "utf8",
+);
+const offlineScormCloudFrontProvider = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/scorm/offline-scorm-cloudfront-provider.server.ts",
+  ),
+  "utf8",
+);
 const offlineScormCloudFrontOrigin = fs.readFileSync(
   path.join(root, "src/server/scorm/offline-scorm-cloudfront-origin.server.ts"),
   "utf8",
@@ -1302,6 +1323,42 @@ for (const boundary of [
   if (!offlineScormCloudFrontAllocationMigration.includes(boundary))
     failures.push(
       `Offline SCORM CloudFront allocation guard is missing: ${boundary}`,
+    );
+for (const boundary of [
+  "offline_scorm_cloudfront_allocation_attempts_ck",
+  "offline_scorm_cloudfront_allocation_work_timeline_ck",
+  "state in ('allocating', 'enabling', 'disabling', 'deletion_pending')",
+  "where state not in ('active', 'deleted')",
+])
+  if (!offlineScormCloudFrontWorkLeaseMigration.includes(boundary))
+    failures.push(
+      `Offline SCORM CloudFront work-lease guard is missing: ${boundary}`,
+    );
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  'where("attempts", "<", MAXIMUM_ATTEMPTS)',
+  'where("attempts", ">=", MAXIMUM_ATTEMPTS)',
+  'const reasonCode = "allocator_attempts_exhausted"',
+  ".forUpdate()",
+  ".skipLocked()",
+  'where("entitlement.status", "=", "active")',
+  'where("cleanup.state", "=", "pending")',
+  'state: "binding_pending"',
+  'state: "active"',
+])
+  if (!offlineScormCloudFrontAllocationWorker.includes(boundary))
+    failures.push(
+      `Offline SCORM CloudFront allocation worker boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  'InvocationType: "RequestResponse"',
+  "output.Payload.byteLength > 16_384",
+  'environment.UPSKILL_PROCESS_ROLE !== "worker"',
+  "new LambdaClient({ region: environment.AWS_REGION, maxAttempts: 3 })",
+])
+  if (!offlineScormCloudFrontProvider.includes(boundary))
+    failures.push(
+      `Offline SCORM CloudFront provider boundary is missing: ${boundary}`,
     );
 for (const boundary of [
   'import "@tanstack/react-start/server-only"',
@@ -2247,6 +2304,9 @@ for (const invariant of [
   'if [[ -n "$recording_access_grants_account_id" ]]',
   "/livekit/recording-access-grants-account-id",
   "LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID",
+  "/offline-scorm/cloudfront-allocator-function-name",
+  "OFFLINE_SCORM_CLOUDFRONT_ALLOCATOR_FUNCTION_NAME",
+  'UPSKILL_PROCESS_ROLE="worker"',
   'LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT',
   'OFFLINE_SCORM_ENABLED" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID',
   'OFFLINE_SCORM_PACKAGE_SITE_SUFFIX" or .key == "OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY',

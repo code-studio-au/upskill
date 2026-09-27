@@ -248,6 +248,13 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   expect(JSON.stringify(applicationTemplate.toJSON())).not.toContain(
     "cloudfront:CreateDistributionWithTags",
   );
+  applicationTemplate.resourcePropertiesCountIs(
+    "AWS::SSM::Parameter",
+    {
+      Name: "/upskill/staging/offline-scorm/cloudfront-allocator-function-name",
+    },
+    0,
+  );
   applicationTemplate.hasResourceProperties("AWS::SecretsManager::Secret", {
     Name: "upskill/staging/livekit",
     Description: Match.stringLikeRegexp("Dormant LiveKit Cloud configuration"),
@@ -741,7 +748,7 @@ test("provisioned offline SCORM host retires the vhost before managed DNS and SS
   expect(serialized).not.toContain("route53:*");
 });
 
-test("CloudFront entitlement qualification is dormant and operator-only", () => {
+test("CloudFront entitlement qualification is dormant and worker-owned", () => {
   const app = new App();
   const config = environmentConfig(
     "staging",
@@ -813,8 +820,13 @@ test("CloudFront entitlement qualification is dormant and operator-only", () => 
     Type: "String",
     Value: "staging.upskill.institute",
   });
+  template.hasResourceProperties("AWS::SSM::Parameter", {
+    Name: "/upskill/staging/offline-scorm/cloudfront-allocator-function-name",
+    Type: "String",
+    Value: Match.anyValue(),
+  });
   template.hasResourceProperties("AWS::Lambda::Function", {
-    Description: Match.stringLikeRegexp("operator-only allocator"),
+    Description: Match.stringLikeRegexp("worker-owned allocator"),
     ReservedConcurrentExecutions: 1,
     Timeout: 120,
     Environment: {
@@ -827,7 +839,12 @@ test("CloudFront entitlement qualification is dormant and operator-only", () => 
   const serialized = JSON.stringify(template.toJSON());
   expect(serialized).toContain("OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN");
   expect(serialized).toContain("OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY");
+  expect(serialized).toContain(
+    "OFFLINE_SCORM_CLOUDFRONT_ALLOCATOR_FUNCTION_NAME",
+  );
+  expect(serialized).toContain("upskill-worker.env");
   expect(serialized).toContain("upskill-web.env");
+  expect(serialized).toContain("UPSKILL_PROCESS_ROLE");
   expect(serialized).toContain("cloudfront:CreateDistributionWithTags");
   expect(serialized).toContain("cloudfront:UpdateDistribution");
   expect(serialized).toContain("cloudfront:DeleteDistribution");
@@ -859,17 +876,18 @@ test("CloudFront entitlement qualification is dormant and operator-only", () => 
         JSON.stringify(role) === JSON.stringify({ Ref: instanceRoleLogicalId }),
     ),
   );
-  expect(JSON.stringify(instancePolicies)).not.toContain(
-    "lambda:InvokeFunction",
-  );
+  expect(JSON.stringify(instancePolicies)).toContain("lambda:InvokeFunction");
   expect(JSON.stringify(instancePolicies)).toContain(
     "OfflineScormCloudFrontOriginKey",
   );
   expect(JSON.stringify(instancePolicies)).toContain(
     "offline-scorm/cloudfront-origin-domain",
   );
+  expect(JSON.stringify(instancePolicies)).toContain(
+    "offline-scorm/cloudfront-allocator-function-name",
+  );
   expect(serialized).toContain(
-    "Dormant qualification allocator; the application role has no invoke permission",
+    "Dormant qualification allocator configured for the worker recovery boundary on the shared application host",
   );
   template.hasResourceProperties("AWS::CloudWatch::Alarm", {
     AlarmName: "upskill-staging-offline-scorm-cloudfront-allocator-errors",

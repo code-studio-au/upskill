@@ -210,6 +210,7 @@ export class ApplicationStack extends Stack {
       },
     );
     const offlineScormCloudFrontOriginDomainParameterName = `/upskill/${props.config.name}/offline-scorm/cloudfront-origin-domain`;
+    const offlineScormCloudFrontAllocatorFunctionParameterName = `/upskill/${props.config.name}/offline-scorm/cloudfront-allocator-function-name`;
     if (props.config.offlineScormCloudFrontQualification)
       new StringParameter(this, "OfflineScormCloudFrontOriginDomainParameter", {
         parameterName: offlineScormCloudFrontOriginDomainParameterName,
@@ -467,6 +468,12 @@ export class ApplicationStack extends Stack {
             resourceName:
               offlineScormCloudFrontOriginDomainParameterName.slice(1),
           }),
+          this.formatArn({
+            service: "ssm",
+            resource: "parameter",
+            resourceName:
+              offlineScormCloudFrontAllocatorFunctionParameterName.slice(1),
+          }),
         ],
       }),
     );
@@ -528,6 +535,23 @@ offline_scorm_cloudfront_origin_key=''
 if [[ -n "$offline_scorm_cloudfront_origin_domain" ]]; then
   offline_scorm_cloudfront_origin_key=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${offlineScormCloudFrontOriginKey.secretArn}' --query SecretString --output text)
 fi
+offline_scorm_cloudfront_allocator_function_name=''
+offline_scorm_cloudfront_allocator_parameter_error=$(mktemp)
+if offline_scorm_cloudfront_allocator_function_name=$(aws ssm get-parameter --region ${this.region} --name '${offlineScormCloudFrontAllocatorFunctionParameterName}' --query Parameter.Value --output text 2>"$offline_scorm_cloudfront_allocator_parameter_error"); then
+  :
+elif grep -Fq 'ParameterNotFound' "$offline_scorm_cloudfront_allocator_parameter_error"; then
+  offline_scorm_cloudfront_allocator_function_name=''
+else
+  cat "$offline_scorm_cloudfront_allocator_parameter_error" >&2
+  rm -f -- "$offline_scorm_cloudfront_allocator_parameter_error"
+  echo 'Unable to resolve Offline SCORM CloudFront allocator configuration' >&2
+  exit 1
+fi
+rm -f -- "$offline_scorm_cloudfront_allocator_parameter_error"
+if [[ -n "$offline_scorm_cloudfront_allocator_function_name" && ! "$offline_scorm_cloudfront_allocator_function_name" =~ ^[A-Za-z0-9_-]{1,64}$ ]]; then
+  echo 'Offline SCORM CloudFront allocator function name is invalid' >&2
+  exit 1
+fi
 database_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${props.databaseSecretArn}' --query SecretString --output text)
 web_database_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${webDatabaseCredentials.secretArn}' --query SecretString --output text)
 worker_database_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${workerDatabaseCredentials.secretArn}' --query SecretString --output text)
@@ -560,10 +584,14 @@ worker_database_url=$(jq -rn --argjson credentials "$worker_database_json" --arg
 cp "$base_environment_tmp" "$web_environment_tmp"
 cp "$base_environment_tmp" "$worker_environment_tmp"
 cp "$base_environment_tmp" "$deploy_environment_tmp"
+printf '%s\n' 'UPSKILL_PROCESS_ROLE="worker"' >> "$worker_environment_tmp"
 jq -r 'to_entries[] | select(.key == "OFFLINE_SCORM_ENABLED" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8" or .key == "OFFLINE_SCORM_PACKAGE_SITE_SUFFIX" or .key == "OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY") | "\\(.key)=\\(.value|tostring|@json)"' <<< "$offline_scorm_json" >> "$web_environment_tmp"
 if [[ -n "$offline_scorm_cloudfront_origin_domain" ]]; then
   jq -rn --arg value "$offline_scorm_cloudfront_origin_domain" '"OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN=\\($value|@json)"' >> "$web_environment_tmp"
   jq -rn --arg value "$offline_scorm_cloudfront_origin_key" '"OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY=\\($value|@json)"' >> "$web_environment_tmp"
+fi
+if [[ -n "$offline_scorm_cloudfront_allocator_function_name" ]]; then
+  jq -rn --arg value "$offline_scorm_cloudfront_allocator_function_name" '"OFFLINE_SCORM_CLOUDFRONT_ALLOCATOR_FUNCTION_NAME=\\($value|@json)"' >> "$worker_environment_tmp"
 fi
 jq -rn --arg value "$web_database_url" '"DATABASE_URL=\\($value|@json)"' >> "$web_environment_tmp"
 jq -rn --arg value "$worker_database_url" '"DATABASE_URL=\\($value|@json)"' >> "$worker_environment_tmp"
@@ -637,7 +665,7 @@ UPSKILL_ENV`,
           timeout: Duration.minutes(2),
           reservedConcurrentExecutions: 1,
           description:
-            "Dormant operator-only allocator for exact-entitlement CloudFront qualification sites",
+            "Dormant worker-owned allocator for exact-entitlement CloudFront qualification sites",
           environment: {
             UPSKILL_ENVIRONMENT: props.config.name,
             UPSKILL_OFFLINE_SCORM_ORIGIN_DOMAIN:
@@ -650,6 +678,18 @@ UPSKILL_ENV`,
         },
       );
       offlineScormCloudFrontOriginKey.grantRead(allocator);
+      allocator.grantInvoke(role);
+      const allocatorFunctionNameParameter = new StringParameter(
+        this,
+        "OfflineScormCloudFrontAllocatorFunctionNameParameter",
+        {
+          parameterName: offlineScormCloudFrontAllocatorFunctionParameterName,
+          description:
+            "Dormant CloudFront allocator function name for worker configuration",
+          stringValue: allocator.functionName,
+        },
+      );
+      instance.node.addDependency(allocatorFunctionNameParameter);
       allocator.addToRolePolicy(
         new PolicyStatement({
           actions: ["s3:GetBucketAcl", "s3:PutBucketAcl"],
@@ -714,7 +754,7 @@ UPSKILL_ENV`,
       new CfnOutput(this, "OfflineScormCloudFrontAllocatorFunctionName", {
         value: allocator.functionName,
         description:
-          "Dormant qualification allocator; the application role has no invoke permission",
+          "Dormant qualification allocator configured for the worker recovery boundary on the shared application host",
       });
     }
     const packageHostLifecycleCode = Code.fromAsset(
