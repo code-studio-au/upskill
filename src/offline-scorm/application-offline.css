@@ -372,16 +372,7 @@ button:focus-visible,
   width: 100%;
 }
 
-@media (max-width: 32rem) {
-  .app-header__inner,
-  .page-shell {
-    padding-inline: 1rem;
-  }
-
-  .brand__wordmark {
-    display: none;
-  }
-
+@media (max-width: 48rem) {
   .course,
   #offline-download {
     align-items: stretch;
@@ -394,7 +385,21 @@ button:focus-visible,
   }
 
   .course-actions button,
-  #offline-download-button,
+  #offline-download-button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 32rem) {
+  .app-header__inner,
+  .page-shell {
+    padding-inline: 1rem;
+  }
+
+  .brand__wordmark {
+    display: none;
+  }
+
   .page-actions,
   .page-actions .action {
     width: 100%;

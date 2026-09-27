@@ -273,6 +273,28 @@ describe("application PWA shell", () => {
     expect(offlineApplication).toContain(": `Open ${record.title} offline`");
   });
 
+  it("stacks offline course actions before narrow layouts overflow", () => {
+    const offlineStyle = fs.readFileSync(
+      path.join(root, "src/offline-scorm/application-offline.css"),
+      "utf8",
+    );
+    const stackedStart = offlineStyle.indexOf("@media (max-width: 48rem)");
+    const mobileStart = offlineStyle.indexOf("@media (max-width: 32rem)");
+
+    expect(stackedStart).toBeGreaterThan(-1);
+    expect(mobileStart).toBeGreaterThan(stackedStart);
+    const stackedStyles = offlineStyle.slice(stackedStart, mobileStart);
+    expect(stackedStyles).toMatch(
+      /\.course,\s*#offline-download\s*\{[^}]*grid-template-columns:\s*1fr;/u,
+    );
+    expect(stackedStyles).toMatch(
+      /\.course-actions\s*\{[^}]*grid-template-columns:\s*1fr;/u,
+    );
+    expect(stackedStyles).toMatch(
+      /\.course-actions button,\s*#offline-download-button\s*\{[^}]*width:\s*100%;/u,
+    );
+  });
+
   it("registers the application worker only on a mobile form factor", async () => {
     const mobile = createRegistrationHarness({ mobile: true });
     expect(mobile.matchMedia).toHaveBeenCalledWith(MOBILE_PWA_MEDIA_QUERY);
