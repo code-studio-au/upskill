@@ -125,7 +125,10 @@ both first boot and every release refresh reconstruct the same web-only
 authority; only an absent parameter disables that reconstruction, while other
 SSM or secret failures abort the refresh. Runtime composition deliberately
 hard-codes this mode off; no deployment flag or learner path is added by this
-slice.
+slice. The bootstrap server also claims either reserved origin header before
+its readiness, PWA, prototype or static-asset shortcuts, so malformed,
+incomplete and colliding package paths always reach the same validation
+boundary.
 
 The reservation intentionally precedes `offline_learning_entitlement`, so it
 does not have a foreign key to an entitlement that does not yet exist. The

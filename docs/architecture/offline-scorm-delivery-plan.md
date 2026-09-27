@@ -394,7 +394,10 @@ generated key only to the web environment when qualification context is
 present. Its conditional non-secret SSM origin marker lets first boot and every
 release refresh reconstruct the same web-only authority; unexpected SSM or
 secret failures fail the refresh instead of silently removing it. Runtime
-composition keeps the mode hard-disabled and exposes no activation flag.
+composition keeps the mode hard-disabled and exposes no activation flag. The
+bootstrap server defers readiness, PWA, prototype and static-asset shortcuts
+whenever either reserved origin header is present, ensuring those requests
+cannot bypass package-origin validation through a colliding application path.
 
 The AWS-owned CloudFront hostname and default-certificate viewer policy were
 accepted for this qualification path on 2026-09-27. This resolves the TLS

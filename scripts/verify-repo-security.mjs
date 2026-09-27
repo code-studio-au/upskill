@@ -2509,6 +2509,20 @@ const serverLauncher = fs.readFileSync(
   path.join(root, "scripts/start-server.mjs"),
   "utf8",
 );
+const offlineScormOriginHeaders = fs.readFileSync(
+  path.join(root, "scripts/offline-scorm-origin-headers.mjs"),
+  "utf8",
+);
+for (const invariant of [
+  '"x-upskill-offline-entitlement"',
+  '"x-upskill-offline-origin-capability"',
+  "headers[OFFLINE_SCORM_CLOUDFRONT_ENTITLEMENT_HEADER] !== undefined",
+  "headers[OFFLINE_SCORM_CLOUDFRONT_CAPABILITY_HEADER] !== undefined",
+])
+  if (!offlineScormOriginHeaders.includes(invariant))
+    failures.push(
+      `The bootstrap server must claim every reserved CloudFront origin header: ${invariant}`,
+    );
 for (const invariant of [
   "OFFLINE_SCORM_PACKAGE_HOST_SUFFIX",
   "const offlineScormPackagePort = 3002;",
@@ -2519,11 +2533,27 @@ for (const invariant of [
   "if (isOfflineScormPackageOrigin(requestOrigin(incoming))) return false;",
   "isOfflineScormPackageOrigin(origin)",
   "requestOrigin(incoming) === applicationOrigin",
+  "mayServeBootstrapShortcuts(incoming.headers)",
 ])
   if (!serverLauncher.includes(invariant))
     failures.push(
       `The offline SCORM package host must not fall through to application assets: ${invariant}`,
     );
+const cloudFrontBootstrapClaim = serverLauncher.indexOf(
+  "if (mayServeBootstrapShortcuts(incoming.headers))",
+);
+for (const shortcut of [
+  'requestPath === "/api/ready"',
+  "servePwaShellScript(incoming, outgoing)",
+  "serveOfflineScormPrototypeAsset(incoming, outgoing)",
+  "serveClientAsset(incoming, outgoing)",
+]) {
+  const shortcutIndex = serverLauncher.lastIndexOf(shortcut);
+  if (cloudFrontBootstrapClaim < 0 || shortcutIndex < cloudFrontBootstrapClaim)
+    failures.push(
+      `Reserved CloudFront origin headers must bypass the bootstrap shortcut: ${shortcut}`,
+    );
+}
 
 if (!packageJson.scripts?.build?.includes("precompress-client-assets.mjs"))
   failures.push("Production builds must create verified compression sidecars");

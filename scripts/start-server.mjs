@@ -15,6 +15,7 @@ import {
   isCompressibleContentType,
   selectContentEncoding,
 } from "./http-compression.mjs";
+import { mayServeBootstrapShortcuts } from "./offline-scorm-origin-headers.mjs";
 import { getOfflineScormPrototypeAsset } from "./offline-scorm-package-prototype-assets.mjs";
 import { getPwaShellScriptAsset } from "./pwa-shell-assets.mjs";
 
@@ -433,43 +434,46 @@ async function handleRequest(incoming, outgoing, packageOnly = false) {
       outgoing.end(method === "HEAD" ? undefined : "Misdirected Request\n");
       return;
     }
-    if (
-      requestPath === "/api/ready" &&
-      requestOrigin(incoming) === applicationOrigin &&
-      (method === "GET" || method === "HEAD")
-    ) {
-      outgoing.setHeader("cache-control", "no-store");
-      outgoing.setHeader("content-type", "application/json");
-      const requestedDeployment = new URL(
-        incoming.url ?? "/api/ready",
-        requestOrigin(incoming),
-      ).searchParams.get("deploymentId");
-      const deploymentId = process.env.DEPLOYMENT_ID ?? "development";
-      let ready = !requestedDeployment || requestedDeployment === deploymentId;
-      if (ready && readinessPool) {
-        try {
-          await readinessPool.query("select 1");
-        } catch {
+    if (mayServeBootstrapShortcuts(incoming.headers)) {
+      if (
+        requestPath === "/api/ready" &&
+        requestOrigin(incoming) === applicationOrigin &&
+        (method === "GET" || method === "HEAD")
+      ) {
+        outgoing.setHeader("cache-control", "no-store");
+        outgoing.setHeader("content-type", "application/json");
+        const requestedDeployment = new URL(
+          incoming.url ?? "/api/ready",
+          requestOrigin(incoming),
+        ).searchParams.get("deploymentId");
+        const deploymentId = process.env.DEPLOYMENT_ID ?? "development";
+        let ready =
+          !requestedDeployment || requestedDeployment === deploymentId;
+        if (ready && readinessPool) {
+          try {
+            await readinessPool.query("select 1");
+          } catch {
+            ready = false;
+          }
+        } else {
           ready = false;
         }
-      } else {
-        ready = false;
+        outgoing.statusCode = ready ? 200 : 503;
+        outgoing.end(
+          method === "HEAD"
+            ? undefined
+            : JSON.stringify({
+                status: ready ? "ready" : "not_ready",
+                service: "upskill",
+                deploymentId,
+              }),
+        );
+        return;
       }
-      outgoing.statusCode = ready ? 200 : 503;
-      outgoing.end(
-        method === "HEAD"
-          ? undefined
-          : JSON.stringify({
-              status: ready ? "ready" : "not_ready",
-              service: "upskill",
-              deploymentId,
-            }),
-      );
-      return;
+      if (servePwaShellScript(incoming, outgoing)) return;
+      if (serveOfflineScormPrototypeAsset(incoming, outgoing)) return;
+      if (await serveClientAsset(incoming, outgoing)) return;
     }
-    if (servePwaShellScript(incoming, outgoing)) return;
-    if (serveOfflineScormPrototypeAsset(incoming, outgoing)) return;
-    if (await serveClientAsset(incoming, outgoing)) return;
 
     const headers = new Headers();
     for (let index = 0; index < incoming.rawHeaders.length; index += 2) {
