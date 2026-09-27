@@ -373,11 +373,16 @@ removal and restoration so rollback cannot orphan a fixed-name production
 secret or replace active origin capabilities. The encrypted edge-log bucket
 also remains managed, and stable application-stack outputs retain its
 cross-stack imports so a multi-stack rollback cannot remove CloudFormation
-exports prematurely. A later forward-only model must persist the distribution
-identifier, AWS-owned origin and allocation lifecycle before any distribution
-can be enabled. The private-PSL package host and localhost development topology
-remain the executable design until ADR 0045 passes its browser, cleanup, quota,
-WAF, latency and cost gates and is amended to Accepted.
+exports prematurely. Migration 0120 now adds the dormant reservation and
+retained lifecycle evidence for the unique distribution identifier and
+AWS-owned domain. The row is written in `allocating` before an external request,
+retains an exact needs-attention recovery phase after an uncertain response and
+makes a bound distribution identity immutable. It grants no allocator
+invocation and does not connect the model to learner issuance; a later
+server-owned workflow must atomically bind the entitlement and cleanup
+inventory before enabling. The private-PSL package host and localhost
+development topology remain the executable design until ADR 0045 passes its
+browser, cleanup, quota, WAF, latency and cost gates and is amended to Accepted.
 
 The AWS-owned CloudFront hostname and default-certificate viewer policy were
 accepted for this qualification path on 2026-09-27. This resolves the TLS

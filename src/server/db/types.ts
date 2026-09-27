@@ -537,6 +537,35 @@ interface OfflineScormCleanupInventoryTable {
   updatedAt: Timestamp;
 }
 
+interface OfflineScormCloudFrontAllocationTable {
+  entitlementId: string;
+  distributionId: string | null;
+  distributionDomain: string | null;
+  state: Generated<
+    | "allocating"
+    | "binding_pending"
+    | "enabling"
+    | "active"
+    | "disabling"
+    | "deletion_pending"
+    | "deleted"
+    | "needs_attention"
+  >;
+  recoveryState:
+    "allocating" | "enabling" | "disabling" | "deletion_pending" | null;
+  lastErrorCode: string | null;
+  allocationStartedAt: Timestamp;
+  boundAt: Timestamp | null;
+  enableRequestedAt: Timestamp | null;
+  activatedAt: Timestamp | null;
+  disableRequestedAt: Timestamp | null;
+  disabledAt: Timestamp | null;
+  deletionRequestedAt: Timestamp | null;
+  deletedAt: Timestamp | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
 interface ScormAttemptContextTable {
   attemptId: string;
   userId: string;
@@ -2207,6 +2236,7 @@ export interface Database {
   notification_delivery_attempt: NotificationDeliveryAttemptTable;
   offline_learning_entitlement: OfflineLearningEntitlementTable;
   offline_learning_installation: OfflineLearningInstallationTable;
+  offline_scorm_cloudfront_allocation: OfflineScormCloudFrontAllocationTable;
   offline_scorm_cleanup_inventory: OfflineScormCleanupInventoryTable;
   offline_scorm_reconciliation_receipt: OfflineScormReconciliationReceiptTable;
   onboarding_assignment: OnboardingAssignmentTable;

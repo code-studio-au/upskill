@@ -1071,6 +1071,13 @@ const offlineScormSignedEntitlementMigration = fs.readFileSync(
   ),
   "utf8",
 );
+const offlineScormCloudFrontAllocationMigration = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/db/migrations/0120_offline_scorm_cloudfront_allocation.ts",
+  ),
+  "utf8",
+);
 const offlineScormSigningRuntime = fs.readFileSync(
   path.join(
     root,
@@ -1267,6 +1274,26 @@ for (const boundary of [
   if (!offlineScormSignedEntitlementMigration.includes(boundary))
     failures.push(
       `Offline SCORM signed-entitlement evidence guard is missing: ${boundary}`,
+    );
+for (const boundary of [
+  "offline_scorm_cloudfront_distribution_id_uq",
+  "offline_scorm_cloudfront_distribution_domain_uq",
+  "offline_scorm_cloudfront_allocation_state_ck",
+  "offline_scorm_cloudfront_allocation_timeline_ck",
+  'and "distributionDomain" is not null',
+  'and "recoveryState" is not null',
+  'and "lastErrorCode" is not null',
+  "guard_offline_scorm_cloudfront_allocation",
+  "CloudFront distribution binding is immutable",
+  "CloudFront lifecycle milestone is out of order",
+  "CloudFront allocation transition is not allowed",
+  "CloudFront recovery state must match failed work",
+  "offline_scorm_cloudfront_allocation_guard_trg",
+  "revoke delete on table offline_scorm_cloudfront_allocation",
+])
+  if (!offlineScormCloudFrontAllocationMigration.includes(boundary))
+    failures.push(
+      `Offline SCORM CloudFront allocation guard is missing: ${boundary}`,
     );
 for (const boundary of [
   'import "@tanstack/react-start/server-only"',
@@ -1984,6 +2011,7 @@ if (
 for (const table of [
   "offline_learning_installation",
   "offline_learning_entitlement",
+  "offline_scorm_cloudfront_allocation",
   "offline_scorm_cleanup_inventory",
 ])
   if (
