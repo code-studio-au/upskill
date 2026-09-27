@@ -395,6 +395,8 @@ export async function finalizeOfflineScormCloudFrontEntitlement(
           input.expectedPackage,
         );
         if (issuance.status === "denied") return issuance;
+        if (issuance.entitlementId !== allocation.entitlementId)
+          return { status: "denied", reason: "reservation-unavailable" };
         const issuedOffering = issuance.envelope.entitlement.offering;
         if (
           issuedOffering.kind !== "course" ||

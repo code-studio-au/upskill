@@ -2583,6 +2583,46 @@ try {
     cloudFrontEntitlementId,
   );
 
+  const resolvedCloudFrontEntitlement =
+    await resolveOfflineScormCourseEntitlement(
+      {
+        schemaVersion: 1,
+        entitlementId: cloudFrontEntitlementId,
+        resolution: "discarded",
+      },
+      user,
+    );
+  assert.equal(resolvedCloudFrontEntitlement.status, "cleanup-required");
+  const replacementPrivateIssuance = await issueOfflineScormEntitlement(
+    {
+      target: cloudFrontReservationInput.target,
+      installationId: cloudFrontReservationInput.installationId,
+      sessionId: cloudFrontReservationInput.sessionId,
+    },
+    user,
+    signEntitlement,
+    provisionPackageSite,
+    cloudFrontReservationInput.expectedPackage,
+  );
+  if (replacementPrivateIssuance.status !== "issued")
+    assert.fail(
+      `Expected replacement private issuance, received ${replacementPrivateIssuance.reason}`,
+    );
+  assert.notEqual(
+    replacementPrivateIssuance.entitlementId,
+    cloudFrontEntitlementId,
+  );
+  assert.deepEqual(
+    await finalizeOfflineScormCloudFrontEntitlement(
+      { entitlementId: cloudFrontEntitlementId, ...cloudFrontReservationInput },
+      user,
+      () => {
+        throw new Error("Stale CloudFront recovery must not sign again");
+      },
+    ),
+    { status: "denied", reason: "reservation-unavailable" },
+  );
+
   const eventAttempt = await database
     .selectFrom("scorm_attempt")
     .select([
