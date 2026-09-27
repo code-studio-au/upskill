@@ -27,6 +27,16 @@ export function createOriginCapability(
   entitlementId: string,
 ): string;
 
+export function readOriginKey(
+  secretArn: string,
+  secretsManager: {
+    SecretsManagerClient: new (configuration: Record<string, never>) => {
+      send(command: unknown): Promise<{ SecretString?: string }>;
+    };
+    GetSecretValueCommand: new (input: { SecretId: string }) => unknown;
+  },
+): Promise<string>;
+
 export function parseAllocatorRequest(input: unknown):
   | { operation: "allocate"; entitlementId: string }
   | {

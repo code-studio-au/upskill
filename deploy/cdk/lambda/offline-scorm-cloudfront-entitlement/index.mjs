@@ -184,19 +184,25 @@ async function awsModules() {
 }
 
 let originKeyPromise;
-async function readOriginKey(secretArn, secretsManager) {
-  originKeyPromise ??= (async () => {
-    const client = new secretsManager.SecretsManagerClient({});
-    const response = await client.send(
-      new secretsManager.GetSecretValueCommand({ SecretId: secretArn }),
-    );
-    const originKey = response.SecretString;
-    if (typeof originKey !== "string" || originKey.length < 43)
-      throw new Error(
-        "Offline SCORM CloudFront origin key secret is unavailable",
+export async function readOriginKey(secretArn, secretsManager) {
+  if (!originKeyPromise) {
+    const pendingOriginKey = (async () => {
+      const client = new secretsManager.SecretsManagerClient({});
+      const response = await client.send(
+        new secretsManager.GetSecretValueCommand({ SecretId: secretArn }),
       );
-    return originKey;
-  })();
+      const originKey = response.SecretString;
+      if (typeof originKey !== "string" || originKey.length < 43)
+        throw new Error(
+          "Offline SCORM CloudFront origin key secret is unavailable",
+        );
+      return originKey;
+    })();
+    originKeyPromise = pendingOriginKey;
+    void pendingOriginKey.catch(() => {
+      if (originKeyPromise === pendingOriginKey) originKeyPromise = undefined;
+    });
+  }
   return await originKeyPromise;
 }
 

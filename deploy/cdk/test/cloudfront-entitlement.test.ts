@@ -5,6 +5,7 @@ import {
   createOriginCapability,
   distributionMarker,
   parseAllocatorRequest,
+  readOriginKey,
 } from "../lambda/offline-scorm-cloudfront-entitlement/index.mjs";
 
 const originKey = "a".repeat(64);
@@ -22,6 +23,42 @@ describe("offline SCORM CloudFront entitlement allocator", () => {
     expect(distributionMarker("staging", "entitlement_a")).toMatch(
       /^upskill:staging:offline-scorm:[a-f0-9]{32}$/u,
     );
+  });
+
+  it("retries a transient origin-key read but caches a successful value", async () => {
+    let requests = 0;
+    class SecretsManagerClient {
+      send() {
+        requests += 1;
+        if (requests === 1)
+          return Promise.reject(new Error("transient Secrets Manager outage"));
+        return Promise.resolve({ SecretString: originKey });
+      }
+    }
+    class GetSecretValueCommand {
+      constructor(readonly input: { SecretId: string }) {}
+    }
+    const secretsManager = { SecretsManagerClient, GetSecretValueCommand };
+
+    await expect(
+      readOriginKey(
+        "arn:aws:secretsmanager:ap-southeast-2:123:secret:key",
+        secretsManager,
+      ),
+    ).rejects.toThrow("transient Secrets Manager outage");
+    await expect(
+      readOriginKey(
+        "arn:aws:secretsmanager:ap-southeast-2:123:secret:key",
+        secretsManager,
+      ),
+    ).resolves.toBe(originKey);
+    await expect(
+      readOriginKey(
+        "arn:aws:secretsmanager:ap-southeast-2:123:secret:key",
+        secretsManager,
+      ),
+    ).resolves.toBe(originKey);
+    expect(requests).toBe(2);
   });
 
   it("creates a disabled no-cache distribution before database binding", () => {
