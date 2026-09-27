@@ -107,8 +107,8 @@ test("staging storage is private, disposable and provides a dead-letter queue", 
       RestrictPublicBuckets: true,
     }),
   });
-  template.resourceCountIs("AWS::S3::Bucket", 5);
-  template.resourceCountIs("Custom::S3AutoDeleteObjects", 5);
+  template.resourceCountIs("AWS::S3::Bucket", 6);
+  template.resourceCountIs("Custom::S3AutoDeleteObjects", 6);
   const buckets = template.findResources("AWS::S3::Bucket") as Record<
     string,
     {
@@ -270,6 +270,16 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
       ExcludePunctuation: true,
       PasswordLength: 64,
     },
+  });
+  applicationTemplate.hasOutput("OfflineScormEdgeLogBucketArn", {
+    Description:
+      "Stable cross-stack binding retained across CloudFront qualification toggles",
+    Value: { "Fn::ImportValue": Match.anyValue() },
+  });
+  applicationTemplate.hasOutput("OfflineScormEdgeLogBucketDomain", {
+    Description:
+      "Stable cross-stack binding retained across CloudFront qualification toggles",
+    Value: { "Fn::ImportValue": Match.anyValue() },
   });
   const secrets = applicationTemplate.findResources(
     "AWS::SecretsManager::Secret",
@@ -862,7 +872,7 @@ test("production storage alarms on durable work backlog and dead letters", () =>
     environmentConfig("production"),
   );
   const template = Template.fromStack(stack);
-  template.resourceCountIs("AWS::S3::Bucket", 5);
+  template.resourceCountIs("AWS::S3::Bucket", 6);
   template.resourceCountIs("Custom::S3AutoDeleteObjects", 0);
   for (const bucket of Object.values(
     template.findResources("AWS::S3::Bucket"),

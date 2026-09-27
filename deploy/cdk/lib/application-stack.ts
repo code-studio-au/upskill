@@ -63,7 +63,7 @@ export interface ApplicationStackProps extends StackProps {
   vpc: Vpc;
   applicationSecurityGroup: SecurityGroup;
   artifactBucket: Bucket;
-  offlineScormEdgeLogBucket: Bucket | null;
+  offlineScormEdgeLogBucket: Bucket;
   learningBucket: Bucket;
   privateBucket: Bucket;
   recordingBucket: Bucket;
@@ -583,10 +583,7 @@ UPSKILL_ENV`,
       allocationId: elasticIp.attrAllocationId,
       instanceId: instance.instanceId,
     });
-    if (
-      props.config.offlineScormCloudFrontQualification &&
-      props.offlineScormEdgeLogBucket
-    ) {
+    if (props.config.offlineScormCloudFrontQualification) {
       const allocatorCode = Code.fromAsset(
         fileURLToPath(
           new URL(
@@ -1053,6 +1050,16 @@ UPSKILL_ENV`,
       value: offlineScormConfigurationSecret.secretArn,
       description:
         "Populate the P-256 signing authority only before deliberate offline SCORM activation",
+    });
+    new CfnOutput(this, "OfflineScormEdgeLogBucketArn", {
+      value: props.offlineScormEdgeLogBucket.bucketArn,
+      description:
+        "Stable cross-stack binding retained across CloudFront qualification toggles",
+    });
+    new CfnOutput(this, "OfflineScormEdgeLogBucketDomain", {
+      value: props.offlineScormEdgeLogBucket.bucketDomainName,
+      description:
+        "Stable cross-stack binding retained across CloudFront qualification toggles",
     });
     if (props.config.offlineScormPackageHost)
       new CfnOutput(this, "OfflineScormPackageHostSuffix", {

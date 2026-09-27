@@ -185,12 +185,15 @@ reviewed immediately before activation:
 [CloudFront pricing](https://aws.amazon.com/cloudfront/pricing/) and
 [S3 pricing](https://aws.amazon.com/s3/pricing/).
 
-The log bucket uses SSE-S3, blocks public access, grants the legacy CloudFront
-log-delivery ACL required by standard logging, and expires staging logs after
-30 days and production logs after 90 days. The allocator can read and update
-only that bucket's ACL as required while creating a legacy-logged distribution.
-If CloudFront logging moves to a bucket-owner-enforced delivery mechanism,
-restore disabled ACLs.
+The log bucket remains managed by the storage stack across qualification-context
+toggles, while stable application-stack outputs retain its ARN and domain
+imports. Rollback therefore cannot remove an export while the previous
+application template still imports it. The bucket uses SSE-S3, blocks public
+access, grants the legacy CloudFront log-delivery ACL required by standard
+logging, and expires staging logs after 30 days and production logs after 90
+days. The allocator can read and update only that bucket's ACL as required while
+creating a legacy-logged distribution. If CloudFront logging moves to a
+bucket-owner-enforced delivery mechanism, restore disabled ACLs.
 
 The generated origin-capability key remains managed by the application stack
 even while the explicit qualification context is absent. Removing and later

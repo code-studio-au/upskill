@@ -172,11 +172,57 @@ describe("offline SCORM CloudFront entitlement allocator", () => {
 
     const expectedOrigin = config.Origins.Items.at(0);
     if (!expectedOrigin) throw new Error("Missing distribution origin fixture");
+    const serviceReturnedConfig = {
+      ...structuredClone(config),
+      DefaultRootObject: "",
+      Staging: false,
+      ContinuousDeploymentPolicyId: "",
+      ConnectionMode: "direct",
+      AnycastIpListId: "",
+      ViewerCertificate: {
+        CloudFrontDefaultCertificate: true,
+        SSLSupportMethod: "vip",
+        MinimumProtocolVersion: "TLSv1",
+        CertificateSource: "cloudfront",
+      },
+      Origins: {
+        ...structuredClone(config.Origins),
+        Items: [
+          {
+            ...structuredClone(expectedOrigin),
+            OriginPath: "",
+            OriginAccessControlId: "",
+            OriginShield: { Enabled: false },
+          },
+        ],
+      },
+      DefaultCacheBehavior: {
+        ...structuredClone(config.DefaultCacheBehavior),
+        FieldLevelEncryptionId: "",
+        RealtimeLogConfigArn: "",
+        CachePolicyId: "",
+        OriginRequestPolicyId: "",
+        ResponseHeadersPolicyId: "",
+        LambdaFunctionAssociations: { Quantity: 0 },
+        FunctionAssociations: { Quantity: 0 },
+        GrpcConfig: { Enabled: false },
+      },
+    };
+    expect(() => {
+      assertOwnedConfiguration(
+        serviceReturnedConfig,
+        "staging",
+        "entitlement_a",
+        capability,
+        "staging.upskill.institute",
+        "offline-logs.s3.amazonaws.com",
+      );
+    }).not.toThrow();
     const driftedConfigurations = [
       {
-        ...structuredClone(config),
+        ...structuredClone(serviceReturnedConfig),
         Origins: {
-          ...structuredClone(config.Origins),
+          ...structuredClone(serviceReturnedConfig.Origins),
           Items: [
             {
               ...structuredClone(expectedOrigin),
@@ -186,22 +232,26 @@ describe("offline SCORM CloudFront entitlement allocator", () => {
         },
       },
       {
-        ...structuredClone(config),
+        ...structuredClone(serviceReturnedConfig),
         DefaultCacheBehavior: {
-          ...structuredClone(config.DefaultCacheBehavior),
+          ...structuredClone(serviceReturnedConfig.DefaultCacheBehavior),
           DefaultTTL: 300,
         },
       },
       {
-        ...structuredClone(config),
+        ...structuredClone(serviceReturnedConfig),
         Logging: {
-          ...structuredClone(config.Logging),
+          ...structuredClone(serviceReturnedConfig.Logging),
           Bucket: "attacker-logs.s3.amazonaws.com",
         },
       },
       {
-        ...structuredClone(config),
+        ...structuredClone(serviceReturnedConfig),
         Aliases: { Quantity: 1, Items: ["packages.example.com"] },
+      },
+      {
+        ...structuredClone(serviceReturnedConfig),
+        Staging: true,
       },
     ];
     for (const drifted of driftedConfigurations)

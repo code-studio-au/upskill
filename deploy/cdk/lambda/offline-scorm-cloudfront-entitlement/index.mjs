@@ -241,10 +241,110 @@ export function assertOwnedConfiguration(
     ...expected,
     Enabled: config.Enabled,
   };
-  if (!isDeepStrictEqual(config, expectedAtCurrentLifecycleState))
+  if (
+    !isDeepStrictEqual(
+      normalizeCloudFrontConfiguration(config),
+      normalizeCloudFrontConfiguration(expectedAtCurrentLifecycleState),
+    )
+  )
     throw new Error(
       "Refusing to mutate a CloudFront distribution outside the exact entitlement boundary",
     );
+}
+
+function withoutProviderDefault(object, key, expectedValue) {
+  if (!isDeepStrictEqual(object?.[key], expectedValue)) return object;
+  return Object.fromEntries(
+    Object.entries(object).filter(([entryKey]) => entryKey !== key),
+  );
+}
+
+function normalizeCloudFrontConfiguration(config) {
+  let normalized = structuredClone(config);
+  normalized = withoutProviderDefault(normalized, "DefaultRootObject", "");
+  normalized = withoutProviderDefault(normalized, "Staging", false);
+  normalized = withoutProviderDefault(
+    normalized,
+    "ContinuousDeploymentPolicyId",
+    "",
+  );
+  normalized = withoutProviderDefault(normalized, "ConnectionMode", "direct");
+  normalized = withoutProviderDefault(normalized, "AnycastIpListId", "");
+
+  let certificate = normalized.ViewerCertificate;
+  if (certificate?.CloudFrontDefaultCertificate === true) {
+    certificate = withoutProviderDefault(
+      certificate,
+      "SSLSupportMethod",
+      "vip",
+    );
+    certificate = withoutProviderDefault(
+      certificate,
+      "MinimumProtocolVersion",
+      "TLSv1",
+    );
+    certificate = withoutProviderDefault(
+      certificate,
+      "CertificateSource",
+      "cloudfront",
+    );
+    normalized.ViewerCertificate = certificate;
+  }
+
+  if (normalized.Origins?.Items)
+    normalized.Origins.Items = normalized.Origins.Items.map((origin) => {
+      let normalizedOrigin = withoutProviderDefault(origin, "OriginPath", "");
+      normalizedOrigin = withoutProviderDefault(
+        normalizedOrigin,
+        "OriginAccessControlId",
+        "",
+      );
+      return withoutProviderDefault(normalizedOrigin, "OriginShield", {
+        Enabled: false,
+      });
+    });
+
+  let defaultBehavior = normalized.DefaultCacheBehavior;
+  defaultBehavior = withoutProviderDefault(
+    defaultBehavior,
+    "FieldLevelEncryptionId",
+    "",
+  );
+  defaultBehavior = withoutProviderDefault(
+    defaultBehavior,
+    "RealtimeLogConfigArn",
+    "",
+  );
+  defaultBehavior = withoutProviderDefault(
+    defaultBehavior,
+    "CachePolicyId",
+    "",
+  );
+  defaultBehavior = withoutProviderDefault(
+    defaultBehavior,
+    "OriginRequestPolicyId",
+    "",
+  );
+  defaultBehavior = withoutProviderDefault(
+    defaultBehavior,
+    "ResponseHeadersPolicyId",
+    "",
+  );
+  defaultBehavior = withoutProviderDefault(
+    defaultBehavior,
+    "LambdaFunctionAssociations",
+    { Quantity: 0 },
+  );
+  defaultBehavior = withoutProviderDefault(
+    defaultBehavior,
+    "FunctionAssociations",
+    { Quantity: 0 },
+  );
+  defaultBehavior = withoutProviderDefault(defaultBehavior, "GrpcConfig", {
+    Enabled: false,
+  });
+  normalized.DefaultCacheBehavior = defaultBehavior;
+  return normalized;
 }
 
 async function findOwnedDistribution(

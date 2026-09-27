@@ -30,7 +30,7 @@ export class StorageStack extends Stack {
   readonly privateBucket: Bucket;
   readonly recordingBucket: Bucket;
   readonly artifactBucket: Bucket;
-  readonly offlineScormEdgeLogBucket: Bucket | null;
+  readonly offlineScormEdgeLogBucket: Bucket;
   readonly deadLetterQueue: Queue;
   readonly workQueue: Queue;
   readonly alarmTopic: Topic;
@@ -84,29 +84,28 @@ export class StorageStack extends Stack {
         },
       ],
     });
-    this.offlineScormEdgeLogBucket =
-      config.offlineScormCloudFrontQualification === null
-        ? null
-        : new Bucket(this, "OfflineScormEdgeLogBucket", {
-            encryption: BucketEncryption.S3_MANAGED,
-            blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
-            enforceSSL: true,
-            objectOwnership: ObjectOwnership.OBJECT_WRITER,
-            accessControl: BucketAccessControl.LOG_DELIVERY_WRITE,
-            autoDeleteObjects: config.name === "staging",
-            removalPolicy:
-              config.name === "production"
-                ? RemovalPolicy.RETAIN
-                : RemovalPolicy.DESTROY,
-            lifecycleRules: [
-              {
-                expiration: Duration.days(
-                  config.name === "production" ? 90 : 30,
-                ),
-                abortIncompleteMultipartUploadAfter: Duration.days(1),
-              },
-            ],
-          });
+    this.offlineScormEdgeLogBucket = new Bucket(
+      this,
+      "OfflineScormEdgeLogBucket",
+      {
+        encryption: BucketEncryption.S3_MANAGED,
+        blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+        enforceSSL: true,
+        objectOwnership: ObjectOwnership.OBJECT_WRITER,
+        accessControl: BucketAccessControl.LOG_DELIVERY_WRITE,
+        autoDeleteObjects: config.name === "staging",
+        removalPolicy:
+          config.name === "production"
+            ? RemovalPolicy.RETAIN
+            : RemovalPolicy.DESTROY,
+        lifecycleRules: [
+          {
+            expiration: Duration.days(config.name === "production" ? 90 : 30),
+            abortIncompleteMultipartUploadAfter: Duration.days(1),
+          },
+        ],
+      },
+    );
 
     this.deadLetterQueue = new Queue(this, "WorkDeadLetterQueue", {
       encryption: QueueEncryption.KMS_MANAGED,
