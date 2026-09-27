@@ -194,6 +194,9 @@ describe("application PWA shell", () => {
     expect(page?.body).toContain('id="offline-download-progress" hidden');
     expect(page?.body).toContain('id="offline-download-progress-bar"');
     expect(page?.body).toContain('id="offline-reconnect" href="/"');
+    expect(page?.body).toContain('class="app-header"');
+    expect(page?.body).toContain('src="/brand/upskill-wordmark-navy.png"');
+    expect(page?.body).toContain('aria-labelledby="offline-courses-heading"');
     expect(page?.body).toContain(`src="${OFFLINE_COURSES_SCRIPT_PATH}"`);
 
     expect(
@@ -327,6 +330,8 @@ describe("application PWA shell", () => {
       "/apple-touch-icon.png",
       "/android-chrome-192x192.png",
       "/android-chrome-512x512.png",
+      "/brand/upskill-icon-navy.png",
+      "/brand/upskill-wordmark-navy.png",
     ]);
     expect(serviceWorker.skipWaiting).toHaveBeenCalledOnce();
   });
@@ -353,7 +358,7 @@ describe("application PWA shell", () => {
 
     await expect(response).resolves.toBe(offlineFallback);
     expect(cacheStorage.match).toHaveBeenCalledWith("/offline.html", {
-      cacheName: "upskill-application-shell-v8",
+      cacheName: "upskill-application-shell-v9",
     });
   });
 
@@ -375,7 +380,7 @@ describe("application PWA shell", () => {
     await expect(response).resolves.toBe(cachedScript);
     expect(cacheStorage.match).toHaveBeenCalledWith(
       "/pwa/offline-learning.js",
-      { cacheName: "upskill-application-shell-v8" },
+      { cacheName: "upskill-application-shell-v9" },
     );
   });
 
