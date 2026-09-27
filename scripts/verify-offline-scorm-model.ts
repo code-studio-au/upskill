@@ -988,6 +988,21 @@ try {
       message: /recovery state must match failed work/u,
     },
   );
+  await assertDatabaseConstraint(
+    () =>
+      database
+        .updateTable("offline_scorm_cloudfront_allocation")
+        .set({
+          state: "needs_attention",
+          recoveryState: "allocating",
+          lastErrorCode: null,
+          updatedAt: new Date("2030-01-02T00:00:40.000Z"),
+        })
+        .where("entitlementId", "=", ids.cloudfrontAllocation)
+        .execute(),
+    "23514",
+    "offline_scorm_cloudfront_allocation_error_ck",
+  );
   const allocationAttentionAt = new Date("2030-01-02T00:01:00.000Z");
   await database
     .updateTable("offline_scorm_cloudfront_allocation")
@@ -1018,6 +1033,38 @@ try {
           state: "binding_pending",
           distributionId: "E123456789ABC",
           distributionDomain: "not-cloudfront.example.test",
+          boundAt: new Date("2030-01-02T00:03:00.000Z"),
+          updatedAt: new Date("2030-01-02T00:03:00.000Z"),
+        })
+        .where("entitlementId", "=", ids.cloudfrontAllocation)
+        .execute(),
+    "23514",
+    "offline_scorm_cloudfront_allocation_identity_ck",
+  );
+  await assertDatabaseConstraint(
+    () =>
+      database
+        .updateTable("offline_scorm_cloudfront_allocation")
+        .set({
+          state: "binding_pending",
+          distributionId: "E123456789ABC",
+          distributionDomain: null,
+          boundAt: new Date("2030-01-02T00:03:00.000Z"),
+          updatedAt: new Date("2030-01-02T00:03:00.000Z"),
+        })
+        .where("entitlementId", "=", ids.cloudfrontAllocation)
+        .execute(),
+    "23514",
+    "offline_scorm_cloudfront_allocation_identity_ck",
+  );
+  await assertDatabaseConstraint(
+    () =>
+      database
+        .updateTable("offline_scorm_cloudfront_allocation")
+        .set({
+          state: "binding_pending",
+          distributionId: null,
+          distributionDomain: "d111111abcdef8.cloudfront.net",
           boundAt: new Date("2030-01-02T00:03:00.000Z"),
           updatedAt: new Date("2030-01-02T00:03:00.000Z"),
         })

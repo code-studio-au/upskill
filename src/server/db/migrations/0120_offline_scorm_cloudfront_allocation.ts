@@ -33,7 +33,9 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
           and "distributionDomain" is null
         )
         or (
-          "distributionId" ~ '^[A-Z0-9]{8,32}$'
+          "distributionId" is not null
+          and "distributionDomain" is not null
+          and "distributionId" ~ '^[A-Z0-9]{8,32}$'
           and char_length("distributionDomain") between 16 and 253
           and "distributionDomain" ~
             '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?[.]cloudfront[.]net$'
@@ -43,6 +45,8 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
     constraint offline_scorm_cloudfront_allocation_error_ck check (
       (
         state = 'needs_attention'
+        and "recoveryState" is not null
+        and "lastErrorCode" is not null
         and "recoveryState" in (
           'allocating', 'enabling', 'disabling', 'deletion_pending'
         )
