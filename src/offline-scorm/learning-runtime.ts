@@ -17,7 +17,10 @@ import {
   offlineScormRemovalRecoveryCanBypassPackageChannel,
   offlineScormRemovalResolution,
 } from "#/offline-scorm/offline-scorm-application-recovery";
-import { createOfflineScormMessageQueue } from "#/offline-scorm/offline-scorm-message-queue";
+import {
+  createOfflineScormLaunchInitializer,
+  createOfflineScormMessageQueue,
+} from "#/offline-scorm/offline-scorm-message-queue";
 
 const PROTOCOL_VERSION = 1;
 const parentOrigin = document.referrer
@@ -370,6 +373,8 @@ async function initializePlayer(): Promise<void> {
 function acceptPort(nextPort: MessagePort): void {
   if (!context) throw new Error("The offline runtime context is unavailable");
   const acceptedContext = context;
+  const initializeAfterInitialDrain =
+    createOfflineScormLaunchInitializer(initializePlayer);
   port?.close();
   port = nextPort;
   const queueMessage = createOfflineScormMessageQueue<MessageEvent>({
@@ -379,7 +384,8 @@ function acceptPort(nextPort: MessagePort): void {
       if (message.type === "offline-scorm-spool-entry")
         await importSpoolEntry(message.entry);
       else if (message.type === "offline-scorm-spool-drained") {
-        if (acceptedContext.mode === "launch") await initializePlayer();
+        if (acceptedContext.mode === "launch")
+          await initializeAfterInitialDrain();
         else await sendSyncBatch();
       } else if (message.type === "offline-scorm-package-installed") {
         const record = await store.getPackage(acceptedContext.attemptId);

@@ -6,7 +6,7 @@ describe("offline SCORM learning worker cache", () => {
     vi.unstubAllGlobals();
   });
 
-  it("publishes v4 atomically and activates across retained clients", async () => {
+  it("publishes v5 atomically and activates across retained clients", async () => {
     const listeners = new Map<string, EventListener>();
     const addAll = vi.fn(() => Promise.resolve());
     const deleteCache = vi.fn(() => Promise.resolve(true));
@@ -21,6 +21,7 @@ describe("offline SCORM learning worker cache", () => {
           "upskill-offline-scorm-learning-runtime-v2",
           "upskill-offline-scorm-learning-runtime-v3",
           "upskill-offline-scorm-learning-runtime-v4",
+          "upskill-offline-scorm-learning-runtime-v5",
           "unrelated-cache",
         ]),
       ),
@@ -50,7 +51,7 @@ describe("offline SCORM learning worker cache", () => {
     await runExtendableEvent("activate");
 
     expect(open).toHaveBeenCalledWith(
-      "upskill-offline-scorm-learning-runtime-v4",
+      "upskill-offline-scorm-learning-runtime-v5",
     );
     expect(addAll).toHaveBeenCalledWith([
       "/api/scorm/offline-runtime/frame.html",
@@ -61,7 +62,7 @@ describe("offline SCORM learning worker cache", () => {
     expect(skipWaiting.mock.invocationCallOrder[0]).toBeGreaterThan(
       addAll.mock.invocationCallOrder[0] ?? 0,
     );
-    expect(deleteCache).toHaveBeenCalledTimes(3);
+    expect(deleteCache).toHaveBeenCalledTimes(4);
     expect(deleteCache).toHaveBeenNthCalledWith(
       1,
       "upskill-offline-scorm-learning-runtime-v1",
@@ -73,6 +74,10 @@ describe("offline SCORM learning worker cache", () => {
     expect(deleteCache).toHaveBeenNthCalledWith(
       3,
       "upskill-offline-scorm-learning-runtime-v3",
+    );
+    expect(deleteCache).toHaveBeenNthCalledWith(
+      4,
+      "upskill-offline-scorm-learning-runtime-v4",
     );
     expect(claim).toHaveBeenCalledOnce();
   });

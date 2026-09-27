@@ -1,4 +1,4 @@
-const CACHE_NAME = "upskill-offline-scorm-learning-runtime-v4";
+const CACHE_NAME = "upskill-offline-scorm-learning-runtime-v5";
 const CACHE_PREFIX = "upskill-offline-scorm-learning-runtime-";
 const ASSETS = [
   "/api/scorm/offline-runtime/frame.html",

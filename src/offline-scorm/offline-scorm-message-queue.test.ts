@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { createOfflineScormMessageQueue } from "#/offline-scorm/offline-scorm-message-queue";
+import {
+  createOfflineScormLaunchInitializer,
+  createOfflineScormMessageQueue,
+} from "#/offline-scorm/offline-scorm-message-queue";
 
 describe("offline SCORM message queue", () => {
   it("serializes spool messages and stops after the first failure", async () => {
@@ -39,5 +42,23 @@ describe("offline SCORM message queue", () => {
       expect(onError).toHaveBeenCalledWith(expect.any(Error));
     });
     expect(order).not.toContain("start:after-failure");
+  });
+
+  it("initializes a launch only for the first drained-spool notification", async () => {
+    let releaseInitialization: (() => void) | undefined;
+    const initializationBlocked = new Promise<void>((resolve) => {
+      releaseInitialization = resolve;
+    });
+    const initialize = vi.fn(async () => initializationBlocked);
+    const initializeAfterDrain =
+      createOfflineScormLaunchInitializer(initialize);
+
+    const first = initializeAfterDrain();
+    const repeated = initializeAfterDrain();
+    expect(initialize).toHaveBeenCalledOnce();
+
+    releaseInitialization?.();
+    await Promise.all([first, repeated, initializeAfterDrain()]);
+    expect(initialize).toHaveBeenCalledOnce();
   });
 });
