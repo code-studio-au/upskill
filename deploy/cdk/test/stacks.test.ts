@@ -50,6 +50,26 @@ test("offline SCORM package-host context is all-or-nothing and zone-bound", () =
   ).toThrow("must belong");
 });
 
+test("offline SCORM CloudFront qualification requires a direct canonical origin", () => {
+  expect(
+    environmentConfig("staging").offlineScormCloudFrontQualification,
+  ).toBeNull();
+  expect(
+    environmentConfig(
+      "staging",
+      undefined,
+      undefined,
+      "staging.upskill.institute",
+    ).offlineScormCloudFrontQualification,
+  ).toEqual({ originDomain: "staging.upskill.institute" });
+  expect(() =>
+    environmentConfig("staging", undefined, undefined, "D123.cloudfront.net"),
+  ).toThrow("canonical lowercase DNS");
+  expect(() =>
+    environmentConfig("staging", undefined, undefined, "d123.cloudfront.net"),
+  ).toThrow("must not chain");
+});
+
 test("shared S3 Access Grants foundation owns the account-region singleton", () => {
   const stack = new AccessGrantsStack(new App(), "AccessGrants");
   const template = Template.fromStack(stack);
@@ -156,6 +176,7 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
     vpc: network.vpc,
     applicationSecurityGroup: network.applicationSecurityGroup,
     artifactBucket: storage.artifactBucket,
+    offlineScormEdgeLogBucket: storage.offlineScormEdgeLogBucket,
     learningBucket: storage.learningBucket,
     privateBucket: storage.privateBucket,
     recordingBucket: storage.recordingBucket,
@@ -224,6 +245,9 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   });
   applicationTemplate.resourceCountIs("AWS::CloudWatch::Alarm", 13);
   applicationTemplate.resourceCountIs("AWS::SecretsManager::Secret", 6);
+  expect(JSON.stringify(applicationTemplate.toJSON())).not.toContain(
+    "cloudfront:CreateDistributionWithTags",
+  );
   applicationTemplate.hasResourceProperties("AWS::SecretsManager::Secret", {
     Name: "upskill/staging/livekit",
     Description: Match.stringLikeRegexp("Dormant LiveKit Cloud configuration"),
@@ -661,6 +685,7 @@ test("provisioned offline SCORM host retires the vhost before managed DNS and SS
     vpc: network.vpc,
     applicationSecurityGroup: network.applicationSecurityGroup,
     artifactBucket: storage.artifactBucket,
+    offlineScormEdgeLogBucket: storage.offlineScormEdgeLogBucket,
     learningBucket: storage.learningBucket,
     privateBucket: storage.privateBucket,
     recordingBucket: storage.recordingBucket,
@@ -696,6 +721,119 @@ test("provisioned offline SCORM host retires the vhost before managed DNS and SS
   expect(serialized).toContain("route53:ChangeResourceRecordSetsRecordTypes");
   expect(serialized).toContain("route53:ChangeResourceRecordSetsActions");
   expect(serialized).not.toContain("route53:*");
+});
+
+test("CloudFront entitlement qualification is dormant and operator-only", () => {
+  const app = new App();
+  const config = environmentConfig(
+    "staging",
+    undefined,
+    undefined,
+    "staging.upskill.institute",
+  );
+  const network = new NetworkStack(app, "CloudFrontNetwork", config);
+  const storage = new StorageStack(app, "CloudFrontStorage", config);
+  const application = new ApplicationStack(app, "CloudFrontApplication", {
+    config,
+    vpc: network.vpc,
+    applicationSecurityGroup: network.applicationSecurityGroup,
+    artifactBucket: storage.artifactBucket,
+    offlineScormEdgeLogBucket: storage.offlineScormEdgeLogBucket,
+    learningBucket: storage.learningBucket,
+    privateBucket: storage.privateBucket,
+    recordingBucket: storage.recordingBucket,
+    quarantineBucket: storage.quarantineBucket,
+    workQueue: storage.workQueue,
+    deadLetterQueue: storage.deadLetterQueue,
+    databaseSecretArn:
+      "arn:aws:secretsmanager:ap-southeast-2:123456789012:secret:database",
+    alarmTopic: storage.alarmTopic,
+    accessGrantsInstanceArn:
+      "arn:aws:s3:ap-southeast-2:123456789012:access-grants/default",
+  });
+  const storageTemplate = Template.fromStack(storage);
+  storageTemplate.resourceCountIs("AWS::S3::Bucket", 6);
+  storageTemplate.resourceCountIs("Custom::S3AutoDeleteObjects", 6);
+  storageTemplate.hasResourceProperties("AWS::S3::Bucket", {
+    AccessControl: "LogDeliveryWrite",
+    BucketEncryption: {
+      ServerSideEncryptionConfiguration: [
+        { ServerSideEncryptionByDefault: { SSEAlgorithm: "AES256" } },
+      ],
+    },
+    OwnershipControls: {
+      Rules: [{ ObjectOwnership: "ObjectWriter" }],
+    },
+    PublicAccessBlockConfiguration: {
+      BlockPublicAcls: true,
+      BlockPublicPolicy: true,
+      IgnorePublicAcls: true,
+      RestrictPublicBuckets: true,
+    },
+    LifecycleConfiguration: {
+      Rules: [
+        {
+          AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 },
+          ExpirationInDays: 30,
+          Status: "Enabled",
+        },
+      ],
+    },
+  });
+  const template = Template.fromStack(application);
+
+  template.hasResourceProperties("AWS::SecretsManager::Secret", {
+    Name: "upskill/staging/offline-scorm/cloudfront-origin-key",
+    Description: Match.stringLikeRegexp("CloudFront origin requests"),
+    GenerateSecretString: {
+      ExcludePunctuation: true,
+      PasswordLength: 64,
+    },
+  });
+  template.hasResourceProperties("AWS::Lambda::Function", {
+    Description: Match.stringLikeRegexp("operator-only allocator"),
+    ReservedConcurrentExecutions: 1,
+    Timeout: 120,
+    Environment: {
+      Variables: Match.objectLike({
+        UPSKILL_ENVIRONMENT: "staging",
+        UPSKILL_OFFLINE_SCORM_ORIGIN_DOMAIN: "staging.upskill.institute",
+      }),
+    },
+  });
+  const serialized = JSON.stringify(template.toJSON());
+  expect(serialized).toContain("cloudfront:CreateDistributionWithTags");
+  expect(serialized).toContain("cloudfront:UpdateDistribution");
+  expect(serialized).toContain("cloudfront:DeleteDistribution");
+  expect(serialized).toContain("cloudfront:ListTagsForResource");
+  expect(serialized).not.toContain('"cloudfront:*"');
+  const roles = template.findResources("AWS::IAM::Role");
+  const instanceRoleLogicalId = Object.keys(roles).find((logicalId) =>
+    logicalId.startsWith("InstanceRole"),
+  );
+  expect(instanceRoleLogicalId).toBeDefined();
+  const policies = template.findResources("AWS::IAM::Policy") as Record<
+    string,
+    { Properties?: { Roles?: unknown[] } }
+  >;
+  const instancePolicies = Object.values(policies).filter((policy) =>
+    policy.Properties?.Roles?.some(
+      (role) =>
+        JSON.stringify(role) === JSON.stringify({ Ref: instanceRoleLogicalId }),
+    ),
+  );
+  expect(JSON.stringify(instancePolicies)).not.toContain(
+    "lambda:InvokeFunction",
+  );
+  expect(serialized).toContain(
+    "Dormant qualification allocator; the application role has no invoke permission",
+  );
+  template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+    AlarmName: "upskill-staging-offline-scorm-cloudfront-allocator-errors",
+  });
+  template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+    AlarmName: "upskill-staging-offline-scorm-cloudfront-allocator-throttles",
+  });
 });
 
 test("production storage alarms on durable work backlog and dead letters", () => {

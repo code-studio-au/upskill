@@ -6,6 +6,10 @@ interface OfflineScormPackageHostConfig {
   hostedZoneName: string;
 }
 
+interface OfflineScormCloudFrontQualificationConfig {
+  originDomain: string;
+}
+
 export interface EnvironmentConfig {
   name: EnvironmentName;
   cidr: string;
@@ -15,6 +19,7 @@ export interface EnvironmentConfig {
   databaseBackupRetentionDays: number;
   alarmEmail: string;
   liveKitApprovedMonthlySpendAud: number;
+  offlineScormCloudFrontQualification: OfflineScormCloudFrontQualificationConfig | null;
   offlineScormPackageHost: OfflineScormPackageHostConfig | null;
 }
 
@@ -28,6 +33,7 @@ const configurations: Record<EnvironmentName, EnvironmentConfig> = {
     databaseBackupRetentionDays: 7,
     alarmEmail: "ops@codestudio.au",
     liveKitApprovedMonthlySpendAud: 0,
+    offlineScormCloudFrontQualification: null,
     offlineScormPackageHost: null,
   },
   production: {
@@ -39,6 +45,7 @@ const configurations: Record<EnvironmentName, EnvironmentConfig> = {
     databaseBackupRetentionDays: 14,
     alarmEmail: "ops@codestudio.au",
     liveKitApprovedMonthlySpendAud: 0,
+    offlineScormCloudFrontQualification: null,
     offlineScormPackageHost: null,
   },
 };
@@ -55,6 +62,21 @@ function canonicalDnsName(label: string, value: unknown): string {
   )
     throw new Error(`${label} must be canonical lowercase DNS`);
   return value;
+}
+
+function offlineScormCloudFrontQualificationConfig(
+  originDomain: unknown,
+): OfflineScormCloudFrontQualificationConfig | null {
+  if (originDomain === undefined) return null;
+  const parsedOriginDomain = canonicalDnsName(
+    "CDK context offlineScormCloudFrontOriginDomain",
+    originDomain,
+  );
+  if (parsedOriginDomain.endsWith(".cloudfront.net"))
+    throw new Error(
+      "CDK context offlineScormCloudFrontOriginDomain must not chain one CloudFront distribution through another",
+    );
+  return { originDomain: parsedOriginDomain };
 }
 
 function offlineScormPackageHostConfig(input: {
@@ -100,6 +122,7 @@ export function environmentConfig(
     hostedZoneId: undefined,
     hostedZoneName: undefined,
   },
+  offlineScormCloudFrontOriginDomain?: unknown,
 ): EnvironmentConfig {
   if (value !== "staging" && value !== "production")
     throw new Error("CDK context environment must be staging or production");
@@ -114,6 +137,10 @@ export function environmentConfig(
   return {
     ...configurations[value],
     liveKitApprovedMonthlySpendAud: parsedSpend,
+    offlineScormCloudFrontQualification:
+      offlineScormCloudFrontQualificationConfig(
+        offlineScormCloudFrontOriginDomain,
+      ),
     offlineScormPackageHost: offlineScormPackageHostConfig(
       offlineScormPackageHost,
     ),

@@ -51,3 +51,4 @@ is complete.
 | 0042 | [Device-bound offline learning entitlements](0042-device-bound-offline-learning-entitlements.md)                                          | Proposed                                                 |
 | 0043 | [Offline SCORM runtime and local progress journal](0043-offline-scorm-runtime-and-local-progress-journal.md)                              | Proposed                                                 |
 | 0044 | [Idempotent offline SCORM reconciliation](0044-idempotent-offline-scorm-reconciliation.md)                                                | Proposed                                                 |
+| 0045 | [Provider-owned offline SCORM entitlement sites](0045-provider-owned-offline-scorm-entitlement-sites.md)                                  | Proposed; CloudFront qualification in progress           |
