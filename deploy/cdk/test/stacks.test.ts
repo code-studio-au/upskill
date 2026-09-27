@@ -820,6 +820,9 @@ test("CloudFront entitlement qualification is dormant and operator-only", () => 
     },
   });
   const serialized = JSON.stringify(template.toJSON());
+  expect(serialized).toContain("OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN");
+  expect(serialized).toContain("OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY");
+  expect(serialized).toContain("upskill-web.env");
   expect(serialized).toContain("cloudfront:CreateDistributionWithTags");
   expect(serialized).toContain("cloudfront:UpdateDistribution");
   expect(serialized).toContain("cloudfront:DeleteDistribution");
@@ -853,6 +856,9 @@ test("CloudFront entitlement qualification is dormant and operator-only", () => 
   );
   expect(JSON.stringify(instancePolicies)).not.toContain(
     "lambda:InvokeFunction",
+  );
+  expect(JSON.stringify(instancePolicies)).toContain(
+    "OfflineScormCloudFrontOriginKey",
   );
   expect(serialized).toContain(
     "Dormant qualification allocator; the application role has no invoke permission",

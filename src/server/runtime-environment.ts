@@ -43,6 +43,8 @@ const environmentSchema = z.object({
     .string()
     .regex(/^[A-Za-z0-9_-]+$/u)
     .optional(),
+  OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN: z.string().min(3).max(253).optional(),
+  OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY: z.string().min(43).max(512).optional(),
   STRIPE_SECRET_KEY: z.string().regex(/^(?:sk|rk)_/u, {
     message: "Stripe secret key must start with sk_ or rk_",
   }),
@@ -288,6 +290,32 @@ function requireOfflineScormConfiguration(validated: ServerEnv): void {
     );
 }
 
+function requireOfflineScormCloudFrontOriginConfiguration(
+  validated: ServerEnv,
+): void {
+  const originDomain = validated.OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN;
+  const originKey = validated.OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY;
+  if (originDomain === undefined && originKey === undefined) return;
+  if (originDomain === undefined || originKey === undefined)
+    throw new Error(
+      "OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN and OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY must be configured together",
+    );
+  if (validated.APP_ENV !== "staging" && validated.APP_ENV !== "production")
+    throw new Error(
+      "Offline SCORM CloudFront origin validation is only available in staging or production",
+    );
+  if (
+    originDomain !== originDomain.toLowerCase() ||
+    !/^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?[.])+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(
+      originDomain,
+    ) ||
+    originDomain.endsWith(".cloudfront.net")
+  )
+    throw new Error(
+      "OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN must be a direct canonical lowercase DNS origin",
+    );
+}
+
 function requireCanonicalHttpsOrigin(label: string, value: string): URL {
   const url = new URL(value);
   if (url.protocol !== "https:")
@@ -318,6 +346,7 @@ export function parseServerEnvironment(
       parsed.ACCESS_CODE_ENCRYPTION_KEY ?? localEncryptionKey,
   };
   requireLiveKitConfiguration(validated);
+  requireOfflineScormCloudFrontOriginConfiguration(validated);
   requireOfflineScormConfiguration(validated);
   if (validated.EMAIL_PROVIDER === "mailgun") {
     if (!validated.MAILGUN_API_KEY)

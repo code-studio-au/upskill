@@ -1,9 +1,16 @@
 import "@tanstack/react-start/server-only";
 
 import { timingSafeEqual } from "node:crypto";
+import type { Selectable } from "kysely";
 import { buildLearningContentSecurityPolicy } from "#/features/scorm/learning-content-security-policy";
 import { getDatabase } from "#/server/db/database.server";
+import type { Database } from "#/server/db/types";
 import { getServerEnv, type ServerEnv } from "#/server/env.server";
+import {
+  OFFLINE_SCORM_CLOUDFRONT_CAPABILITY_HEADER,
+  OFFLINE_SCORM_CLOUDFRONT_ENTITLEMENT_HEADER,
+  verifyOfflineScormCloudFrontOriginCapability,
+} from "#/server/scorm/offline-scorm-cloudfront-origin.server";
 import {
   createOfflineScormPackageCleanupCapability,
   createOfflineScormPackageCleanupReceipt,
@@ -24,6 +31,8 @@ import {
 import { z } from "#/validation/zod.server";
 
 const PACKAGE_HOST_LABEL = /^p-[a-f0-9]{56}$/u;
+const CLOUDFRONT_DISTRIBUTION_DOMAIN =
+  /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?[.]cloudfront[.]net$/u;
 const packageManifestSchema = z.object({
   files: z
     .array(
@@ -40,10 +49,16 @@ const packageManifestSchema = z.object({
 
 interface AuthorizedPackage {
   contentPrefix: string;
+  entitlementId: string;
   entitlementPackageSha256: string;
   manifest: unknown;
   packageSha256: string;
 }
+
+type CloudFrontOriginBinding = Pick<
+  Selectable<Database["offline_scorm_cloudfront_allocation"]>,
+  "distributionDomain" | "state"
+>;
 
 interface AuthorizedPackageRuntime {
   entitlementId: string;
@@ -54,6 +69,9 @@ interface AuthorizedPackageRuntime {
 
 interface PackageHostConfiguration {
   applicationOrigin: string;
+  cloudFrontOriginDomain?: string | undefined;
+  cloudFrontOriginEnabled?: boolean | undefined;
+  cloudFrontOriginKey?: string | undefined;
   environment: ServerEnv["APP_ENV"];
   learningOrigin: string;
   learningBucket: string;
@@ -64,6 +82,9 @@ interface PackageHostConfiguration {
 
 interface OfflineScormPackageHostDependencies {
   configuration: PackageHostConfiguration;
+  findCloudFrontOriginBinding?: (
+    entitlementId: string,
+  ) => Promise<CloudFrontOriginBinding | undefined>;
   findAuthorizedPackage: (
     packageOrigin: string,
     now: Date,
@@ -189,6 +210,7 @@ async function findAuthorizedPackage(
       "package.contentPrefix as contentPrefix",
       "package.manifest as manifest",
       "package.sha256 as packageSha256",
+      "entitlement.id as entitlementId",
       "entitlement.packageSha256 as entitlementPackageSha256",
     ])
     .where("cleanup.packageSiteOrigin", "=", packageOrigin)
@@ -205,6 +227,16 @@ async function findAuthorizedPackage(
       "entitlement.writerGeneration",
     )
     .where("package.status", "=", "ready")
+    .executeTakeFirst();
+}
+
+async function findCloudFrontOriginBinding(
+  entitlementId: string,
+): Promise<CloudFrontOriginBinding | undefined> {
+  return await getDatabase()
+    .selectFrom("offline_scorm_cloudfront_allocation")
+    .select(["distributionDomain", "state"])
+    .where("entitlementId", "=", entitlementId)
     .executeTakeFirst();
 }
 
@@ -241,26 +273,78 @@ export function createOfflineScormPackageHostHandler(
   dependencies: OfflineScormPackageHostDependencies,
 ): (request: Request) => Promise<Response | null> {
   return async (request) => {
-    const suffix = dependencies.configuration.packageHostSuffix;
-    if (!suffix) return null;
-    const packageOrigin = requestedPackageOrigin(
-      request,
-      dependencies.configuration,
-      suffix,
-    );
-    if (!packageOrigin) return null;
     const errorHeaders = packageHostHeaders(
       dependencies.configuration,
       "private, no-store",
     );
     const requestUrl = new URL(request.url);
+    const cloudFrontEntitlementId = request.headers.get(
+      OFFLINE_SCORM_CLOUDFRONT_ENTITLEMENT_HEADER,
+    );
+    const cloudFrontCapability = request.headers.get(
+      OFFLINE_SCORM_CLOUDFRONT_CAPABILITY_HEADER,
+    );
+    const claimsCloudFrontOrigin =
+      cloudFrontEntitlementId !== null || cloudFrontCapability !== null;
+    let packageOrigin:
+      | {
+          cloudFrontEntitlementId?: string;
+          origin: string;
+          validLabel: boolean;
+        }
+      | undefined;
+    if (claimsCloudFrontOrigin) {
+      const environment = dependencies.configuration.environment;
+      const originDomain = dependencies.configuration.cloudFrontOriginDomain;
+      const originKey = dependencies.configuration.cloudFrontOriginKey;
+      if (
+        dependencies.configuration.cloudFrontOriginEnabled !== true ||
+        (environment !== "staging" && environment !== "production") ||
+        !originDomain ||
+        !originKey ||
+        cloudFrontEntitlementId === null ||
+        cloudFrontCapability === null ||
+        requestUrl.origin !== `https://${originDomain}` ||
+        !verifyOfflineScormCloudFrontOriginCapability({
+          actualCapability: cloudFrontCapability,
+          entitlementId: cloudFrontEntitlementId,
+          environment,
+          originKey,
+        })
+      )
+        return new Response(null, { status: 404, headers: errorHeaders });
+      const binding = await dependencies.findCloudFrontOriginBinding?.(
+        cloudFrontEntitlementId,
+      );
+      if (
+        binding?.state !== "active" ||
+        !binding.distributionDomain ||
+        !CLOUDFRONT_DISTRIBUTION_DOMAIN.test(binding.distributionDomain)
+      )
+        return new Response(null, { status: 404, headers: errorHeaders });
+      packageOrigin = {
+        cloudFrontEntitlementId,
+        origin: `https://${binding.distributionDomain}`,
+        validLabel: true,
+      };
+    } else {
+      const suffix = dependencies.configuration.packageHostSuffix;
+      if (!suffix) return null;
+      packageOrigin = requestedPackageOrigin(
+        request,
+        dependencies.configuration,
+        suffix,
+      );
+      if (!packageOrigin) return null;
+    }
     const lifecyclePath =
       PACKAGE_RUNTIME_PATHS.has(requestUrl.pathname) ||
       requestUrl.pathname === PACKAGE_CLEAR_PATH;
     if (
       !packageOrigin.validLabel ||
-      dependencies.configuration.environment === "staging" ||
-      (!dependencies.configuration.enabled && !lifecyclePath)
+      (!claimsCloudFrontOrigin &&
+        (dependencies.configuration.environment === "staging" ||
+          (!dependencies.configuration.enabled && !lifecyclePath)))
     )
       return new Response(null, { status: 404, headers: errorHeaders });
     if (lifecyclePath) {
@@ -268,6 +352,11 @@ export function createOfflineScormPackageHostHandler(
         packageOrigin.origin,
       );
       if (!runtime)
+        return new Response(null, { status: 404, headers: errorHeaders });
+      if (
+        packageOrigin.cloudFrontEntitlementId !== undefined &&
+        runtime.entitlementId !== packageOrigin.cloudFrontEntitlementId
+      )
         return new Response(null, { status: 404, headers: errorHeaders });
       if (requestUrl.pathname === PACKAGE_CLEAR_PATH) {
         if (
@@ -383,6 +472,11 @@ export function createOfflineScormPackageHostHandler(
     );
     if (!authorization)
       return new Response(null, { status: 404, headers: errorHeaders });
+    if (
+      packageOrigin.cloudFrontEntitlementId !== undefined &&
+      authorization.entitlementId !== packageOrigin.cloudFrontEntitlementId
+    )
+      return new Response(null, { status: 404, headers: errorHeaders });
     if (authorization.entitlementPackageSha256 !== authorization.packageSha256)
       throw new Error(
         "Offline SCORM entitlement package digest does not match its immutable package",
@@ -476,6 +570,11 @@ export async function handleOfflineScormPackageHostRequest(
   return await createOfflineScormPackageHostHandler({
     configuration: {
       applicationOrigin: environment.APP_ORIGIN,
+      cloudFrontOriginDomain:
+        environment.OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN,
+      // ADR 0045 must be Accepted before this becomes a deployment mode.
+      cloudFrontOriginEnabled: false,
+      cloudFrontOriginKey: environment.OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY,
       environment: environment.APP_ENV,
       learningOrigin: environment.LEARNING_ORIGIN,
       learningBucket: environment.S3_LEARNING_CONTENT_BUCKET,
@@ -483,6 +582,7 @@ export async function handleOfflineScormPackageHostRequest(
       packageSiteOriginKey: environment.OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY,
       enabled: environment.OFFLINE_SCORM_ENABLED,
     },
+    findCloudFrontOriginBinding,
     findAuthorizedPackage,
     findAuthorizedRuntime,
     getObject: getObjectStream,

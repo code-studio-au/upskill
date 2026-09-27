@@ -174,6 +174,69 @@ describe("server runtime environment", () => {
     );
   });
 
+  it("requires a complete direct CloudFront origin-validation authority", () => {
+    const stagingEnvironment = {
+      ...baseEnvironment,
+      ACCESS_CODE_ENCRYPTION_KEY: "B".repeat(43),
+      APP_ENV: "staging",
+      APP_ORIGIN: "https://staging.upskill.institute",
+      AWS_REGION: "ap-southeast-2",
+      EMAIL_PROVIDER: "mailgun",
+      LEARNING_ORIGIN: "https://learn-staging.upskill.institute",
+      LIVEKIT_ENABLED: "false",
+      LIVEKIT_PROJECT_ENVIRONMENT: "staging",
+      MAILGUN_API_KEY: "staging-mailgun-key",
+      MAILGUN_DOMAIN: "mg.upskill.institute",
+      MAILGUN_FROM: "Upskill <no-reply@upskill.institute>",
+      OFFLINE_SCORM_ENABLED: "false",
+      S3_LEARNING_CONTENT_BUCKET: "upskill-staging-learning-content",
+      S3_PRIVATE_RESOURCES_BUCKET: "upskill-staging-private-resources",
+      S3_QUARANTINE_BUCKET: "upskill-staging-quarantine",
+      S3_RECORDING_BUCKET: "upskill-staging-recordings",
+      SMS_PROVIDER: "textbee",
+      SQS_DEAD_LETTER_QUEUE_URL:
+        "https://sqs.ap-southeast-2.amazonaws.com/123456789012/upskill-staging-dlq",
+      SQS_QUEUE_URL:
+        "https://sqs.ap-southeast-2.amazonaws.com/123456789012/upskill-staging-work",
+      SUPPORT_EMAIL: "support@upskill.institute",
+      TEXTBEE_API_KEY: "staging-textbee-key",
+      TEXTBEE_WEBHOOK_SECRET: "staging-textbee-webhook-secret",
+    };
+    expect(() =>
+      parseServerEnvironment({
+        ...stagingEnvironment,
+        OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN: "staging.upskill.institute",
+      }),
+    ).toThrow("must be configured together");
+    expect(() =>
+      parseServerEnvironment({
+        ...stagingEnvironment,
+        OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY: "C".repeat(64),
+      }),
+    ).toThrow("must be configured together");
+    expect(() =>
+      parseServerEnvironment({
+        ...stagingEnvironment,
+        OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN: "d111111abcdef8.cloudfront.net",
+        OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY: "C".repeat(64),
+      }),
+    ).toThrow("must be a direct canonical lowercase DNS origin");
+    expect(() =>
+      parseServerEnvironment({
+        ...stagingEnvironment,
+        OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN: "staging.upskill.institute",
+        OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY: "C".repeat(64),
+      }),
+    ).not.toThrow();
+    expect(() =>
+      parseServerEnvironment({
+        ...baseEnvironment,
+        OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN: "localhost.example",
+        OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY: "C".repeat(64),
+      }),
+    ).toThrow("only available in staging or production");
+  });
+
   it("requires a complete, environment-bound LiveKit configuration before enablement", () => {
     expect(() =>
       parseServerEnvironment({ ...baseEnvironment, LIVEKIT_ENABLED: "true" }),

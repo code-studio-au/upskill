@@ -23,6 +23,13 @@ describe("offline SCORM CloudFront entitlement allocator", () => {
     expect(distributionMarker("staging", "entitlement_a")).toMatch(
       /^upskill:staging:offline-scorm:[a-f0-9]{32}$/u,
     );
+    expect(
+      createOriginCapability(
+        "cloudfront-origin-key-".padEnd(64, "7"),
+        "production",
+        "entitlement_cloudfront",
+      ),
+    ).toBe("F8pcIPQIzhHfEr6ME4grW-6jHKOvCnnrpKcGT-wu2sg");
   });
 
   it("retries a transient origin-key read but caches a successful value", async () => {

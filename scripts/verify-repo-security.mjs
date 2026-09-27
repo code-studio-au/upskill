@@ -1078,6 +1078,14 @@ const offlineScormCloudFrontAllocationMigration = fs.readFileSync(
   ),
   "utf8",
 );
+const offlineScormCloudFrontOrigin = fs.readFileSync(
+  path.join(root, "src/server/scorm/offline-scorm-cloudfront-origin.server.ts"),
+  "utf8",
+);
+const offlineScormPackageHost = fs.readFileSync(
+  path.join(root, "src/server/scorm/offline-scorm-package-host.server.ts"),
+  "utf8",
+);
 const offlineScormSigningRuntime = fs.readFileSync(
   path.join(
     root,
@@ -1294,6 +1302,30 @@ for (const boundary of [
   if (!offlineScormCloudFrontAllocationMigration.includes(boundary))
     failures.push(
       `Offline SCORM CloudFront allocation guard is missing: ${boundary}`,
+    );
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  "upskill-offline-scorm-cloudfront-origin-capability-v1",
+  'createHmac("sha256", originKey)',
+  "timingSafeEqual(",
+  '"X-Upskill-Offline-Entitlement"',
+  '"X-Upskill-Offline-Origin-Capability"',
+])
+  if (!offlineScormCloudFrontOrigin.includes(boundary))
+    failures.push(
+      `Offline SCORM CloudFront origin capability boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  'selectFrom("offline_scorm_cloudfront_allocation")',
+  'binding?.state !== "active"',
+  "CLOUDFRONT_DISTRIBUTION_DOMAIN.test(binding.distributionDomain)",
+  "runtime.entitlementId !== packageOrigin.cloudFrontEntitlementId",
+  "authorization.entitlementId !== packageOrigin.cloudFrontEntitlementId",
+  "cloudFrontOriginEnabled: false",
+])
+  if (!offlineScormPackageHost.includes(boundary))
+    failures.push(
+      `Offline SCORM CloudFront package-host boundary is missing: ${boundary}`,
     );
 for (const boundary of [
   'import "@tanstack/react-start/server-only"',
@@ -2441,6 +2473,9 @@ for (const invariant of [
   'actions: ["ssm:PutParameter", "ssm:DeleteParameter"]',
   '"route53:ChangeResourceRecordSetsRecordTypes": ["A"]',
   '"route53:ChangeResourceRecordSetsActions": [',
+  "OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN",
+  "OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY",
+  "offlineScormCloudFrontOriginKey.grantRead(role)",
 ])
   if (!applicationInfrastructure.includes(invariant))
     failures.push(
