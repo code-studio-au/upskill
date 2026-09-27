@@ -80,6 +80,58 @@ async function assertDatabaseConstraint(
   assert.equal(databaseFailure.constraint, constraint);
 }
 
+async function insertCloudFrontAllocation(
+  entitlementId: string,
+  now: Date,
+): Promise<void> {
+  await database
+    .insertInto("offline_scorm_cloudfront_allocation")
+    .values({
+      entitlementId,
+      distributionId: null,
+      distributionDomain: null,
+      recoveryState: null,
+      lastErrorCode: null,
+      boundAt: null,
+      enableRequestedAt: null,
+      activatedAt: null,
+      disableRequestedAt: null,
+      disabledAt: null,
+      deletionRequestedAt: null,
+      deletedAt: null,
+      allocationStartedAt: now,
+      availableAt: now,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .execute();
+}
+
+async function replaceCleanupInventory(
+  packageSiteOrigin: string,
+): Promise<void> {
+  await database
+    .deleteFrom("offline_scorm_cleanup_inventory")
+    .where("id", "=", ids.cleanup)
+    .execute();
+  await database
+    .insertInto("offline_scorm_cleanup_inventory")
+    .values({
+      id: ids.cleanup,
+      entitlementId: ids.entitlement,
+      installationId: ids.installation,
+      userId: ids.user,
+      packageSiteOrigin,
+      clearRequestedAt: null,
+      clearedAt: null,
+      cleanupReceiptSha256: null,
+      lastErrorCode: null,
+      createdAt: issuedAt,
+      updatedAt: issuedAt,
+    })
+    .execute();
+}
+
 async function cleanup(): Promise<void> {
   await database
     .deleteFrom("offline_scorm_cloudfront_allocation")
@@ -1359,6 +1411,7 @@ try {
 
   const allocationWorkerNow = new Date("2030-02-02T01:00:00.000Z");
   const allocationOrigin = "https://d3333333333333.cloudfront.net";
+  const deploymentPollsBeforeActive = 12;
   let activationCalls = 0;
   const provider: OfflineScormCloudFrontProvider = {
     allocate: (entitlementId) => {
@@ -1375,34 +1428,20 @@ try {
       assert.equal(distributionId, "E3333333333333");
       activationCalls += 1;
       return Promise.resolve({
-        phase: activationCalls === 1 ? "activating" : "active",
+        phase:
+          activationCalls <= deploymentPollsBeforeActive
+            ? "activating"
+            : "active",
         distributionId,
         packageSiteOrigin: allocationOrigin,
-        status: activationCalls === 1 ? "InProgress" : "Deployed",
+        status:
+          activationCalls <= deploymentPollsBeforeActive
+            ? "InProgress"
+            : "Deployed",
       });
     },
   };
-  await database
-    .insertInto("offline_scorm_cloudfront_allocation")
-    .values({
-      entitlementId: ids.entitlement,
-      distributionId: null,
-      distributionDomain: null,
-      recoveryState: null,
-      lastErrorCode: null,
-      boundAt: null,
-      enableRequestedAt: null,
-      activatedAt: null,
-      disableRequestedAt: null,
-      disabledAt: null,
-      deletionRequestedAt: null,
-      deletedAt: null,
-      allocationStartedAt: allocationWorkerNow,
-      availableAt: allocationWorkerNow,
-      createdAt: allocationWorkerNow,
-      updatedAt: allocationWorkerNow,
-    })
-    .execute();
+  await insertCloudFrontAllocation(ids.entitlement, allocationWorkerNow);
   assert.deepEqual(
     await processNextOfflineScormCloudFrontAllocation(provider, {
       database,
@@ -1455,7 +1494,25 @@ try {
       operation: "enabling",
     },
   );
-  const allocationActivatedAt = new Date("2030-02-02T01:00:31.000Z");
+  for (let poll = 2; poll <= deploymentPollsBeforeActive; poll += 1) {
+    const polledAt = new Date(
+      allocationWorkerNow.getTime() + (poll - 1) * 31_000,
+    );
+    assert.deepEqual(
+      await processNextOfflineScormCloudFrontAllocation(provider, {
+        database,
+        now: () => polledAt,
+      }),
+      {
+        status: "waiting",
+        entitlementId: ids.entitlement,
+        operation: "enabling",
+      },
+    );
+  }
+  const allocationActivatedAt = new Date(
+    allocationWorkerNow.getTime() + deploymentPollsBeforeActive * 31_000,
+  );
   assert.deepEqual(
     await processNextOfflineScormCloudFrontAllocation(provider, {
       database,
@@ -1467,6 +1524,141 @@ try {
       distributionId: "E3333333333333",
     },
   );
+  assert.deepEqual(
+    await database
+      .selectFrom("offline_scorm_cloudfront_allocation")
+      .select(["state", "attempts"])
+      .where("entitlementId", "=", ids.entitlement)
+      .executeTakeFirstOrThrow(),
+    { state: "active", attempts: 0 },
+  );
+
+  await database
+    .deleteFrom("offline_scorm_cloudfront_allocation")
+    .where("entitlementId", "=", ids.entitlement)
+    .execute();
+  const missingAuthorityOrigin = "https://d6666666666666.cloudfront.net";
+  await replaceCleanupInventory(missingAuthorityOrigin);
+  const missingAuthorityStartedAt = new Date("2030-02-02T01:30:00.000Z");
+  await insertCloudFrontAllocation(ids.entitlement, missingAuthorityStartedAt);
+  let unauthorizedActivationCalls = 0;
+  const missingAuthorityProvider: OfflineScormCloudFrontProvider = {
+    allocate: () =>
+      Promise.resolve({
+        phase: "allocated-disabled",
+        distributionId: "E6666666666666",
+        packageSiteOrigin: missingAuthorityOrigin,
+        status: "Deployed",
+      }),
+    activate: () => {
+      unauthorizedActivationCalls += 1;
+      return Promise.reject(new Error("activation must not be called"));
+    },
+  };
+  await processNextOfflineScormCloudFrontAllocation(missingAuthorityProvider, {
+    database,
+    now: () => missingAuthorityStartedAt,
+  });
+  await processNextOfflineScormCloudFrontAllocation(missingAuthorityProvider, {
+    database,
+    now: () => missingAuthorityStartedAt,
+  });
+  const authorityRemovedAt = new Date("2030-02-02T01:30:01.000Z");
+  await database
+    .updateTable("offline_scorm_cleanup_inventory")
+    .set({
+      state: "clearing",
+      clearRequestedAt: authorityRemovedAt,
+      updatedAt: authorityRemovedAt,
+    })
+    .where("id", "=", ids.cleanup)
+    .execute();
+  assert.deepEqual(
+    await processNextOfflineScormCloudFrontAllocation(
+      missingAuthorityProvider,
+      {
+        database,
+        now: () => authorityRemovedAt,
+      },
+    ),
+    {
+      status: "retirement_requested",
+      entitlementId: ids.entitlement,
+      operation: "enabling",
+      reasonCode: "activation_authority_absent",
+    },
+  );
+  assert.equal(unauthorizedActivationCalls, 0);
+
+  await database
+    .deleteFrom("offline_scorm_cloudfront_allocation")
+    .where("entitlementId", "=", ids.entitlement)
+    .execute();
+  const authorityLostDuringCallOrigin = "https://d7777777777777.cloudfront.net";
+  await replaceCleanupInventory(authorityLostDuringCallOrigin);
+  const authorityLostDuringCallAt = new Date("2030-02-02T01:40:00.000Z");
+  await insertCloudFrontAllocation(ids.entitlement, authorityLostDuringCallAt);
+  let removeAuthorityDuringActivation = false;
+  const authorityLostDuringCallProvider: OfflineScormCloudFrontProvider = {
+    allocate: () =>
+      Promise.resolve({
+        phase: "allocated-disabled",
+        distributionId: "E7777777777777",
+        packageSiteOrigin: authorityLostDuringCallOrigin,
+        status: "Deployed",
+      }),
+    activate: async () => {
+      if (removeAuthorityDuringActivation) {
+        await database
+          .updateTable("offline_scorm_cleanup_inventory")
+          .set({
+            state: "clearing",
+            clearRequestedAt: authorityLostDuringCallAt,
+            updatedAt: authorityLostDuringCallAt,
+          })
+          .where("id", "=", ids.cleanup)
+          .execute();
+      }
+      return {
+        phase: "active",
+        distributionId: "E7777777777777",
+        packageSiteOrigin: authorityLostDuringCallOrigin,
+        status: "Deployed",
+      };
+    },
+  };
+  await processNextOfflineScormCloudFrontAllocation(
+    authorityLostDuringCallProvider,
+    { database, now: () => authorityLostDuringCallAt },
+  );
+  await processNextOfflineScormCloudFrontAllocation(
+    authorityLostDuringCallProvider,
+    { database, now: () => authorityLostDuringCallAt },
+  );
+  removeAuthorityDuringActivation = true;
+  assert.deepEqual(
+    await processNextOfflineScormCloudFrontAllocation(
+      authorityLostDuringCallProvider,
+      { database, now: () => authorityLostDuringCallAt },
+    ),
+    {
+      status: "retirement_requested",
+      entitlementId: ids.entitlement,
+      operation: "enabling",
+      reasonCode: "activation_authority_absent",
+    },
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("offline_scorm_cloudfront_allocation")
+        .select("state")
+        .where("entitlementId", "=", ids.entitlement)
+        .executeTakeFirstOrThrow()
+    ).state,
+    "disabling",
+  );
+  await replaceCleanupInventory(authorityLostDuringCallOrigin);
 
   const retryStartedAt = new Date("2030-02-02T02:00:00.000Z");
   await database
@@ -1554,6 +1746,7 @@ try {
       deletedAt: null,
       allocationStartedAt: leasedStartedAt,
       attempts: 1,
+      leaseVersion: 1,
       availableAt: leasedStartedAt,
       leasedUntil,
       lastAttemptAt: leasedStartedAt,
@@ -1609,6 +1802,7 @@ try {
       deletedAt: null,
       allocationStartedAt: exhaustedStartedAt,
       attempts: 10,
+      leaseVersion: 1,
       availableAt: exhaustedStartedAt,
       leasedUntil: new Date("2030-02-02T04:03:00.000Z"),
       lastAttemptAt: exhaustedStartedAt,

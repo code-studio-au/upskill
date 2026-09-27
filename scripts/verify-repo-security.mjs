@@ -1327,6 +1327,8 @@ for (const boundary of [
 for (const boundary of [
   "offline_scorm_cloudfront_allocation_attempts_ck",
   "offline_scorm_cloudfront_allocation_work_timeline_ck",
+  'add column "leaseVersion" integer not null default 0',
+  'and "leaseVersion" > 0',
   "state in ('allocating', 'enabling', 'disabling', 'deletion_pending')",
   "where state not in ('active', 'deleted')",
 ])
@@ -1336,15 +1338,20 @@ for (const boundary of [
     );
 for (const boundary of [
   'import "@tanstack/react-start/server-only"',
-  'where("attempts", "<", MAXIMUM_ATTEMPTS)',
-  'where("attempts", ">=", MAXIMUM_ATTEMPTS)',
+  'where("attempts", "<", MAXIMUM_FAILURES)',
+  'where("attempts", ">=", MAXIMUM_FAILURES)',
   'const reasonCode = "allocator_attempts_exhausted"',
+  "const leaseVersion = allocation.leaseVersion + 1",
+  "attempts: failureCount",
   ".forUpdate()",
   ".skipLocked()",
   'where("entitlement.status", "=", "active")',
   'where("cleanup.state", "=", "pending")',
   'state: "binding_pending"',
   'state: "active"',
+  'status: "retirement_requested"',
+  'state: "disabling"',
+  "hasActivationAuthority(",
 ])
   if (!offlineScormCloudFrontAllocationWorker.includes(boundary))
     failures.push(

@@ -12,7 +12,7 @@ import {
 const WORK_LEASE_MILLISECONDS = 3 * 60 * 1_000;
 const RETRY_BASE_MILLISECONDS = 30 * 1_000;
 const RETRY_MAX_MILLISECONDS = 15 * 60 * 1_000;
-const MAXIMUM_ATTEMPTS = 10;
+const MAXIMUM_FAILURES = 10;
 const DEFAULT_BATCH_SIZE = 10;
 
 type ProviderOperation = "allocating" | "enabling";
@@ -23,6 +23,12 @@ type OfflineScormCloudFrontAllocationOutcome =
   | { status: "waiting"; entitlementId: string; operation: ProviderOperation }
   | { status: "active"; entitlementId: string; distributionId: string }
   | { status: "stale"; entitlementId: string; operation: ProviderOperation }
+  | {
+      status: "retirement_requested";
+      entitlementId: string;
+      operation: "enabling";
+      reasonCode: "activation_authority_absent";
+    }
   | {
       status: "needs_attention";
       entitlementId: string;
@@ -40,13 +46,21 @@ interface ClaimedProviderWork {
   operation: ProviderOperation;
   distributionId: string | null;
   distributionDomain: string | null;
-  attempt: number;
+  failureCount: number;
+  leaseVersion: number;
   leasedUntil: Date;
 }
 
-function retryAt(now: Date, attempt: number): Date {
+type ClaimedProviderWorkResult =
+  | { kind: "work"; work: ClaimedProviderWork }
+  | {
+      kind: "outcome";
+      outcome: OfflineScormCloudFrontAllocationOutcome;
+    };
+
+function retryAt(now: Date, failureCount: number): Date {
   const delay = Math.min(
-    RETRY_BASE_MILLISECONDS * 2 ** Math.max(attempt - 1, 0),
+    RETRY_BASE_MILLISECONDS * 2 ** Math.max(failureCount - 1, 0),
     RETRY_MAX_MILLISECONDS,
   );
   return addElapsedMilliseconds(now, delay);
@@ -62,6 +76,53 @@ function providerFailureCode(error: unknown): string {
   )
     return "distribution_binding_conflict";
   return "allocator_unexpected_error";
+}
+
+async function hasActivationAuthority(
+  database: Kysely<Database>,
+  entitlementId: string,
+  distributionDomain: string,
+): Promise<boolean> {
+  const authority = await database
+    .selectFrom("offline_learning_entitlement as entitlement")
+    .innerJoin(
+      "offline_scorm_cleanup_inventory as cleanup",
+      "cleanup.entitlementId",
+      "entitlement.id",
+    )
+    .select("entitlement.id")
+    .where("entitlement.id", "=", entitlementId)
+    .where("entitlement.status", "=", "active")
+    .where("cleanup.state", "=", "pending")
+    .where("cleanup.packageSiteOrigin", "=", `https://${distributionDomain}`)
+    .forUpdate()
+    .executeTakeFirst();
+  return authority !== undefined;
+}
+
+async function requestActivationRetirement(
+  database: Kysely<Database>,
+  entitlementId: string,
+  now: Date,
+): Promise<OfflineScormCloudFrontAllocationOutcome> {
+  await database
+    .updateTable("offline_scorm_cloudfront_allocation")
+    .set({
+      state: "disabling",
+      disableRequestedAt: now,
+      availableAt: now,
+      leasedUntil: null,
+      updatedAt: now,
+    })
+    .where("entitlementId", "=", entitlementId)
+    .where("state", "=", "enabling")
+    .executeTakeFirstOrThrow();
+  return {
+    status: "retirement_requested",
+    entitlementId,
+    operation: "enabling",
+    reasonCode: "activation_authority_absent",
+  };
 }
 
 async function promoteReadyBinding(
@@ -115,7 +176,7 @@ async function promoteReadyBinding(
 async function claimProviderWork(
   database: Kysely<Database>,
   now: Date,
-): Promise<ClaimedProviderWork | undefined> {
+): Promise<ClaimedProviderWorkResult | undefined> {
   return await database.transaction().execute(async (transaction) => {
     const allocation = await transaction
       .selectFrom("offline_scorm_cloudfront_allocation")
@@ -126,6 +187,7 @@ async function claimProviderWork(
         "distributionId",
         "distributionDomain",
         "attempts",
+        "leaseVersion",
       ])
       .where((expression) =>
         expression.or([
@@ -136,7 +198,7 @@ async function claimProviderWork(
           ]),
         ]),
       )
-      .where("attempts", "<", MAXIMUM_ATTEMPTS)
+      .where("attempts", "<", MAXIMUM_FAILURES)
       .where("availableAt", "<=", now)
       .where((expression) =>
         expression.or([
@@ -157,7 +219,7 @@ async function claimProviderWork(
         : allocation.state;
     if (operation !== "allocating" && operation !== "enabling")
       throw new Error("CloudFront allocation recovery state is invalid");
-    const attempt = allocation.attempts + 1;
+    const leaseVersion = allocation.leaseVersion + 1;
     const leasedUntil = addElapsedMilliseconds(now, WORK_LEASE_MILLISECONDS);
     await transaction
       .updateTable("offline_scorm_cloudfront_allocation")
@@ -165,20 +227,42 @@ async function claimProviderWork(
         state: operation,
         recoveryState: null,
         lastErrorCode: null,
-        attempts: attempt,
+        leaseVersion,
         leasedUntil,
         lastAttemptAt: now,
         updatedAt: now,
       })
       .where("entitlementId", "=", allocation.entitlementId)
       .executeTakeFirstOrThrow();
+    if (operation === "enabling") {
+      if (
+        !allocation.distributionDomain ||
+        !(await hasActivationAuthority(
+          transaction,
+          allocation.entitlementId,
+          allocation.distributionDomain,
+        ))
+      )
+        return {
+          kind: "outcome",
+          outcome: await requestActivationRetirement(
+            transaction,
+            allocation.entitlementId,
+            now,
+          ),
+        };
+    }
     return {
-      entitlementId: allocation.entitlementId,
-      operation,
-      distributionId: allocation.distributionId,
-      distributionDomain: allocation.distributionDomain,
-      attempt,
-      leasedUntil,
+      kind: "work",
+      work: {
+        entitlementId: allocation.entitlementId,
+        operation,
+        distributionId: allocation.distributionId,
+        distributionDomain: allocation.distributionDomain,
+        failureCount: allocation.attempts,
+        leaseVersion,
+        leasedUntil,
+      },
     };
   });
 }
@@ -190,9 +274,9 @@ async function markExhaustedWork(
   return await database.transaction().execute(async (transaction) => {
     const allocation = await transaction
       .selectFrom("offline_scorm_cloudfront_allocation")
-      .select(["entitlementId", "state"])
+      .select(["entitlementId", "state", "distributionDomain"])
       .where("state", "in", ["allocating", "enabling"])
-      .where("attempts", ">=", MAXIMUM_ATTEMPTS)
+      .where("attempts", ">=", MAXIMUM_FAILURES)
       .where("availableAt", "<=", now)
       .where((expression) =>
         expression.or([
@@ -210,6 +294,20 @@ async function markExhaustedWork(
     if (allocation.state !== "allocating" && allocation.state !== "enabling")
       throw new Error("CloudFront exhausted work state is invalid");
     const operation: ProviderOperation = allocation.state;
+    if (
+      operation === "enabling" &&
+      (!allocation.distributionDomain ||
+        !(await hasActivationAuthority(
+          transaction,
+          allocation.entitlementId,
+          allocation.distributionDomain,
+        )))
+    )
+      return await requestActivationRetirement(
+        transaction,
+        allocation.entitlementId,
+        now,
+      );
     const reasonCode = "allocator_attempts_exhausted";
     const updated = await transaction
       .updateTable("offline_scorm_cloudfront_allocation")
@@ -234,28 +332,66 @@ async function markExhaustedWork(
   });
 }
 
-async function markFailure(
+async function finishProviderFailure(
   database: Kysely<Database>,
   work: ClaimedProviderWork,
   now: Date,
   reasonCode: string,
-): Promise<boolean> {
-  const updated = await database
-    .updateTable("offline_scorm_cloudfront_allocation")
-    .set({
-      state: "needs_attention",
-      recoveryState: work.operation,
-      lastErrorCode: reasonCode,
-      availableAt: retryAt(now, work.attempt),
-      leasedUntil: null,
-      updatedAt: now,
-    })
-    .where("entitlementId", "=", work.entitlementId)
-    .where("state", "=", work.operation)
-    .where("attempts", "=", work.attempt)
-    .where("leasedUntil", "=", work.leasedUntil)
-    .executeTakeFirst();
-  return updated.numUpdatedRows === 1n;
+): Promise<OfflineScormCloudFrontAllocationOutcome> {
+  return await database.transaction().execute(async (transaction) => {
+    const allocation = await transaction
+      .selectFrom("offline_scorm_cloudfront_allocation")
+      .select(["distributionDomain"])
+      .where("entitlementId", "=", work.entitlementId)
+      .where("state", "=", work.operation)
+      .where("leaseVersion", "=", work.leaseVersion)
+      .where("leasedUntil", "=", work.leasedUntil)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!allocation)
+      return {
+        status: "stale",
+        entitlementId: work.entitlementId,
+        operation: work.operation,
+      };
+    if (
+      work.operation === "enabling" &&
+      (!allocation.distributionDomain ||
+        !(await hasActivationAuthority(
+          transaction,
+          work.entitlementId,
+          allocation.distributionDomain,
+        )))
+    )
+      return await requestActivationRetirement(
+        transaction,
+        work.entitlementId,
+        now,
+      );
+    const failureCount = work.failureCount + 1;
+    await transaction
+      .updateTable("offline_scorm_cloudfront_allocation")
+      .set({
+        state: "needs_attention",
+        recoveryState: work.operation,
+        lastErrorCode: reasonCode,
+        attempts: failureCount,
+        availableAt: retryAt(now, failureCount),
+        leasedUntil: null,
+        updatedAt: now,
+      })
+      .where("entitlementId", "=", work.entitlementId)
+      .where("state", "=", work.operation)
+      .where("leaseVersion", "=", work.leaseVersion)
+      .where("leasedUntil", "=", work.leasedUntil)
+      .executeTakeFirstOrThrow();
+    return {
+      status: "needs_attention",
+      entitlementId: work.entitlementId,
+      operation: work.operation,
+      reasonCode,
+    };
+  });
 }
 
 async function executeProviderWork(
@@ -275,13 +411,14 @@ async function executeProviderWork(
           distributionDomain,
           state: "binding_pending",
           boundAt: now,
+          attempts: 0,
           availableAt: now,
           leasedUntil: null,
           updatedAt: now,
         })
         .where("entitlementId", "=", work.entitlementId)
         .where("state", "=", "allocating")
-        .where("attempts", "=", work.attempt)
+        .where("leaseVersion", "=", work.leaseVersion)
         .where("leasedUntil", "=", work.leasedUntil)
         .executeTakeFirst();
       if (updated.numUpdatedRows !== 1n)
@@ -298,80 +435,88 @@ async function executeProviderWork(
     }
     if (!work.distributionId || !work.distributionDomain)
       throw new Error("CloudFront enabling work has no immutable binding");
+    const distributionId = work.distributionId;
+    const distributionDomain = work.distributionDomain;
     const response = await provider.activate(
       work.entitlementId,
-      work.distributionId,
+      distributionId,
     );
     if (
-      response.distributionId !== work.distributionId ||
-      new URL(response.packageSiteOrigin).hostname !== work.distributionDomain
+      response.distributionId !== distributionId ||
+      new URL(response.packageSiteOrigin).hostname !== distributionDomain
     )
       throw new Error("CloudFront allocator response changed its binding");
-    if (response.phase === "active") {
-      const updated = await database
-        .updateTable("offline_scorm_cloudfront_allocation")
-        .set({
-          state: "active",
-          activatedAt: now,
-          availableAt: now,
-          leasedUntil: null,
-          updatedAt: now,
-        })
+    return await database.transaction().execute(async (transaction) => {
+      const allocation = await transaction
+        .selectFrom("offline_scorm_cloudfront_allocation")
+        .select(["distributionDomain"])
         .where("entitlementId", "=", work.entitlementId)
         .where("state", "=", "enabling")
-        .where("attempts", "=", work.attempt)
+        .where("leaseVersion", "=", work.leaseVersion)
         .where("leasedUntil", "=", work.leasedUntil)
+        .forUpdate()
         .executeTakeFirst();
-      if (updated.numUpdatedRows !== 1n)
+      if (!allocation)
         return {
           status: "stale",
           entitlementId: work.entitlementId,
           operation: work.operation,
         };
+      if (
+        !allocation.distributionDomain ||
+        !(await hasActivationAuthority(
+          transaction,
+          work.entitlementId,
+          allocation.distributionDomain,
+        ))
+      )
+        return await requestActivationRetirement(
+          transaction,
+          work.entitlementId,
+          now,
+        );
+      if (response.phase === "active") {
+        await transaction
+          .updateTable("offline_scorm_cloudfront_allocation")
+          .set({
+            state: "active",
+            activatedAt: now,
+            availableAt: now,
+            leasedUntil: null,
+            updatedAt: now,
+          })
+          .where("entitlementId", "=", work.entitlementId)
+          .where("state", "=", "enabling")
+          .where("leaseVersion", "=", work.leaseVersion)
+          .where("leasedUntil", "=", work.leasedUntil)
+          .executeTakeFirstOrThrow();
+        return {
+          status: "active",
+          entitlementId: work.entitlementId,
+          distributionId,
+        };
+      }
+      await transaction
+        .updateTable("offline_scorm_cloudfront_allocation")
+        .set({
+          availableAt: addElapsedMilliseconds(now, RETRY_BASE_MILLISECONDS),
+          leasedUntil: null,
+          updatedAt: now,
+        })
+        .where("entitlementId", "=", work.entitlementId)
+        .where("state", "=", "enabling")
+        .where("leaseVersion", "=", work.leaseVersion)
+        .where("leasedUntil", "=", work.leasedUntil)
+        .executeTakeFirstOrThrow();
       return {
-        status: "active",
-        entitlementId: work.entitlementId,
-        distributionId: work.distributionId,
-      };
-    }
-    const updated = await database
-      .updateTable("offline_scorm_cloudfront_allocation")
-      .set({
-        availableAt: addElapsedMilliseconds(now, RETRY_BASE_MILLISECONDS),
-        leasedUntil: null,
-        updatedAt: now,
-      })
-      .where("entitlementId", "=", work.entitlementId)
-      .where("state", "=", "enabling")
-      .where("attempts", "=", work.attempt)
-      .where("leasedUntil", "=", work.leasedUntil)
-      .executeTakeFirst();
-    if (updated.numUpdatedRows !== 1n)
-      return {
-        status: "stale",
+        status: "waiting",
         entitlementId: work.entitlementId,
         operation: work.operation,
       };
-    return {
-      status: "waiting",
-      entitlementId: work.entitlementId,
-      operation: work.operation,
-    };
+    });
   } catch (error) {
     const reasonCode = providerFailureCode(error);
-    const marked = await markFailure(database, work, now, reasonCode);
-    if (!marked)
-      return {
-        status: "stale",
-        entitlementId: work.entitlementId,
-        operation: work.operation,
-      };
-    return {
-      status: "needs_attention",
-      entitlementId: work.entitlementId,
-      operation: work.operation,
-      reasonCode,
-    };
+    return await finishProviderFailure(database, work, now, reasonCode);
   }
 }
 
@@ -389,9 +534,10 @@ async function processNextOfflineScormCloudFrontAllocation(
   if (promoted) return promoted;
   const exhausted = await markExhaustedWork(database, now);
   if (exhausted) return exhausted;
-  const work = await claimProviderWork(database, now);
-  if (!work) return undefined;
-  return await executeProviderWork(database, provider, work, now);
+  const claim = await claimProviderWork(database, now);
+  if (!claim) return undefined;
+  if (claim.kind === "outcome") return claim.outcome;
+  return await executeProviderWork(database, provider, claim.work, now);
 }
 
 export async function processAvailableOfflineScormCloudFrontAllocations(

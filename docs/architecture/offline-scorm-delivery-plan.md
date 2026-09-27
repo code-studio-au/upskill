@@ -377,12 +377,16 @@ retained lifecycle evidence for the unique distribution identifier and
 AWS-owned domain. The row is written in `allocating` before an external request,
 retains an exact needs-attention recovery phase after an uncertain response and
 makes a bound distribution identity immutable. Migration 0121 now adds bounded
-attempt, availability and lease evidence. A dormant worker claims pre-existing
-reservations with row locks, allocates or recovers exactly one disabled
-distribution, preserves its immutable binding and waits at `binding_pending`.
-It promotes activation only after an active entitlement and pending cleanup
-inventory exist with the exact bound CloudFront origin. It does not create
-reservations, issue entitlements, retire distributions or expose learner UI.
+provider-failure, availability and versioned lease evidence. A dormant worker
+claims pre-existing reservations with row locks, allocates or recovers exactly
+one disabled distribution, preserves its immutable binding and waits at
+`binding_pending`. In-progress CloudFront deployment polls advance the lease
+version without consuming the provider-failure budget. It promotes activation
+only after an active entitlement and pending cleanup inventory exist with the
+exact bound CloudFront origin, rechecks that authority before and after each
+activation call and moves stale activation work to `disabling`. It does not
+create reservations, issue entitlements, process distribution retirement or
+expose learner UI.
 
 Under the current low-cost topology, web and worker share the EC2 instance IAM
 role. CDK grants that role invoke permission only for the exact allocator, while

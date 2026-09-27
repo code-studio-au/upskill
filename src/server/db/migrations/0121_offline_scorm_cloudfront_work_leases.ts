@@ -3,15 +3,12 @@ import { sql, type Kysely } from "kysely";
 export async function up<Database>(db: Kysely<Database>): Promise<void> {
   await sql`alter table offline_scorm_cloudfront_allocation
     add column attempts integer not null default 0,
+    add column "leaseVersion" integer not null default 0,
     add column "availableAt" timestamptz not null default statement_timestamp(),
     add column "leasedUntil" timestamptz,
     add column "lastAttemptAt" timestamptz,
     add constraint offline_scorm_cloudfront_allocation_attempts_ck check (
-      attempts >= 0
-      and (
-        (attempts = 0 and "lastAttemptAt" is null)
-        or (attempts > 0 and "lastAttemptAt" is not null)
-      )
+      attempts >= 0 and "leaseVersion" >= 0
     ),
     add constraint offline_scorm_cloudfront_allocation_work_timeline_ck check (
       isfinite("availableAt")
@@ -22,6 +19,7 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
           state in ('allocating', 'enabling', 'disabling', 'deletion_pending')
           and
           isfinite("leasedUntil")
+          and "leaseVersion" > 0
           and "lastAttemptAt" is not null
           and "leasedUntil" > "lastAttemptAt"
         )
@@ -58,5 +56,6 @@ export async function down<Database>(db: Kysely<Database>): Promise<void> {
     drop column "lastAttemptAt",
     drop column "leasedUntil",
     drop column "availableAt",
+    drop column "leaseVersion",
     drop column attempts`.execute(db);
 }

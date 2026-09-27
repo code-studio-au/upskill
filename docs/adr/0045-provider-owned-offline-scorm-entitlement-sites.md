@@ -150,14 +150,19 @@ entitlement plus cleanup inventory for
 `https://<distributionDomain>` before moving the reservation from
 `binding_pending` to `enabling`.
 
-Migration 0121 adds bounded attempt, availability and lease evidence for the
-allocation worker. The worker claims work with `FOR UPDATE SKIP LOCKED`, invokes
-the exact configured allocator outside the transaction, and recovers expired
-or failed allocation and activation calls without replacing a stored binding.
-Allocation ends at `binding_pending`. Activation can begin only when an active
-entitlement and pending cleanup inventory already exist and the cleanup origin
-exactly matches `https://<distributionDomain>`. This increment does not create
-reservations, issue entitlements, retire distributions or expose learner UI.
+Migration 0121 adds bounded provider-failure, availability and versioned lease
+evidence for the allocation worker. The worker claims work with `FOR UPDATE
+SKIP LOCKED`, invokes the exact configured allocator outside the transaction,
+and recovers expired or failed allocation and activation calls without
+replacing a stored binding. Normal CloudFront deployment polling advances the
+lease version but does not consume the provider-failure budget. Allocation ends
+at `binding_pending`. Activation can begin only when an active entitlement and
+pending cleanup inventory already exist and the cleanup origin exactly matches
+`https://<distributionDomain>`. The worker revalidates that authority while
+claiming and finalising every activation call; if it disappears, the retained
+allocation moves to `disabling` for the pending retirement workflow rather than
+becoming active. This increment does not create reservations, issue
+entitlements, process distribution retirement or expose learner UI.
 
 ## Threat model and controls
 
