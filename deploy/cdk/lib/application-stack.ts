@@ -1,4 +1,5 @@
 import {
+  ArnFormat,
   CfnCondition,
   CfnOutput,
   CustomResource,
@@ -57,6 +58,7 @@ import type { Queue } from "aws-cdk-lib/aws-sqs";
 import type { Construct } from "constructs";
 import type { ITopic } from "aws-cdk-lib/aws-sns";
 import type { EnvironmentConfig } from "./config.js";
+import { offlineScormCloudFrontWebAclName } from "./offline-scorm-edge-security-stack.js";
 
 export interface ApplicationStackProps extends StackProps {
   config: EnvironmentConfig;
@@ -668,12 +670,18 @@ UPSKILL_ENV`,
             "Dormant worker-owned allocator for exact-entitlement CloudFront qualification sites",
           environment: {
             UPSKILL_ENVIRONMENT: props.config.name,
+            UPSKILL_OFFLINE_SCORM_MAX_DISTRIBUTIONS: String(
+              props.config.offlineScormCloudFrontQualification
+                .maxEntitlementDistributions,
+            ),
             UPSKILL_OFFLINE_SCORM_ORIGIN_DOMAIN:
               props.config.offlineScormCloudFrontQualification.originDomain,
             UPSKILL_OFFLINE_SCORM_ORIGIN_KEY_SECRET_ARN:
               offlineScormCloudFrontOriginKey.secretArn,
             UPSKILL_OFFLINE_SCORM_EDGE_LOG_BUCKET_DOMAIN:
               props.offlineScormEdgeLogBucket.bucketDomainName,
+            UPSKILL_OFFLINE_SCORM_WEB_ACL_NAME:
+              offlineScormCloudFrontWebAclName(props.config.name),
           },
         },
       );
@@ -694,6 +702,26 @@ UPSKILL_ENV`,
         new PolicyStatement({
           actions: ["s3:GetBucketAcl", "s3:PutBucketAcl"],
           resources: [props.offlineScormEdgeLogBucket.bucketArn],
+        }),
+      );
+      allocator.addToRolePolicy(
+        new PolicyStatement({
+          actions: ["wafv2:ListWebACLs"],
+          resources: ["*"],
+        }),
+      );
+      allocator.addToRolePolicy(
+        new PolicyStatement({
+          actions: ["wafv2:ListTagsForResource"],
+          resources: [
+            this.formatArn({
+              service: "wafv2",
+              region: "us-east-1",
+              resource: "global/webacl",
+              resourceName: `${offlineScormCloudFrontWebAclName(props.config.name)}/*`,
+              arnFormat: ArnFormat.SLASH_RESOURCE_NAME,
+            }),
+          ],
         }),
       );
       allocator.addToRolePolicy(

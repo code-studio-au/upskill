@@ -3,6 +3,7 @@ import { Match, Template } from "aws-cdk-lib/assertions";
 import { expect, test } from "vitest";
 import { environmentConfig } from "../lib/config.js";
 import { NetworkStack } from "../lib/network-stack.js";
+import { OfflineScormEdgeSecurityStack } from "../lib/offline-scorm-edge-security-stack.js";
 import { StorageStack } from "../lib/storage-stack.js";
 import { DataStack } from "../lib/data-stack.js";
 import { ApplicationStack } from "../lib/application-stack.js";
@@ -71,6 +72,7 @@ test("offline SCORM CloudFront qualification requires explicit staging-only shar
       "staging-qualification-only",
     ).offlineScormCloudFrontQualification,
   ).toEqual({
+    maxEntitlementDistributions: 25,
     originDomain: "staging.upskill.institute",
     sharedHostRiskAcceptance: "staging-qualification-only",
   });
@@ -790,6 +792,133 @@ test("provisioned offline SCORM host retires the vhost before managed DNS and SS
   expect(serialized).not.toContain("route53:*");
 });
 
+test("CloudFront entitlement qualification has a global WAF baseline", () => {
+  const config = environmentConfig(
+    "staging",
+    undefined,
+    undefined,
+    "staging.upskill.institute",
+    "staging-qualification-only",
+  );
+  const stack = new OfflineScormEdgeSecurityStack(
+    new App(),
+    "CloudFrontEdgeSecurity",
+    {
+      config,
+      env: { account: "123456789012", region: "us-east-1" },
+    },
+  );
+  const template = Template.fromStack(stack);
+
+  template.resourceCountIs("AWS::WAFv2::WebACL", 1);
+  template.hasResourceProperties("AWS::WAFv2::WebACL", {
+    Name: "upskill-staging-offline-scorm-cloudfront",
+    Scope: "CLOUDFRONT",
+    Tags: Match.arrayWith([
+      { Key: "Application", Value: "upskill" },
+      { Key: "Environment", Value: "staging" },
+      { Key: "Purpose", Value: "offline-scorm-qualification" },
+    ]),
+    DefaultAction: { Allow: {} },
+    Rules: Match.arrayWith([
+      Match.objectLike({
+        Name: "aws-managed-ip-reputation",
+        Priority: 0,
+        OverrideAction: { None: {} },
+        Statement: {
+          ManagedRuleGroupStatement: {
+            Name: "AWSManagedRulesAmazonIpReputationList",
+            VendorName: "AWS",
+          },
+        },
+      }),
+      Match.objectLike({
+        Name: "aws-managed-common-protections-qualification",
+        Priority: 1,
+        OverrideAction: { Count: {} },
+        Statement: {
+          ManagedRuleGroupStatement: {
+            Name: "AWSManagedRulesCommonRuleSet",
+            VendorName: "AWS",
+          },
+        },
+      }),
+      Match.objectLike({
+        Name: "per-ip-request-rate",
+        Priority: 2,
+        Action: { Block: {} },
+        Statement: {
+          RateBasedStatement: {
+            AggregateKeyType: "IP",
+            EvaluationWindowSec: 300,
+            Limit: 2_000,
+          },
+        },
+      }),
+    ]),
+  });
+  template.hasResourceProperties("AWS::Logs::LogGroup", {
+    LogGroupName: "aws-waf-logs-upskill-staging-offline-scorm-cloudfront",
+    RetentionInDays: 30,
+  });
+  template.hasResourceProperties("AWS::WAFv2::LoggingConfiguration", {
+    LoggingFilter: {
+      DefaultBehavior: "DROP",
+      Filters: [
+        {
+          Behavior: "KEEP",
+          Conditions: [
+            { ActionCondition: { Action: "BLOCK" } },
+            { ActionCondition: { Action: "COUNT" } },
+          ],
+          Requirement: "MEETS_ANY",
+        },
+      ],
+    },
+    RedactedFields: [
+      { SingleHeader: { Name: "authorization" } },
+      { SingleHeader: { Name: "cookie" } },
+      { QueryString: {} },
+    ],
+  });
+  template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+    AlarmName: "upskill-staging-offline-scorm-waf-blocked-requests",
+    Namespace: "AWS/WAFV2",
+    MetricName: "BlockedRequests",
+    Period: 300,
+    Threshold: 100,
+  });
+  template.hasResourceProperties("AWS::KMS::Key", {
+    Description:
+      "Encrypts Upskill staging Offline SCORM edge alarm notifications",
+    EnableKeyRotation: true,
+    KeyPolicy: {
+      Statement: Match.arrayWith([
+        Match.objectLike({
+          Action: ["kms:GenerateDataKey*", "kms:Decrypt"],
+          Condition: {
+            ArnLike: {
+              "aws:SourceArn": Match.anyValue(),
+            },
+            StringEquals: { "aws:SourceAccount": "123456789012" },
+          },
+          Effect: "Allow",
+          Principal: { Service: "cloudwatch.amazonaws.com" },
+          Resource: "*",
+        }),
+      ]),
+    },
+  });
+  template.hasResourceProperties("AWS::SNS::Subscription", {
+    Endpoint: "ops@codestudio.au",
+    Protocol: "email",
+  });
+  template.resourceCountIs("AWS::SNS::Topic", 1);
+  template.hasOutput("OfflineScormCloudFrontWebAclArn", {
+    Description: Match.stringLikeRegexp("required by every Offline SCORM"),
+  });
+});
+
 test("CloudFront entitlement qualification is dormant and worker-owned", () => {
   const app = new App();
   const config = environmentConfig(
@@ -875,7 +1004,10 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
     Environment: {
       Variables: Match.objectLike({
         UPSKILL_ENVIRONMENT: "staging",
+        UPSKILL_OFFLINE_SCORM_MAX_DISTRIBUTIONS: "25",
         UPSKILL_OFFLINE_SCORM_ORIGIN_DOMAIN: "staging.upskill.institute",
+        UPSKILL_OFFLINE_SCORM_WEB_ACL_NAME:
+          "upskill-staging-offline-scorm-cloudfront",
       }),
     },
   });
@@ -892,6 +1024,8 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
   expect(serialized).toContain("cloudfront:UpdateDistribution");
   expect(serialized).toContain("cloudfront:DeleteDistribution");
   expect(serialized).toContain("cloudfront:ListTagsForResource");
+  expect(serialized).toContain("wafv2:ListWebACLs");
+  expect(serialized).toContain("wafv2:ListTagsForResource");
   template.hasResourceProperties("AWS::IAM::Policy", {
     PolicyDocument: {
       Statement: Match.arrayWith([
@@ -904,6 +1038,7 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
     },
   });
   expect(serialized).not.toContain('"cloudfront:*"');
+  expect(serialized).not.toContain('"wafv2:*"');
   const roles = template.findResources("AWS::IAM::Role");
   const instanceRoleLogicalId = Object.keys(roles).find((logicalId) =>
     logicalId.startsWith("InstanceRole"),
