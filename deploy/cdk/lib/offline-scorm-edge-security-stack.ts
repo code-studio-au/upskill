@@ -220,5 +220,10 @@ export class OfflineScormEdgeSecurityStack extends Stack {
       description:
         "Encrypted notification topic whose email subscription must be confirmed before qualification",
     });
+    new CfnOutput(this, "OfflineScormEdgeAlarmEmail", {
+      value: props.config.alarmEmail,
+      description:
+        "Expected confirmed email endpoint for Offline SCORM edge alarms",
+    });
   }
 }

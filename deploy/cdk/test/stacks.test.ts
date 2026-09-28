@@ -925,6 +925,9 @@ test("CloudFront entitlement qualification has a global WAF baseline", () => {
   template.hasOutput("OfflineScormEdgeAlarmTopicArn", {
     Description: Match.stringLikeRegexp("must be confirmed"),
   });
+  template.hasOutput("OfflineScormEdgeAlarmEmail", {
+    Value: "ops@codestudio.au",
+  });
 });
 
 test("CloudFront entitlement qualification is dormant and worker-owned", () => {
@@ -1024,6 +1027,9 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
   });
   template.hasOutput("OfflineScormCloudFrontAllocatorAlarmTopicArn", {
     Description: Match.stringLikeRegexp("required by the Offline SCORM"),
+  });
+  template.hasOutput("OfflineScormCloudFrontAllocatorAlarmEmail", {
+    Value: "ops@codestudio.au",
   });
   const serialized = JSON.stringify(template.toJSON());
   expect(serialized).toContain("OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN");

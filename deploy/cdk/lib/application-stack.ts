@@ -789,6 +789,11 @@ UPSKILL_ENV`,
         description:
           "Operational notification topic required by the Offline SCORM allocator alarms",
       });
+      new CfnOutput(this, "OfflineScormCloudFrontAllocatorAlarmEmail", {
+        value: props.config.alarmEmail,
+        description:
+          "Expected confirmed email endpoint for Offline SCORM allocator alarms",
+      });
       new CfnOutput(this, "OfflineScormCloudFrontSharedHostRiskAcceptance", {
         value:
           props.config.offlineScormCloudFrontQualification

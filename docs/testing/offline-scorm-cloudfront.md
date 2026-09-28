@@ -12,7 +12,8 @@ distribution, invoke the allocator, alter a WAF rule, or write to AWS.
 - The application and edge stacks deployed with the CloudFront qualification
   context.
 - The shared `ap-southeast-2` operational SNS email subscription and the
-  separate `us-east-1` edge SNS email subscription confirmed.
+  separate `us-east-1` edge SNS email subscription confirmed for the exact
+  endpoint exported by each stack.
 
 The application, allocator and origin run in `ap-southeast-2`; the
 CloudFront-scope WAF, edge alarm and CloudTrail Event History lookup run in
@@ -33,11 +34,13 @@ pnpm run qualify:offline-scorm:cloudfront -- \
 Store the JSON output with the qualification record. It verifies the direct
 origin parameter and deployed-distribution binding, staging risk
 acknowledgement, WAF ownership/binding, mandatory rules, safe log filtering and
-redaction, WAF metric publication, 30-day WAF retention, confirmed alarm
-subscriptions, exact alarm metrics/evaluation/actions, per-distribution
-entitlement-specific access logging, exact lifecycle ownership tags,
-entitlement-bound protected origin headers, distribution-cap markers,
-service-quota headroom and recent CloudFront control-plane mutations.
+redaction, ACL-level and per-rule WAF metric publication/sampling, 30-day WAF
+retention, exact confirmed alarm-subscription endpoints, exact alarm
+metrics/evaluation/actions, per-distribution entitlement-specific access
+logging, tag-first lifecycle ownership discovery, entitlement-bound protected
+origin headers, HTTPS-only TLS 1.2 origin transport and the remaining canonical
+allocator configuration, distribution-cap markers, service-quota headroom and
+recent CloudFront control-plane mutations.
 
 The report intentionally includes only a small CloudTrail mutation summary:
 event name/time, read-only status, error code and service identity type. It
@@ -49,6 +52,12 @@ The harness reads the staging origin-key secret solely to recompute each
 entitlement-bound capability, evaluates the configuration and tag responses
 only in memory, and never serializes the secret, configuration, tags or header
 values into the report.
+
+The harness reads tags for every distribution in the account so a qualification
+distribution whose mutable comment has drifted cannot disappear from the
+ownership, cap or configuration checks. Configuration reads remain limited to
+the union of comment-identified and exactly tag-identified qualification
+distributions.
 
 ## Interpreting results
 

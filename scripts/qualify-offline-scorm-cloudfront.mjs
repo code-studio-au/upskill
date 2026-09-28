@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { createHash, createHmac } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual, promisify } from "node:util";
+import { assertOwnedConfiguration } from "../deploy/cdk/lambda/offline-scorm-cloudfront-entitlement/index.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -156,15 +157,20 @@ export function parseQualificationArguments(argv) {
 
 export function classifyQualificationDistributions(distributions, environment) {
   const prefix = `upskill:${environment}:offline-scorm:`;
-  const owned = distributions.filter((distribution) =>
-    distribution.Comment?.startsWith(prefix),
-  );
+  const owned = distributions.filter((distribution) => {
+    const comment = distribution.inventoryComment ?? distribution.Comment;
+    return (
+      comment?.startsWith(prefix) ||
+      hasQualificationOwnershipTags(distribution.tags, environment)
+    );
+  });
   const comments = new Set();
   const duplicateMarkers = new Set();
   for (const distribution of owned) {
-    if (comments.has(distribution.Comment))
-      duplicateMarkers.add(distribution.Comment);
-    comments.add(distribution.Comment);
+    const comment = distribution.inventoryComment ?? distribution.Comment;
+    if (typeof comment !== "string") continue;
+    if (comments.has(comment)) duplicateMarkers.add(comment);
+    comments.add(comment);
   }
   return { duplicateMarkers: [...duplicateMarkers].sort(), owned };
 }
@@ -217,6 +223,33 @@ function distributionTagMap(tags) {
     tagMap.set(tag.Key, tag.Value);
   }
   return tagMap;
+}
+
+function hasQualificationOwnershipTags(tags, environment) {
+  const tagMap = distributionTagMap(tags);
+  return (
+    tagMap?.get("Application") === "upskill" &&
+    tagMap?.get("Environment") === environment &&
+    tagMap?.get("Purpose") === "offline-scorm-qualification" &&
+    ENTITLEMENT_ID.test(tagMap?.get("OfflineScormEntitlementId") ?? "")
+  );
+}
+
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await mapper(items[index], index);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
 }
 
 export function haveExpectedDistributionOwnership(
@@ -343,6 +376,8 @@ export function haveExpectedDistributionOrigins(
   environment,
   expectedOriginDomain,
   originKey,
+  expectedLogBucketDomain,
+  expectedWebAclArn,
 ) {
   if (!Array.isArray(distributions)) return false;
   return distributions.every((distribution) => {
@@ -367,12 +402,40 @@ export function haveExpectedDistributionOrigins(
           ])
         : [],
     );
+    let completeConfigurationMatches = false;
+    if (capability !== null) {
+      try {
+        assertOwnedConfiguration(
+          configuration,
+          environment,
+          entitlementId,
+          capability,
+          expectedOriginDomain,
+          expectedLogBucketDomain,
+          expectedWebAclArn,
+        );
+        completeConfigurationMatches = true;
+      } catch {
+        // The qualification report records only the failed invariant, never configuration values.
+      }
+    }
     return (
+      completeConfigurationMatches &&
       origins?.Quantity === 1 &&
       Array.isArray(originItems) &&
       originItems.length === 1 &&
       origin?.Id === "upskill-offline-package-host" &&
       origin?.DomainName === expectedOriginDomain &&
+      origin?.ConnectionAttempts === 3 &&
+      origin?.ConnectionTimeout === 10 &&
+      isDeepStrictEqual(origin?.CustomOriginConfig, {
+        HTTPPort: 80,
+        HTTPSPort: 443,
+        OriginProtocolPolicy: "https-only",
+        OriginSslProtocols: { Quantity: 1, Items: ["TLSv1.2"] },
+        OriginReadTimeout: 30,
+        OriginKeepaliveTimeout: 5,
+      }) &&
       customHeaders?.Quantity === 2 &&
       Array.isArray(customHeaderItems) &&
       customHeaderItems.length === 2 &&
@@ -428,14 +491,19 @@ function hasOnlyEmptyAction(action, expectedAction) {
   );
 }
 
+function hasExpectedWafVisibility(visibilityConfig, metricName) {
+  return isDeepStrictEqual(visibilityConfig, {
+    CloudWatchMetricsEnabled: true,
+    MetricName: metricName,
+    SampledRequestsEnabled: true,
+  });
+}
+
 export function hasExpectedWebAclBaseline(webAcl, environment) {
   if (!hasOnlyEmptyAction(webAcl?.DefaultAction, "Allow")) return false;
+  const metricPrefix = `upskill-${environment}-offline-scorm`;
   if (
-    !isDeepStrictEqual(webAcl?.VisibilityConfig, {
-      CloudWatchMetricsEnabled: true,
-      MetricName: `upskill-${environment}-offline-scorm-all`,
-      SampledRequestsEnabled: true,
-    })
+    !hasExpectedWafVisibility(webAcl?.VisibilityConfig, `${metricPrefix}-all`)
   )
     return false;
   if (!Array.isArray(webAcl?.Rules) || webAcl.Rules.length !== 3) return false;
@@ -448,6 +516,10 @@ export function hasExpectedWebAclBaseline(webAcl, environment) {
   return (
     ipReputation?.Priority === 0 &&
     hasOnlyEmptyAction(ipReputation.OverrideAction, "None") &&
+    hasExpectedWafVisibility(
+      ipReputation.VisibilityConfig,
+      `${metricPrefix}-ip-reputation`,
+    ) &&
     isDeepStrictEqual(ipReputation.Statement, {
       ManagedRuleGroupStatement: {
         Name: "AWSManagedRulesAmazonIpReputationList",
@@ -456,6 +528,10 @@ export function hasExpectedWebAclBaseline(webAcl, environment) {
     }) &&
     commonProtections?.Priority === 1 &&
     hasOnlyEmptyAction(commonProtections.OverrideAction, "Count") &&
+    hasExpectedWafVisibility(
+      commonProtections.VisibilityConfig,
+      `${metricPrefix}-common-count`,
+    ) &&
     isDeepStrictEqual(commonProtections.Statement, {
       ManagedRuleGroupStatement: {
         Name: "AWSManagedRulesCommonRuleSet",
@@ -464,6 +540,10 @@ export function hasExpectedWebAclBaseline(webAcl, environment) {
     }) &&
     rateLimit?.Priority === 2 &&
     hasOnlyEmptyAction(rateLimit.Action, "Block") &&
+    hasExpectedWafVisibility(
+      rateLimit.VisibilityConfig,
+      `${metricPrefix}-rate-limit`,
+    ) &&
     isDeepStrictEqual(rateLimit.Statement, {
       RateBasedStatement: {
         AggregateKeyType: "IP",
@@ -528,10 +608,15 @@ export function hasExpectedWafLoggingBaseline(
   );
 }
 
-function hasConfirmedEmailSubscription(response, topicArn) {
+export function hasConfirmedEmailSubscription(
+  response,
+  topicArn,
+  expectedEndpoint,
+) {
   return (response.Subscriptions ?? []).some(
     (subscription) =>
       subscription.Protocol === "email" &&
+      subscription.Endpoint === expectedEndpoint &&
       typeof subscription.SubscriptionArn === "string" &&
       subscription.SubscriptionArn.startsWith(`${topicArn}:`),
   );
@@ -664,9 +749,19 @@ export async function collectCloudFrontQualificationReport(
     "OfflineScormEdgeAlarmTopicArn",
     edgeStackName,
   );
+  const edgeAlarmEmail = requiredOutput(
+    edgeOutputs,
+    "OfflineScormEdgeAlarmEmail",
+    edgeStackName,
+  );
   const allocatorAlarmTopicArn = requiredOutput(
     applicationOutputs,
     "OfflineScormCloudFrontAllocatorAlarmTopicArn",
+    appStackName,
+  );
+  const allocatorAlarmEmail = requiredOutput(
+    applicationOutputs,
+    "OfflineScormCloudFrontAllocatorAlarmEmail",
     appStackName,
   );
   const logBucketArn = requiredOutput(
@@ -725,8 +820,34 @@ export async function collectCloudFrontQualificationReport(
   const distributionQuota = Number(quota.value);
   if (!Number.isSafeInteger(distributionQuota) || distributionQuota < 1)
     throw new Error("CloudFront distribution quota is unavailable");
-  const { owned, duplicateMarkers } = classifyQualificationDistributions(
+  const taggedDistributionInventory = await mapWithConcurrency(
     distributionItems,
+    8,
+    async (distribution) => {
+      if (
+        typeof distribution.Id !== "string" ||
+        !CLOUDFRONT_DISTRIBUTION_ID.test(distribution.Id)
+      )
+        throw new Error("CloudFront distribution ID is invalid");
+      const arnMatch = CLOUDFRONT_DISTRIBUTION_ARN.exec(distribution.ARN ?? "");
+      if (arnMatch?.[1] !== accountId || arnMatch?.[2] !== distribution.Id)
+        throw new Error("CloudFront distribution ARN is invalid");
+      const tagResponse = await runAws([
+        "cloudfront",
+        "list-tags-for-resource",
+        "--resource",
+        distribution.ARN,
+      ]);
+      return {
+        distributionArn: distribution.ARN,
+        distributionId: distribution.Id,
+        inventoryComment: distribution.Comment,
+        tags: tagResponse.Tags?.Items,
+      };
+    },
+  );
+  const { owned, duplicateMarkers } = classifyQualificationDistributions(
+    taggedDistributionInventory,
     options.environment,
   );
   const headroom = evaluateQuotaHeadroom({
@@ -737,34 +858,15 @@ export async function collectCloudFrontQualificationReport(
   });
   const ownedDistributionConfigurations = await Promise.all(
     owned.map(async (distribution) => {
-      if (
-        typeof distribution.Id !== "string" ||
-        !CLOUDFRONT_DISTRIBUTION_ID.test(distribution.Id)
-      )
-        throw new Error("Owned CloudFront distribution ID is invalid");
-      const arnMatch = CLOUDFRONT_DISTRIBUTION_ARN.exec(distribution.ARN ?? "");
-      if (arnMatch?.[1] !== accountId || arnMatch?.[2] !== distribution.Id)
-        throw new Error("Owned CloudFront distribution ARN is invalid");
-      const [configurationResponse, tagResponse] = await Promise.all([
-        runAws([
-          "cloudfront",
-          "get-distribution-config",
-          "--id",
-          distribution.Id,
-        ]),
-        runAws([
-          "cloudfront",
-          "list-tags-for-resource",
-          "--resource",
-          distribution.ARN,
-        ]),
+      const configurationResponse = await runAws([
+        "cloudfront",
+        "get-distribution-config",
+        "--id",
+        distribution.distributionId,
       ]);
       return {
+        ...distribution,
         configuration: configurationResponse.DistributionConfig,
-        distributionArn: distribution.ARN,
-        distributionId: distribution.Id,
-        inventoryComment: distribution.Comment,
-        tags: tagResponse.Tags?.Items,
       };
     }),
   );
@@ -949,8 +1051,12 @@ export async function collectCloudFrontQualificationReport(
   addCheck(
     checks,
     "edge-alert-subscription",
-    hasConfirmedEmailSubscription(edgeSubscriptions, edgeAlarmTopicArn),
-    "Edge alarm topic has a confirmed email subscription",
+    hasConfirmedEmailSubscription(
+      edgeSubscriptions,
+      edgeAlarmTopicArn,
+      edgeAlarmEmail,
+    ),
+    "Edge alarm topic has a confirmed subscription for the configured operations email",
   );
   addCheck(
     checks,
@@ -958,8 +1064,9 @@ export async function collectCloudFrontQualificationReport(
     hasConfirmedEmailSubscription(
       allocatorSubscriptions,
       allocatorAlarmTopicArn,
+      allocatorAlarmEmail,
     ),
-    "Allocator alarm topic has a confirmed email subscription",
+    "Allocator alarm topic has a confirmed subscription for the configured operations email",
   );
   const alarmDefaults = {
     comparisonOperator: "GreaterThanOrEqualToThreshold",
@@ -1045,8 +1152,10 @@ export async function collectCloudFrontQualificationReport(
       options.environment,
       options.expectedOriginDomain,
       originKey,
+      logBucketDomain,
+      webAclArn,
     ),
-    "Every owned qualification distribution targets only the expected direct origin with entitlement-bound protected headers",
+    "Every owned qualification distribution matches the allocator baseline, including direct origin, TLS transport and entitlement-bound protected headers",
   );
   addCheck(
     checks,
