@@ -9,8 +9,9 @@ distribution, invoke the allocator, alter a WAF rule, or write to AWS.
 - AWS CLI credentials for the staging account.
 - Read access to the staging CloudFront origin-key secret; its value is used
   only in memory and is never included in the qualification report.
-- Read access to the allocator Lambda configuration and reserved concurrency,
-  and to the CloudFront access-log bucket ACL.
+- Read access to the allocator Lambda version configuration and reserved
+  concurrency, its IAM role/trust/managed and inline policies, both Offline
+  SCORM SSM parameters, and the CloudFront access-log bucket ACL.
 - The application and edge stacks deployed with the CloudFront qualification
   context.
 - The shared `ap-southeast-2` operational SNS email subscription and the
@@ -40,9 +41,12 @@ redaction, ACL-level and per-rule WAF metric publication/sampling, 30-day WAF
 retention, exact confirmed alarm-subscription endpoints, exact alarm
 metrics/units/evaluation/actions, per-distribution entitlement-specific access
 logging, the bucket's exact owner and S3 LogDelivery ACL grants, fully deployed
-edge status, tag-first lifecycle ownership discovery, entitlement-bound
-protected origin headers, HTTPS-only TLS 1.2 origin transport, the live
-allocator runtime, exact environment and reserved concurrency, the canonical
+edge status, lifecycle ownership discovery across the comment, exact tags and
+dedicated Web ACL binding, entitlement-bound protected origin headers,
+HTTPS-only TLS 1.2 origin transport, the worker's exact SSM allocator target,
+the live immutable allocator version and code digest, exact execution role,
+runtime, environment and reserved concurrency, the role's Lambda-only trust
+policy and least-privilege managed/inline permission boundary, the canonical
 distribution configuration, distribution-cap markers, service-quota headroom
 and a globally bounded sample of recent CloudFront control-plane mutations.
 
@@ -61,11 +65,22 @@ values into the report.
 The harness reads tags for every distribution in the account so a qualification
 distribution whose mutable comment has drifted cannot disappear from the
 ownership, cap or configuration checks. Configuration reads remain limited to
-the union of comment-identified and exactly tag-identified qualification
-distributions.
+qualification distributions identified by comment, exact tags, or the
+dedicated Web ACL binding. A distribution whose comment and tags both drift
+therefore remains visible through its deployment-owned WAF binding and fails
+the ownership/configuration checks instead of escaping the inventory.
 
-The live allocator and bucket ACL responses are evaluated only in memory. They
-are not copied into the report; only the pass/fail checks are retained.
+The application stack publishes an immutable Lambda version, grants the worker
+invoke permission only for that version, and writes its qualified ARN to SSM.
+The harness requires the stack output, worker SSM target and exact live version
+to agree. Updating mutable `$LATEST` cannot change the code the worker invokes;
+a code change requires a deployment that publishes and selects a new version.
+
+The live allocator, IAM role/policy and bucket ACL responses are evaluated only
+in memory. They are not copied into the report; only the pass/fail checks are
+retained. The operator identity therefore needs these additional read-only IAM
+actions: `iam:GetRole`, `iam:ListAttachedRolePolicies`,
+`iam:ListRolePolicies`, and `iam:GetRolePolicy`.
 
 ## Interpreting results
 

@@ -17,6 +17,11 @@ const CLOUDFRONT_DISTRIBUTION_ARN =
   /^arn:aws:cloudfront::([0-9]{12}):distribution\/([A-Z0-9]{8,32})$/u;
 const CLOUDFRONT_WEB_ACL_ARN =
   /^arn:[a-z0-9-]+:wafv2:us-east-1:[0-9]{12}:global\/webacl\/([A-Za-z0-9_-]{1,128})\/([A-Za-z0-9-]{36})$/u;
+const LAMBDA_VERSION_ARN =
+  /^arn:(aws|aws-cn|aws-us-gov):lambda:([a-z0-9-]+):([0-9]{12}):function:([A-Za-z0-9_-]{1,64}):([1-9][0-9]*)$/u;
+const IAM_ROLE_ARN =
+  /^arn:(aws|aws-cn|aws-us-gov):iam::([0-9]{12}):role\/(.+)$/u;
+const LAMBDA_CODE_SHA_256 = /^[A-Za-z0-9+/]{43}=$/u;
 const ENTITLEMENT_ID = /^[A-Za-z0-9_-]{1,255}$/u;
 const ORIGIN_CAPABILITY = /^[A-Za-z0-9_-]{43}$/u;
 const ALLOCATOR_FORMAT = "upskill-offline-scorm-cloudfront-entitlement-v1";
@@ -159,13 +164,18 @@ export function parseQualificationArguments(argv) {
   return parsed;
 }
 
-export function classifyQualificationDistributions(distributions, environment) {
+export function classifyQualificationDistributions(
+  distributions,
+  environment,
+  expectedWebAclArn,
+) {
   const prefix = `upskill:${environment}:offline-scorm:`;
   const owned = distributions.filter((distribution) => {
     const comment = distribution.inventoryComment ?? distribution.Comment;
     return (
       comment?.startsWith(prefix) ||
-      hasQualificationOwnershipTags(distribution.tags, environment)
+      hasQualificationOwnershipTags(distribution.tags, environment) ||
+      distribution.webAclId === expectedWebAclArn
     );
   });
   const comments = new Set();
@@ -376,8 +386,17 @@ export function hasExpectedAllocatorConfiguration(
   concurrency,
   expected,
 ) {
+  const versionMatch = LAMBDA_VERSION_ARN.exec(
+    expected.qualifiedFunctionName ?? "",
+  );
   return (
-    configuration?.FunctionName === expected.functionName &&
+    versionMatch?.[2] === expected.applicationRegion &&
+    versionMatch?.[3] === expected.accountId &&
+    versionMatch?.[4] === expected.functionName &&
+    configuration?.FunctionName === versionMatch?.[4] &&
+    configuration?.Version === versionMatch?.[5] &&
+    LAMBDA_CODE_SHA_256.test(configuration?.CodeSha256 ?? "") &&
+    configuration?.Role === expected.roleArn &&
     configuration?.State === "Active" &&
     configuration?.LastUpdateStatus === "Successful" &&
     configuration?.Runtime === "nodejs22.x" &&
@@ -395,6 +414,138 @@ export function hasExpectedAllocatorConfiguration(
       UPSKILL_OFFLINE_SCORM_WEB_ACL_NAME: expected.webAclName,
     }) &&
     concurrency?.ReservedConcurrentExecutions === 1
+  );
+}
+
+function canonicalIdentityPolicyStatements(policyDocument) {
+  if (
+    policyDocument?.Version !== "2012-10-17" ||
+    !Array.isArray(policyDocument.Statement)
+  )
+    return null;
+  const statements = [];
+  for (const statement of policyDocument.Statement) {
+    if (
+      !statement ||
+      statement.Effect !== "Allow" ||
+      Object.keys(statement).sort().join(",") !== "Action,Effect,Resource"
+    )
+      return null;
+    const actions = Array.isArray(statement.Action)
+      ? statement.Action
+      : [statement.Action];
+    const resources = Array.isArray(statement.Resource)
+      ? statement.Resource
+      : [statement.Resource];
+    if (
+      actions.some((action) => typeof action !== "string") ||
+      resources.some((resource) => typeof resource !== "string")
+    )
+      return null;
+    statements.push(
+      JSON.stringify({
+        actions: [...actions].sort(),
+        resources: [...resources].sort(),
+      }),
+    );
+  }
+  return statements.sort();
+}
+
+export function hasExpectedAllocatorRoleBoundary(
+  roleResponse,
+  attachedPoliciesResponse,
+  inlinePolicyNamesResponse,
+  inlinePolicies,
+  expected,
+) {
+  const roleMatch = IAM_ROLE_ARN.exec(expected.roleArn ?? "");
+  const rolePath = roleMatch?.[3];
+  const roleName = rolePath?.split("/").at(-1);
+  if (
+    roleMatch?.[2] !== expected.accountId ||
+    !roleName ||
+    roleResponse?.Role?.Arn !== expected.roleArn ||
+    roleResponse?.Role?.RoleName !== roleName ||
+    roleResponse?.Role?.MaxSessionDuration !== 3_600 ||
+    roleResponse?.Role?.PermissionsBoundary !== undefined ||
+    !isDeepStrictEqual(roleResponse?.Role?.AssumeRolePolicyDocument, {
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Action: "sts:AssumeRole",
+          Effect: "Allow",
+          Principal: { Service: "lambda.amazonaws.com" },
+        },
+      ],
+    })
+  )
+    return false;
+  if (
+    !isDeepStrictEqual(attachedPoliciesResponse?.AttachedPolicies, [
+      {
+        PolicyArn: `arn:${roleMatch[1]}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole`,
+        PolicyName: "AWSLambdaBasicExecutionRole",
+      },
+    ]) ||
+    !Array.isArray(inlinePolicyNamesResponse?.PolicyNames) ||
+    inlinePolicyNamesResponse.PolicyNames.length !== 1 ||
+    !Array.isArray(inlinePolicies) ||
+    inlinePolicies.length !== 1 ||
+    inlinePolicies[0]?.PolicyName !== inlinePolicyNamesResponse.PolicyNames[0]
+  )
+    return false;
+  const webAclResource = expected.webAclArn.replace(/\/[^/]+$/u, "/*");
+  const expectedStatements = canonicalIdentityPolicyStatements({
+    Version: "2012-10-17",
+    Statement: [
+      {
+        Action: [
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:GetSecretValue",
+        ],
+        Effect: "Allow",
+        Resource: expected.originKeySecretArn,
+      },
+      {
+        Action: ["s3:GetBucketAcl", "s3:PutBucketAcl"],
+        Effect: "Allow",
+        Resource: expected.logBucketArn,
+      },
+      {
+        Action: "wafv2:ListWebACLs",
+        Effect: "Allow",
+        Resource: "*",
+      },
+      {
+        Action: "wafv2:ListTagsForResource",
+        Effect: "Allow",
+        Resource: webAclResource,
+      },
+      {
+        Action: [
+          "cloudfront:CreateDistributionWithTags",
+          "cloudfront:ListDistributions",
+        ],
+        Effect: "Allow",
+        Resource: "*",
+      },
+      {
+        Action: [
+          "cloudfront:DeleteDistribution",
+          "cloudfront:GetDistribution",
+          "cloudfront:GetDistributionConfig",
+          "cloudfront:ListTagsForResource",
+          "cloudfront:UpdateDistribution",
+        ],
+        Effect: "Allow",
+        Resource: `arn:${roleMatch[1]}:cloudfront::${expected.accountId}:distribution/*`,
+      },
+    ],
+  });
+  return isDeepStrictEqual(
+    canonicalIdentityPolicyStatements(inlinePolicies[0]?.PolicyDocument),
+    expectedStatements,
   );
 }
 
@@ -752,35 +903,49 @@ export async function collectCloudFrontQualificationReport(
       `AWS caller account ${accountId} does not match --expected-account`,
     );
 
-  const [applicationStack, edgeStack, originParameter, distributions, quota] =
-    await Promise.all([
-      runAws([
-        "cloudformation",
-        "describe-stacks",
-        "--stack-name",
-        appStackName,
-        "--region",
-        options.applicationRegion,
-      ]),
-      runAws([
-        "cloudformation",
-        "describe-stacks",
-        "--stack-name",
-        edgeStackName,
-        "--region",
-        CLOUDFRONT_CONTROL_PLANE_REGION,
-      ]),
-      runAws([
-        "ssm",
-        "get-parameter",
-        "--name",
-        `/upskill/${options.environment}/offline-scorm/cloudfront-origin-domain`,
-        "--region",
-        options.applicationRegion,
-      ]),
-      runAws(["cloudfront", "list-distributions"]),
-      effectiveCloudFrontQuota(runAws),
-    ]);
+  const [
+    applicationStack,
+    edgeStack,
+    originParameter,
+    allocatorTargetParameter,
+    distributions,
+    quota,
+  ] = await Promise.all([
+    runAws([
+      "cloudformation",
+      "describe-stacks",
+      "--stack-name",
+      appStackName,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "cloudformation",
+      "describe-stacks",
+      "--stack-name",
+      edgeStackName,
+      "--region",
+      CLOUDFRONT_CONTROL_PLANE_REGION,
+    ]),
+    runAws([
+      "ssm",
+      "get-parameter",
+      "--name",
+      `/upskill/${options.environment}/offline-scorm/cloudfront-origin-domain`,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "ssm",
+      "get-parameter",
+      "--name",
+      `/upskill/${options.environment}/offline-scorm/cloudfront-allocator-function-name`,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws(["cloudfront", "list-distributions"]),
+    effectiveCloudFrontQuota(runAws),
+  ]);
 
   const applicationOutputs = outputMap(applicationStack, appStackName);
   const edgeOutputs = outputMap(edgeStack, edgeStackName);
@@ -847,6 +1012,24 @@ export async function collectCloudFrontQualificationReport(
     "OfflineScormCloudFrontAllocatorFunctionName",
     appStackName,
   );
+  const allocatorQualifiedFunctionName = requiredOutput(
+    applicationOutputs,
+    "OfflineScormCloudFrontAllocatorQualifiedFunctionName",
+    appStackName,
+  );
+  const allocatorRoleArn = requiredOutput(
+    applicationOutputs,
+    "OfflineScormCloudFrontAllocatorRoleArn",
+    appStackName,
+  );
+  const allocatorRoleMatch = IAM_ROLE_ARN.exec(allocatorRoleArn);
+  const allocatorRoleName = allocatorRoleMatch?.[3].split("/").at(-1);
+  if (
+    allocatorRoleMatch?.[2] !== accountId ||
+    typeof allocatorRoleName !== "string" ||
+    allocatorRoleName.length === 0
+  )
+    throw new Error("Offline SCORM allocator role output is invalid");
   const originDomain = requiredValue(
     originParameter.Parameter?.Value,
     "CloudFront origin domain parameter is unavailable",
@@ -909,12 +1092,14 @@ export async function collectCloudFrontQualificationReport(
         distributionId: distribution.Id,
         inventoryComment: distribution.Comment,
         tags: tagResponse.Tags?.Items,
+        webAclId: distribution.WebACLId,
       };
     },
   );
   const { owned, duplicateMarkers } = classifyQualificationDistributions(
     taggedDistributionInventory,
     options.environment,
+    webAclArn,
   );
   const headroom = evaluateQuotaHeadroom({
     distributionQuota,
@@ -953,6 +1138,9 @@ export async function collectCloudFrontQualificationReport(
     edgeAlarms,
     allocatorAlarms,
     allocatorConfiguration,
+    allocatorRole,
+    allocatorAttachedPolicies,
+    allocatorInlinePolicyNames,
     allocatorConcurrency,
     logBucketAcl,
     cloudTrail,
@@ -1031,7 +1219,31 @@ export async function collectCloudFrontQualificationReport(
       "lambda",
       "get-function-configuration",
       "--function-name",
-      allocatorFunctionName,
+      allocatorQualifiedFunctionName,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "iam",
+      "get-role",
+      "--role-name",
+      allocatorRoleName,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "iam",
+      "list-attached-role-policies",
+      "--role-name",
+      allocatorRoleName,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "iam",
+      "list-role-policies",
+      "--role-name",
+      allocatorRoleName,
       "--region",
       options.applicationRegion,
     ]),
@@ -1078,6 +1290,20 @@ export async function collectCloudFrontQualificationReport(
       options.applicationRegion,
     ]),
   ]);
+  const allocatorInlinePolicies = await Promise.all(
+    (allocatorInlinePolicyNames.PolicyNames ?? []).map((policyName) =>
+      runAws([
+        "iam",
+        "get-role-policy",
+        "--role-name",
+        allocatorRoleName,
+        "--policy-name",
+        policyName,
+        "--region",
+        options.applicationRegion,
+      ]),
+    ),
+  );
 
   const checks = [];
   addCheck(
@@ -1095,21 +1321,50 @@ export async function collectCloudFrontQualificationReport(
   );
   addCheck(
     checks,
+    "allocator-target",
+    allocatorTargetParameter.Parameter?.Value ===
+      allocatorQualifiedFunctionName,
+    "Worker configuration targets the deployment-owned immutable allocator version",
+  );
+  addCheck(
+    checks,
     "allocator-configuration",
     hasExpectedAllocatorConfiguration(
       allocatorConfiguration,
       allocatorConcurrency,
       {
+        accountId,
+        applicationRegion: options.applicationRegion,
         environment: options.environment,
         functionName: allocatorFunctionName,
         logBucketDomain,
         originDomain,
         originKeySecretArn,
         qualificationCap,
+        qualifiedFunctionName: allocatorQualifiedFunctionName,
+        roleArn: allocatorRoleArn,
         webAclName,
       },
     ),
-    "Live allocator matches the staging runtime, environment and reserved-concurrency baseline",
+    "Immutable allocator version matches its code, role, runtime, environment and reserved-concurrency baseline",
+  );
+  addCheck(
+    checks,
+    "allocator-role-boundary",
+    hasExpectedAllocatorRoleBoundary(
+      allocatorRole,
+      allocatorAttachedPolicies,
+      allocatorInlinePolicyNames,
+      allocatorInlinePolicies,
+      {
+        accountId,
+        logBucketArn,
+        originKeySecretArn,
+        roleArn: allocatorRoleArn,
+        webAclArn,
+      },
+    ),
+    "Allocator trust, managed policy and inline permissions match the least-privilege deployment baseline",
   );
   addCheck(
     checks,

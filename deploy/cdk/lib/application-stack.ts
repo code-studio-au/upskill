@@ -685,8 +685,15 @@ UPSKILL_ENV`,
           },
         },
       );
+      const allocatorVersion = allocator.currentVersion;
+      const allocatorQualifiedFunctionName = allocatorVersion.functionArn;
+      const allocatorRole = allocator.role;
+      if (!allocatorRole)
+        throw new Error(
+          "Offline SCORM allocator execution role is unavailable",
+        );
       offlineScormCloudFrontOriginKey.grantRead(allocator);
-      allocator.grantInvoke(role);
+      allocatorVersion.grantInvoke(role);
       const allocatorFunctionNameParameter = new StringParameter(
         this,
         "OfflineScormCloudFrontAllocatorFunctionNameParameter",
@@ -694,7 +701,7 @@ UPSKILL_ENV`,
           parameterName: offlineScormCloudFrontAllocatorFunctionParameterName,
           description:
             "Dormant CloudFront allocator function name for worker configuration",
-          stringValue: allocator.functionName,
+          stringValue: allocatorQualifiedFunctionName,
         },
       );
       instance.node.addDependency(allocatorFunctionNameParameter);
@@ -783,6 +790,20 @@ UPSKILL_ENV`,
         value: allocator.functionName,
         description:
           "Dormant qualification allocator configured for the worker recovery boundary on the shared application host",
+      });
+      new CfnOutput(
+        this,
+        "OfflineScormCloudFrontAllocatorQualifiedFunctionName",
+        {
+          value: allocatorQualifiedFunctionName,
+          description:
+            "Immutable published allocator function version invoked by the staging worker",
+        },
+      );
+      new CfnOutput(this, "OfflineScormCloudFrontAllocatorRoleArn", {
+        value: allocatorRole.roleArn,
+        description:
+          "Deployment-owned execution role required by the Offline SCORM allocator",
       });
       new CfnOutput(this, "OfflineScormCloudFrontAllocatorAlarmTopicArn", {
         value: props.alarmTopic.topicArn,

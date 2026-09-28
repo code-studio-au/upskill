@@ -252,7 +252,7 @@ describe("server runtime environment", () => {
       MAILGUN_DOMAIN: "mg.upskill.institute",
       MAILGUN_FROM: "Upskill <no-reply@upskill.institute>",
       OFFLINE_SCORM_CLOUDFRONT_ALLOCATOR_FUNCTION_NAME:
-        "upskill-staging-allocator",
+        "arn:aws:lambda:ap-southeast-2:123456789012:function:upskill-staging-allocator:12",
       OFFLINE_SCORM_ENABLED: "false",
       S3_LEARNING_CONTENT_BUCKET: "upskill-staging-learning-content",
       S3_PRIVATE_RESOURCES_BUCKET: "upskill-staging-private-resources",
@@ -280,10 +280,18 @@ describe("server runtime environment", () => {
       parseServerEnvironment({
         ...baseEnvironment,
         OFFLINE_SCORM_CLOUDFRONT_ALLOCATOR_FUNCTION_NAME:
-          "development-allocator",
+          "arn:aws:lambda:ap-southeast-2:123456789012:function:development-allocator:1",
         UPSKILL_PROCESS_ROLE: "worker",
       }),
     ).toThrow("only available in staging or production");
+    expect(() =>
+      parseServerEnvironment({
+        ...allocatorEnvironment,
+        OFFLINE_SCORM_CLOUDFRONT_ALLOCATOR_FUNCTION_NAME:
+          "upskill-staging-allocator",
+        UPSKILL_PROCESS_ROLE: "worker",
+      }),
+    ).toThrow("immutable version ARN");
   });
 
   it("requires a complete, environment-bound LiveKit configuration before enablement", () => {

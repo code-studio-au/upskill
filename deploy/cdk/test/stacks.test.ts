@@ -1003,10 +1003,16 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
     Type: "String",
     Value: "staging.upskill.institute",
   });
+  template.resourceCountIs("AWS::Lambda::Version", 1);
+  const allocatorVersionLogicalId = Object.keys(
+    template.findResources("AWS::Lambda::Version"),
+  )[0];
+  expect(allocatorVersionLogicalId).toBeDefined();
+  const allocatorVersionReference = { Ref: allocatorVersionLogicalId };
   template.hasResourceProperties("AWS::SSM::Parameter", {
     Name: "/upskill/staging/offline-scorm/cloudfront-allocator-function-name",
     Type: "String",
-    Value: Match.anyValue(),
+    Value: allocatorVersionReference,
   });
   template.hasResourceProperties("AWS::Lambda::Function", {
     Description: Match.stringLikeRegexp("worker-owned allocator"),
@@ -1031,6 +1037,15 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
   template.hasOutput("OfflineScormCloudFrontAllocatorAlarmEmail", {
     Value: "ops@codestudio.au",
   });
+  template.hasOutput("OfflineScormCloudFrontAllocatorFunctionName", {
+    Value: Match.anyValue(),
+  });
+  template.hasOutput("OfflineScormCloudFrontAllocatorQualifiedFunctionName", {
+    Value: allocatorVersionReference,
+  });
+  template.hasOutput("OfflineScormCloudFrontAllocatorRoleArn", {
+    Value: Match.anyValue(),
+  });
   const serialized = JSON.stringify(template.toJSON());
   expect(serialized).toContain("OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN");
   expect(serialized).toContain("OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY");
@@ -1046,6 +1061,8 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
   expect(serialized).toContain("cloudfront:ListTagsForResource");
   expect(serialized).toContain("wafv2:ListWebACLs");
   expect(serialized).toContain("wafv2:ListTagsForResource");
+  expect(serialized).toContain('"AWS::Lambda::Version"');
+  expect(serialized).toContain('"Fn::GetAtt"');
   template.hasResourceProperties("AWS::IAM::Policy", {
     PolicyDocument: {
       Statement: Match.arrayWith([
@@ -1075,6 +1092,13 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
     ),
   );
   expect(JSON.stringify(instancePolicies)).toContain("lambda:InvokeFunction");
+  expect(JSON.stringify(instancePolicies)).toContain(
+    JSON.stringify({
+      Action: "lambda:InvokeFunction",
+      Effect: "Allow",
+      Resource: allocatorVersionReference,
+    }),
+  );
   expect(JSON.stringify(instancePolicies)).toContain(
     "OfflineScormCloudFrontOriginKey",
   );

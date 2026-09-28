@@ -9,6 +9,7 @@ import {
   evaluateQuotaHeadroom,
   hasConfirmedEmailSubscription,
   hasExpectedAllocatorConfiguration,
+  hasExpectedAllocatorRoleBoundary,
   hasExpectedCloudFrontLogDeliveryAcl,
   haveExpectedAlarmConfigurations,
   haveExpectedDistributionLogging,
@@ -42,6 +43,10 @@ const distributionArn = `arn:aws:cloudfront::${options.expectedAccount}:distribu
 const unrelatedDistributionId = "E0987654321XYZ";
 const unrelatedDistributionArn = `arn:aws:cloudfront::${options.expectedAccount}:distribution/${unrelatedDistributionId}`;
 const allocatorFunctionName = "allocator";
+const allocatorQualifiedFunctionName =
+  "arn:aws:lambda:ap-southeast-2:123456789012:function:allocator:12";
+const allocatorRoleName = "upskill-staging-allocator-role";
+const allocatorRoleArn = `arn:aws:iam::${options.expectedAccount}:role/${allocatorRoleName}`;
 const entitlementId = "entitlement-123";
 const originKey = "qualification-origin-key-".repeat(3);
 const entitlementDigest = createHash("sha256")
@@ -148,12 +153,16 @@ function expectedDistributionConfiguration() {
 
 function expectedAllocatorBaseline() {
   return {
+    accountId: options.expectedAccount,
+    applicationRegion: options.applicationRegion,
     environment: options.environment,
     functionName: allocatorFunctionName,
     logBucketDomain,
     originDomain: options.expectedOriginDomain,
     originKeySecretArn,
     qualificationCap: 25,
+    qualifiedFunctionName: allocatorQualifiedFunctionName,
+    roleArn: allocatorRoleArn,
     webAclName: "upskill-staging-offline-scorm-cloudfront",
   };
 }
@@ -162,6 +171,7 @@ function expectedAllocatorConfiguration() {
   return {
     Description:
       "Dormant worker-owned allocator for exact-entitlement CloudFront qualification sites",
+    CodeSha256: `${"a".repeat(43)}=`,
     Environment: {
       Variables: {
         UPSKILL_ENVIRONMENT: options.environment,
@@ -176,9 +186,98 @@ function expectedAllocatorConfiguration() {
     FunctionName: allocatorFunctionName,
     Handler: "index.handler",
     LastUpdateStatus: "Successful",
+    Role: allocatorRoleArn,
     Runtime: "nodejs22.x",
     State: "Active",
     Timeout: 120,
+    Version: "12",
+  };
+}
+
+function expectedAllocatorInlinePolicy() {
+  return {
+    PolicyName: "allocator-policy",
+    PolicyDocument: {
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Action: [
+            "secretsmanager:GetSecretValue",
+            "secretsmanager:DescribeSecret",
+          ],
+          Effect: "Allow",
+          Resource: originKeySecretArn,
+        },
+        {
+          Action: ["s3:GetBucketAcl", "s3:PutBucketAcl"],
+          Effect: "Allow",
+          Resource: "arn:aws:s3:::upskill-edge-logs",
+        },
+        {
+          Action: "wafv2:ListWebACLs",
+          Effect: "Allow",
+          Resource: "*",
+        },
+        {
+          Action: "wafv2:ListTagsForResource",
+          Effect: "Allow",
+          Resource:
+            "arn:aws:wafv2:us-east-1:123456789012:global/webacl/upskill-staging-offline-scorm-cloudfront/*",
+        },
+        {
+          Action: [
+            "cloudfront:ListDistributions",
+            "cloudfront:CreateDistributionWithTags",
+          ],
+          Effect: "Allow",
+          Resource: "*",
+        },
+        {
+          Action: [
+            "cloudfront:UpdateDistribution",
+            "cloudfront:GetDistributionConfig",
+            "cloudfront:ListTagsForResource",
+            "cloudfront:DeleteDistribution",
+            "cloudfront:GetDistribution",
+          ],
+          Effect: "Allow",
+          Resource: "arn:aws:cloudfront::123456789012:distribution/*",
+        },
+      ],
+    },
+  };
+}
+
+function expectedAllocatorRoleResponses() {
+  return {
+    role: {
+      Role: {
+        Arn: allocatorRoleArn,
+        AssumeRolePolicyDocument: {
+          Version: "2012-10-17",
+          Statement: [
+            {
+              Action: "sts:AssumeRole",
+              Effect: "Allow",
+              Principal: { Service: "lambda.amazonaws.com" },
+            },
+          ],
+        },
+        MaxSessionDuration: 3_600,
+        RoleName: allocatorRoleName,
+      },
+    },
+    attached: {
+      AttachedPolicies: [
+        {
+          PolicyArn:
+            "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+          PolicyName: "AWSLambdaBasicExecutionRole",
+        },
+      ],
+    },
+    names: { PolicyNames: ["allocator-policy"] },
+    policies: [expectedAllocatorInlinePolicy()],
   };
 }
 
@@ -348,13 +447,22 @@ describe("Offline SCORM CloudFront qualification harness", () => {
           inventoryComment: "changed-comment",
           tags: expectedDistributionTags(),
         },
+        {
+          inventoryComment: "fully-drifted",
+          tags: [],
+          webAclId: webAclArn,
+        },
         { Comment: "unrelated" },
       ],
       "staging",
+      webAclArn,
     );
-    expect(inventory.owned).toHaveLength(3);
+    expect(inventory.owned).toHaveLength(4);
     expect(inventory.owned).toContainEqual(
       expect.objectContaining({ inventoryComment: "changed-comment" }),
+    );
+    expect(inventory.owned).toContainEqual(
+      expect.objectContaining({ inventoryComment: "fully-drifted" }),
     );
     expect(inventory.duplicateMarkers).toEqual([
       "upskill:staging:offline-scorm:one",
@@ -461,6 +569,9 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       { Handler: "other.handler" },
       { Timeout: 30 },
       { Description: "drifted" },
+      { CodeSha256: "invalid" },
+      { Role: "arn:aws:iam::123456789012:role/broader-role" },
+      { Version: "13" },
     ]) {
       expect(
         hasExpectedAllocatorConfiguration(
@@ -490,6 +601,86 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         configuration,
         { ReservedConcurrentExecutions: 2 },
         baseline,
+      ),
+    ).toBe(false);
+  });
+
+  it("requires the exact allocator trust, managed and inline policy boundary", () => {
+    const responses = expectedAllocatorRoleResponses();
+    const expected = {
+      accountId: options.expectedAccount,
+      logBucketArn: "arn:aws:s3:::upskill-edge-logs",
+      originKeySecretArn,
+      roleArn: allocatorRoleArn,
+      webAclArn,
+    };
+    expect(
+      hasExpectedAllocatorRoleBoundary(
+        responses.role,
+        responses.attached,
+        responses.names,
+        responses.policies,
+        expected,
+      ),
+    ).toBe(true);
+    expect(
+      hasExpectedAllocatorRoleBoundary(
+        responses.role,
+        {
+          AttachedPolicies: [
+            ...responses.attached.AttachedPolicies,
+            {
+              PolicyArn: "arn:aws:iam::aws:policy/AdministratorAccess",
+              PolicyName: "AdministratorAccess",
+            },
+          ],
+        },
+        responses.names,
+        responses.policies,
+        expected,
+      ),
+    ).toBe(false);
+    expect(
+      hasExpectedAllocatorRoleBoundary(
+        responses.role,
+        responses.attached,
+        responses.names,
+        [
+          {
+            ...responses.policies[0],
+            PolicyDocument: {
+              ...responses.policies[0].PolicyDocument,
+              Statement: [
+                ...responses.policies[0].PolicyDocument.Statement,
+                { Action: "iam:*", Effect: "Allow", Resource: "*" },
+              ],
+            },
+          },
+        ],
+        expected,
+      ),
+    ).toBe(false);
+    expect(
+      hasExpectedAllocatorRoleBoundary(
+        {
+          Role: {
+            ...responses.role.Role,
+            AssumeRolePolicyDocument: {
+              Version: "2012-10-17",
+              Statement: [
+                {
+                  Action: "sts:AssumeRole",
+                  Effect: "Allow",
+                  Principal: { AWS: "*" },
+                },
+              ],
+            },
+          },
+        },
+        responses.attached,
+        responses.names,
+        responses.policies,
+        expected,
       ),
     ).toBe(false);
   });
@@ -879,6 +1070,15 @@ describe("Offline SCORM CloudFront qualification harness", () => {
                 OutputValue: allocatorFunctionName,
               },
               {
+                OutputKey:
+                  "OfflineScormCloudFrontAllocatorQualifiedFunctionName",
+                OutputValue: allocatorQualifiedFunctionName,
+              },
+              {
+                OutputKey: "OfflineScormCloudFrontAllocatorRoleArn",
+                OutputValue: allocatorRoleArn,
+              },
+              {
                 OutputKey: "OfflineScormCloudFrontAllocatorAlarmTopicArn",
                 OutputValue: allocatorAlarmTopicArn,
               },
@@ -925,8 +1125,16 @@ describe("Offline SCORM CloudFront qualification harness", () => {
           Stacks: [{ Outputs: outputs, StackStatus: "UPDATE_COMPLETE" }],
         };
       }
-      if (command === "ssm get-parameter")
-        return { Parameter: { Value: options.expectedOriginDomain } };
+      if (command === "ssm get-parameter") {
+        const parameterName = args[args.indexOf("--name") + 1];
+        return {
+          Parameter: {
+            Value: parameterName.endsWith("allocator-function-name")
+              ? allocatorQualifiedFunctionName
+              : options.expectedOriginDomain,
+          },
+        };
+      }
       if (command === "secretsmanager get-secret-value")
         return { SecretString: originKey };
       if (command === "cloudfront list-distributions")
@@ -938,6 +1146,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
                 Comment: distributionComment,
                 Id: distributionId,
                 Status: "Deployed",
+                WebACLId: webAclArn,
               },
               {
                 ARN: unrelatedDistributionArn,
@@ -1043,6 +1252,14 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         return expectedAllocatorConfiguration();
       if (command === "lambda get-function-concurrency")
         return { ReservedConcurrentExecutions: 1 };
+      if (command === "iam get-role")
+        return expectedAllocatorRoleResponses().role;
+      if (command === "iam list-attached-role-policies")
+        return expectedAllocatorRoleResponses().attached;
+      if (command === "iam list-role-policies")
+        return expectedAllocatorRoleResponses().names;
+      if (command === "iam get-role-policy")
+        return expectedAllocatorRoleResponses().policies[0];
       if (command === "s3api get-bucket-acl") return expectedLogBucketAcl();
       if (command === "cloudtrail lookup-events") return { Events: [] };
       if (command === "s3api list-objects-v2") return { Contents: [] };
@@ -1052,6 +1269,9 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       now: () => new Date("2026-09-28T00:00:00Z"),
       runAws: runner,
     });
+    expect(report.checks.filter((check) => check.status === "fail")).toEqual(
+      [],
+    );
     expect(report.status).toBe("warning");
     expect(report.headroom).toMatchObject({
       quotaSource: "aws-default",
@@ -1068,6 +1288,12 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     });
     expect(
       report.checks.find((check) => check.id === "allocator-configuration"),
+    ).toMatchObject({ status: "pass" });
+    expect(
+      report.checks.find((check) => check.id === "allocator-target"),
+    ).toMatchObject({ status: "pass" });
+    expect(
+      report.checks.find((check) => check.id === "allocator-role-boundary"),
     ).toMatchObject({ status: "pass" });
     expect(
       report.checks.find((check) => check.id === "access-log-bucket-acl"),
@@ -1130,6 +1356,27 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     ).toEqual([
       ["lambda", "get-function-configuration"],
       ["lambda", "get-function-concurrency"],
+    ]);
+    expect(
+      calls.find(
+        (args) =>
+          args.slice(0, 2).join(" ") === "lambda get-function-configuration",
+      ),
+    ).toEqual([
+      "lambda",
+      "get-function-configuration",
+      "--function-name",
+      allocatorQualifiedFunctionName,
+      "--region",
+      options.applicationRegion,
+    ]);
+    expect(
+      calls.filter((args) => args[0] === "iam").map((args) => args[1]),
+    ).toEqual([
+      "get-role",
+      "list-attached-role-policies",
+      "list-role-policies",
+      "get-role-policy",
     ]);
     expect(
       calls.filter(
