@@ -29,8 +29,9 @@ pnpm run qualify:offline-scorm:cloudfront -- \
 ```
 
 Store the JSON output with the qualification record. It verifies the direct
-origin binding, staging risk acknowledgement, WAF ownership/binding/logging,
-30-day WAF retention, confirmed alarm subscriptions, enabled regional alarm
+origin parameter and deployed-distribution binding, staging risk
+acknowledgement, WAF ownership/binding, mandatory rules, safe log filtering and
+redaction, 30-day WAF retention, confirmed alarm subscriptions, enabled regional alarm
 actions targeting their expected topics, distribution-cap markers,
 service-quota headroom and recent CloudFront control-plane mutations.
 

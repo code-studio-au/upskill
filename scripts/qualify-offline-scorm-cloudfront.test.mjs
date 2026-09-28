@@ -5,6 +5,9 @@ import {
   collectCloudFrontQualificationReport,
   evaluateQuotaHeadroom,
   haveExpectedAlarmActions,
+  haveExpectedDistributionOrigins,
+  hasExpectedWafLoggingBaseline,
+  hasExpectedWebAclBaseline,
   parseQualificationArguments,
   summarizeCloudTrailEvents,
 } from "./qualify-offline-scorm-cloudfront.mjs";
@@ -21,6 +24,77 @@ const webAclArn =
 const edgeAlarmTopicArn = "arn:aws:sns:us-east-1:123456789012:edge-alarms";
 const allocatorAlarmTopicArn =
   "arn:aws:sns:ap-southeast-2:123456789012:operational-alarms";
+const wafLogGroupName = "aws-waf-logs-upskill-staging-offline-scorm-cloudfront";
+
+function expectedWebAcl() {
+  return {
+    ARN: webAclArn,
+    DefaultAction: { Allow: {} },
+    Rules: [
+      {
+        Name: "aws-managed-ip-reputation",
+        Priority: 0,
+        OverrideAction: { None: {} },
+        Statement: {
+          ManagedRuleGroupStatement: {
+            Name: "AWSManagedRulesAmazonIpReputationList",
+            VendorName: "AWS",
+          },
+        },
+      },
+      {
+        Name: "aws-managed-common-protections-qualification",
+        Priority: 1,
+        OverrideAction: { Count: {} },
+        Statement: {
+          ManagedRuleGroupStatement: {
+            Name: "AWSManagedRulesCommonRuleSet",
+            VendorName: "AWS",
+          },
+        },
+      },
+      {
+        Name: "per-ip-request-rate",
+        Priority: 2,
+        Action: { Block: {} },
+        Statement: {
+          RateBasedStatement: {
+            AggregateKeyType: "IP",
+            EvaluationWindowSec: 300,
+            Limit: 2_000,
+          },
+        },
+      },
+    ],
+  };
+}
+
+function expectedWafLoggingConfiguration() {
+  return {
+    ResourceArn: webAclArn,
+    LogDestinationConfigs: [
+      `arn:aws:logs:us-east-1:123456789012:log-group:${wafLogGroupName}`,
+    ],
+    RedactedFields: [
+      { SingleHeader: { Name: "authorization" } },
+      { SingleHeader: { Name: "cookie" } },
+      { QueryString: {} },
+    ],
+    LoggingFilter: {
+      DefaultBehavior: "DROP",
+      Filters: [
+        {
+          Behavior: "KEEP",
+          Requirement: "MEETS_ANY",
+          Conditions: [
+            { ActionCondition: { Action: "BLOCK" } },
+            { ActionCondition: { Action: "COUNT" } },
+          ],
+        },
+      ],
+    },
+  };
+}
 
 describe("Offline SCORM CloudFront qualification harness", () => {
   it("requires an explicit staging target and expected account", () => {
@@ -145,6 +219,112 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     ).toBe(false);
   });
 
+  it("requires every owned distribution to target only the direct package origin", () => {
+    const distribution = {
+      DefaultCacheBehavior: {
+        TargetOriginId: "upskill-offline-package-host",
+      },
+      Origins: {
+        Quantity: 1,
+        Items: [
+          {
+            DomainName: options.expectedOriginDomain,
+            Id: "upskill-offline-package-host",
+          },
+        ],
+      },
+    };
+    expect(
+      haveExpectedDistributionOrigins(
+        [distribution],
+        options.expectedOriginDomain,
+      ),
+    ).toBe(true);
+    expect(
+      haveExpectedDistributionOrigins(
+        [
+          {
+            ...distribution,
+            Origins: {
+              Quantity: 1,
+              Items: [
+                {
+                  DomainName: "attacker.example",
+                  Id: "upskill-offline-package-host",
+                },
+              ],
+            },
+          },
+        ],
+        options.expectedOriginDomain,
+      ),
+    ).toBe(false);
+  });
+
+  it("requires the complete deployed WAF security baseline", () => {
+    const webAcl = expectedWebAcl();
+    expect(hasExpectedWebAclBaseline(webAcl)).toBe(true);
+    expect(
+      hasExpectedWebAclBaseline({
+        ...webAcl,
+        Rules: webAcl.Rules.map((rule) =>
+          rule.Name === "per-ip-request-rate"
+            ? {
+                ...rule,
+                Statement: {
+                  RateBasedStatement: {
+                    AggregateKeyType: "IP",
+                    EvaluationWindowSec: 300,
+                    Limit: 4_000,
+                  },
+                },
+              }
+            : rule,
+        ),
+      }),
+    ).toBe(false);
+    expect(
+      hasExpectedWebAclBaseline({
+        ...webAcl,
+        Rules: webAcl.Rules.filter(
+          (rule) => rule.Name !== "aws-managed-ip-reputation",
+        ),
+      }),
+    ).toBe(false);
+  });
+
+  it("requires WAF credential redaction and restrictive log filtering", () => {
+    const logging = expectedWafLoggingConfiguration();
+    expect(
+      hasExpectedWafLoggingBaseline(logging, webAclArn, wafLogGroupName),
+    ).toBe(true);
+    expect(
+      hasExpectedWafLoggingBaseline(
+        {
+          ...logging,
+          RedactedFields: logging.RedactedFields.filter(
+            (field) => field.SingleHeader?.Name !== "authorization",
+          ),
+        },
+        webAclArn,
+        wafLogGroupName,
+      ),
+    ).toBe(false);
+    expect(
+      hasExpectedWafLoggingBaseline(
+        {
+          ...logging,
+          LoggingFilter: {
+            ...logging.LoggingFilter,
+            DefaultBehavior: "KEEP",
+          },
+        },
+        webAclArn,
+        wafLogGroupName,
+      ),
+    ).toBe(false);
+  });
+
   it("falls back to the AWS default quota and reports delayed log evidence as a warning", async () => {
     const calls = [];
     const runner = async (args) => {
@@ -188,8 +368,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
               },
               {
                 OutputKey: "OfflineScormWafLogGroupName",
-                OutputValue:
-                  "aws-waf-logs-upskill-staging-offline-scorm-cloudfront",
+                OutputValue: wafLogGroupName,
               },
               {
                 OutputKey: "OfflineScormEdgeAlarmTopicArn",
@@ -208,8 +387,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         throw new AwsCliError("not found", "NoSuchResourceException");
       if (command === "service-quotas get-aws-default-service-quota")
         return { Quota: { Value: 500 } };
-      if (command === "wafv2 get-web-acl")
-        return { WebACL: { ARN: webAclArn } };
+      if (command === "wafv2 get-web-acl") return { WebACL: expectedWebAcl() };
       if (command === "wafv2 list-tags-for-resource")
         return {
           TagInfoForResource: {
@@ -222,18 +400,13 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         };
       if (command === "wafv2 get-logging-configuration")
         return {
-          LoggingConfiguration: {
-            LogDestinationConfigs: [
-              "arn:aws:logs:us-east-1:123456789012:log-group:aws-waf-logs-upskill-staging-offline-scorm-cloudfront",
-            ],
-          },
+          LoggingConfiguration: expectedWafLoggingConfiguration(),
         };
       if (command === "logs describe-log-groups")
         return {
           logGroups: [
             {
-              logGroupName:
-                "aws-waf-logs-upskill-staging-offline-scorm-cloudfront",
+              logGroupName: wafLogGroupName,
               retentionInDays: 30,
             },
           ],

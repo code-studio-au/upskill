@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
+import { isDeepStrictEqual, promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
@@ -208,6 +208,131 @@ export function haveExpectedAlarmActions(alarms, expectedActions) {
       alarm.AlarmActions.includes(actionArn)
     );
   });
+}
+
+export function haveExpectedDistributionOrigins(
+  distributions,
+  expectedOriginDomain,
+) {
+  if (!Array.isArray(distributions)) return false;
+  return distributions.every((distribution) => {
+    const origins = distribution.Origins;
+    const originItems = origins?.Items;
+    return (
+      origins?.Quantity === 1 &&
+      Array.isArray(originItems) &&
+      originItems.length === 1 &&
+      originItems[0]?.Id === "upskill-offline-package-host" &&
+      originItems[0]?.DomainName === expectedOriginDomain &&
+      distribution.DefaultCacheBehavior?.TargetOriginId ===
+        "upskill-offline-package-host"
+    );
+  });
+}
+
+function hasOnlyEmptyAction(action, expectedAction) {
+  return (
+    action !== null &&
+    typeof action === "object" &&
+    !Array.isArray(action) &&
+    Object.keys(action).length === 1 &&
+    action[expectedAction] !== null &&
+    typeof action[expectedAction] === "object" &&
+    !Array.isArray(action[expectedAction]) &&
+    Object.keys(action[expectedAction]).length === 0
+  );
+}
+
+export function hasExpectedWebAclBaseline(webAcl) {
+  if (!hasOnlyEmptyAction(webAcl?.DefaultAction, "Allow")) return false;
+  if (!Array.isArray(webAcl?.Rules) || webAcl.Rules.length !== 3) return false;
+  const rules = new Map(webAcl.Rules.map((rule) => [rule.Name, rule]));
+  const ipReputation = rules.get("aws-managed-ip-reputation");
+  const commonProtections = rules.get(
+    "aws-managed-common-protections-qualification",
+  );
+  const rateLimit = rules.get("per-ip-request-rate");
+  return (
+    ipReputation?.Priority === 0 &&
+    hasOnlyEmptyAction(ipReputation.OverrideAction, "None") &&
+    isDeepStrictEqual(ipReputation.Statement, {
+      ManagedRuleGroupStatement: {
+        Name: "AWSManagedRulesAmazonIpReputationList",
+        VendorName: "AWS",
+      },
+    }) &&
+    commonProtections?.Priority === 1 &&
+    hasOnlyEmptyAction(commonProtections.OverrideAction, "Count") &&
+    isDeepStrictEqual(commonProtections.Statement, {
+      ManagedRuleGroupStatement: {
+        Name: "AWSManagedRulesCommonRuleSet",
+        VendorName: "AWS",
+      },
+    }) &&
+    rateLimit?.Priority === 2 &&
+    hasOnlyEmptyAction(rateLimit.Action, "Block") &&
+    isDeepStrictEqual(rateLimit.Statement, {
+      RateBasedStatement: {
+        AggregateKeyType: "IP",
+        EvaluationWindowSec: 300,
+        Limit: 2_000,
+      },
+    })
+  );
+}
+
+export function hasExpectedWafLoggingBaseline(
+  loggingConfiguration,
+  webAclArn,
+  wafLogGroupName,
+) {
+  if (loggingConfiguration?.ResourceArn !== webAclArn) return false;
+  const destinations = loggingConfiguration.LogDestinationConfigs;
+  if (
+    !Array.isArray(destinations) ||
+    destinations.length !== 1 ||
+    typeof destinations[0] !== "string" ||
+    !destinations[0].endsWith(`:${wafLogGroupName}`)
+  )
+    return false;
+  const redactedFields = loggingConfiguration.RedactedFields;
+  if (!Array.isArray(redactedFields) || redactedFields.length !== 3)
+    return false;
+  const hasHeader = (name) =>
+    redactedFields.some((field) =>
+      isDeepStrictEqual(field, { SingleHeader: { Name: name } }),
+    );
+  if (
+    !hasHeader("authorization") ||
+    !hasHeader("cookie") ||
+    !redactedFields.some((field) =>
+      isDeepStrictEqual(field, { QueryString: {} }),
+    )
+  )
+    return false;
+  const loggingFilter = loggingConfiguration.LoggingFilter;
+  if (
+    loggingFilter?.DefaultBehavior !== "DROP" ||
+    !Array.isArray(loggingFilter.Filters) ||
+    loggingFilter.Filters.length !== 1
+  )
+    return false;
+  const [filter] = loggingFilter.Filters;
+  if (
+    filter?.Behavior !== "KEEP" ||
+    filter?.Requirement !== "MEETS_ANY" ||
+    !Array.isArray(filter?.Conditions) ||
+    filter.Conditions.length !== 2
+  )
+    return false;
+  const retainedActions = new Set(
+    filter.Conditions.map((condition) => condition?.ActionCondition?.Action),
+  );
+  return (
+    retainedActions.size === 2 &&
+    retainedActions.has("BLOCK") &&
+    retainedActions.has("COUNT")
+  );
 }
 
 function hasConfirmedEmailSubscription(response, topicArn) {
@@ -528,8 +653,9 @@ export async function collectCloudFrontQualificationReport(
   addCheck(
     checks,
     "web-acl",
-    webAcl.WebACL?.ARN === webAclArn,
-    "CloudFront-scoped WAF lookup returned the edge stack ARN",
+    webAcl.WebACL?.ARN === webAclArn &&
+      hasExpectedWebAclBaseline(webAcl.WebACL),
+    "CloudFront-scoped WAF matches the mandatory default action and managed, count-only and rate-blocking rules",
   );
   const tags = new Map(
     (webAclTags.TagInfoForResource?.TagList ?? []).map((tag) => [
@@ -545,15 +671,15 @@ export async function collectCloudFrontQualificationReport(
       tags.get("Purpose") === "offline-scorm-qualification",
     "CloudFront WAF ownership tags match qualification scope",
   );
-  const logDestinations =
-    wafLogging.LoggingConfiguration?.LogDestinationConfigs ?? [];
   addCheck(
     checks,
     "waf-logging",
-    logDestinations.some((destination) =>
-      destination.endsWith(`:${wafLogGroupName}`),
+    hasExpectedWafLoggingBaseline(
+      wafLogging.LoggingConfiguration,
+      webAclArn,
+      wafLogGroupName,
     ),
-    "WAF logging targets the expected CloudWatch log group",
+    "WAF logging targets the expected log group, redacts credentials and query strings, and retains only BLOCK/COUNT records",
   );
   const logGroup = (wafLogGroups.logGroups ?? []).find(
     (group) => group.logGroupName === wafLogGroupName,
@@ -616,6 +742,12 @@ export async function collectCloudFrontQualificationReport(
     "distribution-waf-binding",
     owned.every((distribution) => distribution.WebACLId === webAclArn),
     "Every owned qualification distribution is bound to the expected WAF",
+  );
+  addCheck(
+    checks,
+    "distribution-origin-binding",
+    haveExpectedDistributionOrigins(owned, options.expectedOriginDomain),
+    "Every owned qualification distribution targets only the expected direct origin",
   );
   addCheck(
     checks,
