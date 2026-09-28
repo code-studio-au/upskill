@@ -50,23 +50,65 @@ test("offline SCORM package-host context is all-or-nothing and zone-bound", () =
   ).toThrow("must belong");
 });
 
-test("offline SCORM CloudFront qualification requires a direct canonical origin", () => {
+test("offline SCORM CloudFront qualification requires explicit staging-only shared-host risk acceptance", () => {
   expect(
     environmentConfig("staging").offlineScormCloudFrontQualification,
   ).toBeNull();
+  expect(() =>
+    environmentConfig(
+      "staging",
+      undefined,
+      undefined,
+      "staging.upskill.institute",
+    ),
+  ).toThrow('must equal "staging-qualification-only"');
   expect(
     environmentConfig(
       "staging",
       undefined,
       undefined,
       "staging.upskill.institute",
+      "staging-qualification-only",
     ).offlineScormCloudFrontQualification,
-  ).toEqual({ originDomain: "staging.upskill.institute" });
+  ).toEqual({
+    originDomain: "staging.upskill.institute",
+    sharedHostRiskAcceptance: "staging-qualification-only",
+  });
   expect(() =>
-    environmentConfig("staging", undefined, undefined, "D123.cloudfront.net"),
+    environmentConfig(
+      "production",
+      undefined,
+      undefined,
+      "upskill.institute",
+      "staging-qualification-only",
+    ),
+  ).toThrow("production requires a distinct worker AWS principal");
+  expect(() =>
+    environmentConfig(
+      "staging",
+      undefined,
+      undefined,
+      undefined,
+      "staging-qualification-only",
+    ),
+  ).toThrow("is only valid with offlineScormCloudFrontOriginDomain");
+  expect(() =>
+    environmentConfig(
+      "staging",
+      undefined,
+      undefined,
+      "D123.cloudfront.net",
+      "staging-qualification-only",
+    ),
   ).toThrow("canonical lowercase DNS");
   expect(() =>
-    environmentConfig("staging", undefined, undefined, "d123.cloudfront.net"),
+    environmentConfig(
+      "staging",
+      undefined,
+      undefined,
+      "d123.cloudfront.net",
+      "staging-qualification-only",
+    ),
   ).toThrow("must not chain");
 });
 
@@ -755,6 +797,7 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
     undefined,
     undefined,
     "staging.upskill.institute",
+    "staging-qualification-only",
   );
   const network = new NetworkStack(app, "CloudFrontNetwork", config);
   const storage = new StorageStack(app, "CloudFrontStorage", config);
@@ -889,6 +932,10 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
   expect(serialized).toContain(
     "Dormant qualification allocator configured for the worker recovery boundary on the shared application host",
   );
+  template.hasOutput("OfflineScormCloudFrontSharedHostRiskAcceptance", {
+    Value: "staging-qualification-only",
+    Description: Match.stringLikeRegexp("Explicit staging-only acceptance"),
+  });
   template.hasResourceProperties("AWS::CloudWatch::Alarm", {
     AlarmName: "upskill-staging-offline-scorm-cloudfront-allocator-errors",
   });

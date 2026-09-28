@@ -3,8 +3,9 @@
 ## Status
 
 Proposed; CloudFront qualification infrastructure, durable allocation,
-issuance and retirement models, origin validation and dormant worker recovery
-are implemented but disabled by default.
+issuance and retirement models, origin validation, dormant worker recovery and
+an explicit staging-only shared-host risk gate are implemented but disabled by
+default.
 Date: 2026-09-27
 
 ## Context
@@ -86,10 +87,14 @@ The allocator remains a dormant capability:
 The current low-cost staging topology runs web and worker processes on one EC2
 host and therefore one IAM instance role. Worker-only environment configuration
 and runtime validation are conventions within that trust boundary, not process
-or AWS-principal isolation. No
-learner path is enabled by this increment. Before learner activation, either
-move this provider to a dedicated compute identity or explicitly accept and
-document the shared-host privilege boundary after threat review.
+or AWS-principal isolation. Qualification infrastructure now requires the exact
+CDK acknowledgement `staging-qualification-only`, records it as a stack output
+and rejects the topology in production. That acknowledgement accepts only the
+risk that another process on the disposable, non-production staging host could
+exercise the worker's exact allocator invocation permission. It does not enable
+Offline SCORM, waive any browser or operational gate, permit production use or
+assert process isolation. Production learner activation still requires a
+dedicated worker compute identity.
 
 AWS documents that CloudFront custom origin headers overwrite same-named viewer
 headers, which is required by the origin-capability design:
@@ -325,8 +330,8 @@ deleted stack still requires the normal retained-resource recovery process.
    - authenticated Course reservation creation and atomic entitlement/cleanup
      issuance are **implemented and dormant** with migration 0122;
    - distribution retirement is **implemented and dormant**; and
-   - a distinct AWS worker principal or explicit shared-host risk acceptance
-     remains required before learner activation.
+   - exact staging-only shared-host risk acceptance is **implemented as a CDK
+     gate**; production still requires a distinct AWS worker principal.
 5. Run the browser, cleanup, latency, quota, WAF and cost qualification matrix.
 6. Amend this ADR to Accepted or Rejected. Only an Accepted amendment may add a
    deployment-mode flag and activate staging learners.

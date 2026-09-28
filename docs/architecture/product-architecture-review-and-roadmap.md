@@ -663,8 +663,9 @@ triggered and do not reopen the delivered webinar foundation.
 - deterministic exact-site allocation and retained cleanup inventory created
   atomically with dormant entitlement issuance;
 - dormant provider-owned CloudFront allocation/activation recovery for
-  pre-existing reservations, learner issuance and distribution retirement,
-  with a distinct worker AWS principal still pending;
+  pre-existing reservations, learner issuance and distribution retirement;
+- explicit shared-host risk acceptance for disposable staging qualification,
+  with a distinct worker AWS principal still required for production;
 - explicit wildcard DNS, separately scoped DNS-01 TLS and a credential-free,
   fail-closed production package host implemented but disabled by default;
 - one complete Course path before Event reuse and support operations; and

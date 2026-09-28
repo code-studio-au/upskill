@@ -399,9 +399,12 @@ Under the current low-cost topology, web and worker share the EC2 instance IAM
 role. CDK grants that role invoke permission only for the exact allocator, while
 the function name and process marker are written only to the root-owned worker
 environment. This narrows normal composition but is not process isolation or a
-distinct AWS principal. A
-dedicated worker compute identity or explicit shared-host risk acceptance is a
-remaining activation gate. The private-PSL package host and localhost
+distinct AWS principal. CloudFront qualification now requires an exact
+`staging-qualification-only` CDK acknowledgement and records it in the stack;
+the same topology is rejected for production. This accepts only the bounded
+risk on the disposable, non-production staging host and does not enable a
+learner path or waive the remaining qualification gates. Production still
+requires a dedicated worker compute identity. The private-PSL package host and localhost
 development topology remain the executable design until ADR 0045 passes its
 browser, cleanup, quota, WAF, latency and cost gates and is amended to Accepted.
 

@@ -18,6 +18,7 @@ const config = environmentConfig(
     hostedZoneName: app.node.tryGetContext("offlineScormHostedZoneName"),
   },
   app.node.tryGetContext("offlineScormCloudFrontOriginDomain"),
+  app.node.tryGetContext("offlineScormCloudFrontSharedHostRiskAcceptance"),
 );
 const stackPrefix = `upskill-${config.name}`;
 const account = process.env.CDK_DEFAULT_ACCOUNT;
