@@ -54,6 +54,10 @@ managed/inline permission boundary, the canonical distribution configuration,
 distribution-cap markers, service-quota headroom and a globally bounded sample
 of recent CloudFront control-plane mutations.
 
+The deployed cap output must remain the repository qualification baseline of
+25, and quota headroom is calculated from every distribution item aggregated
+by the AWS CLI rather than page-level response metadata.
+
 The report intentionally includes only a small CloudTrail mutation summary:
 event name/time, read-only status, error code and service identity type. It
 never emits CloudTrail request parameters, headers, cookies, query strings,

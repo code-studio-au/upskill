@@ -7,6 +7,7 @@ import { assertOwnedConfiguration } from "../deploy/cdk/lambda/offline-scorm-clo
 const execFileAsync = promisify(execFile);
 
 export const CLOUDFRONT_DISTRIBUTION_QUOTA_CODE = "L-24B04930";
+export const CLOUDFRONT_QUALIFICATION_DISTRIBUTION_CAP = 25;
 const CLOUDFRONT_CONTROL_PLANE_REGION = "us-east-1";
 const APPLICATION_REGION = "ap-southeast-2";
 const CLOUDFRONT_ORIGIN_DOMAIN =
@@ -115,6 +116,18 @@ function parsePositiveInteger(value, message) {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed)) throw new Error(message);
   return parsed;
+}
+
+export function requireQualificationDistributionCap(value) {
+  const deployedCap = parsePositiveInteger(
+    value,
+    "Offline SCORM qualification distribution cap is invalid",
+  );
+  if (deployedCap !== CLOUDFRONT_QUALIFICATION_DISTRIBUTION_CAP)
+    throw new Error(
+      `Offline SCORM qualification distribution cap must remain ${CLOUDFRONT_QUALIFICATION_DISTRIBUTION_CAP}`,
+    );
+  return CLOUDFRONT_QUALIFICATION_DISTRIBUTION_CAP;
 }
 
 export function parseQualificationArguments(argv) {
@@ -992,13 +1005,12 @@ export async function collectCloudFrontQualificationReport(
 
   const applicationOutputs = outputMap(applicationStack, appStackName);
   const edgeOutputs = outputMap(edgeStack, edgeStackName);
-  const qualificationCap = parsePositiveInteger(
+  const qualificationCap = requireQualificationDistributionCap(
     requiredOutput(
       applicationOutputs,
       "OfflineScormCloudFrontMaxDistributions",
       appStackName,
     ),
-    "Offline SCORM qualification distribution cap is invalid",
   );
   const webAclArn = requiredOutput(
     edgeOutputs,
@@ -1107,14 +1119,7 @@ export async function collectCloudFrontQualificationReport(
   const distributionItems = distributions.DistributionList?.Items ?? [];
   if (!Array.isArray(distributionItems))
     throw new Error("CloudFront distribution inventory is invalid");
-  const totalDistributionCount = Number(
-    distributions.DistributionList?.Quantity ?? distributionItems.length,
-  );
-  if (
-    !Number.isSafeInteger(totalDistributionCount) ||
-    totalDistributionCount < 0
-  )
-    throw new Error("CloudFront distribution count is invalid");
+  const totalDistributionCount = distributionItems.length;
   const distributionQuota = Number(quota.value);
   if (!Number.isSafeInteger(distributionQuota) || distributionQuota < 1)
     throw new Error("CloudFront distribution quota is unavailable");

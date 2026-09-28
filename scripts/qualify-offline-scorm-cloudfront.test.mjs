@@ -20,6 +20,7 @@ import {
   hasExpectedWafLoggingBaseline,
   hasExpectedWebAclBaseline,
   parseQualificationArguments,
+  requireQualificationDistributionCap,
   summarizeCloudTrailEvents,
 } from "./qualify-offline-scorm-cloudfront.mjs";
 
@@ -465,6 +466,13 @@ describe("Offline SCORM CloudFront qualification harness", () => {
   });
 
   it("keeps the qualification cap recoverable while requiring global quota headroom", () => {
+    expect(requireQualificationDistributionCap("25")).toBe(25);
+    expect(() => requireQualificationDistributionCap("50")).toThrow(
+      "must remain 25",
+    );
+    expect(() => requireQualificationDistributionCap("invalid")).toThrow(
+      "is invalid",
+    );
     expect(
       evaluateQuotaHeadroom({
         distributionQuota: 500,
@@ -1286,7 +1294,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
                 Status: "Deployed",
               },
             ],
-            Quantity: 2,
+            Quantity: 1,
           },
         };
       if (command === "cloudfront get-distribution-config")
@@ -1411,7 +1419,9 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     );
     expect(report.status).toBe("warning");
     expect(report.headroom).toMatchObject({
+      availableCapacity: 498,
       quotaSource: "aws-default",
+      requiredAdditionalCapacity: 24,
       sufficient: true,
     });
     expect(
