@@ -1,0 +1,636 @@
+import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+
+export const CLOUDFRONT_DISTRIBUTION_QUOTA_CODE = "L-24B04930";
+const CLOUDFRONT_CONTROL_PLANE_REGION = "us-east-1";
+const APPLICATION_REGION = "ap-southeast-2";
+const CLOUDFRONT_ORIGIN_DOMAIN =
+  /^(?=.{3,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
+const ACCOUNT_ID = /^[0-9]{12}$/u;
+const CLOUDFRONT_WEB_ACL_ARN =
+  /^arn:[a-z0-9-]+:wafv2:us-east-1:[0-9]{12}:global\/webacl\/([A-Za-z0-9_-]{1,128})\/([A-Za-z0-9-]{36})$/u;
+const MUTATING_CLOUDFRONT_EVENTS = new Set([
+  "CreateDistribution",
+  "CreateDistributionWithTags",
+  "DeleteDistribution",
+  "TagResource",
+  "UntagResource",
+  "UpdateDistribution",
+]);
+
+export class AwsCliError extends Error {
+  constructor(message, stderr = "") {
+    super(message);
+    this.name = "AwsCliError";
+    this.stderr = stderr;
+  }
+
+  hasCode(code) {
+    return this.stderr.includes(code) || this.message.includes(code);
+  }
+}
+
+function parseJson(value) {
+  if (value.trim() === "") return {};
+  return JSON.parse(value);
+}
+
+export async function runAwsJson(args) {
+  try {
+    const { stdout } = await execFileAsync(
+      "aws",
+      [...args, "--output", "json", "--no-cli-pager"],
+      { encoding: "utf8", maxBuffer: 2 * 1024 * 1024 },
+    );
+    return parseJson(stdout);
+  } catch (error) {
+    const stderr = typeof error?.stderr === "string" ? error.stderr : "";
+    throw new AwsCliError(stderr.trim() || "AWS CLI command failed", stderr);
+  }
+}
+
+function requiredValue(value, message) {
+  if (typeof value !== "string" || value.length === 0) throw new Error(message);
+  return value;
+}
+
+function outputMap(stack, stackName) {
+  const stacks = Array.isArray(stack.Stacks) ? stack.Stacks : [];
+  if (stacks.length !== 1)
+    throw new Error(`Expected deployed stack ${stackName}`);
+  const [deployedStack] = stacks;
+  if (
+    ![
+      "CREATE_COMPLETE",
+      "IMPORT_COMPLETE",
+      "UPDATE_COMPLETE",
+      "UPDATE_ROLLBACK_COMPLETE",
+    ].includes(deployedStack.StackStatus)
+  )
+    throw new Error(
+      `Stack ${stackName} is not deployable (${String(deployedStack.StackStatus)})`,
+    );
+  return new Map(
+    (deployedStack.Outputs ?? []).map((output) => [
+      output.OutputKey,
+      output.OutputValue,
+    ]),
+  );
+}
+
+function requiredOutput(outputs, key, stackName) {
+  return requiredValue(
+    outputs.get(key),
+    `Stack ${stackName} has no ${key} output`,
+  );
+}
+
+function parsePositiveInteger(value, message) {
+  if (typeof value !== "string" || !/^[1-9][0-9]*$/u.test(value))
+    throw new Error(message);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) throw new Error(message);
+  return parsed;
+}
+
+export function parseQualificationArguments(argv) {
+  const parsed = {
+    applicationRegion: APPLICATION_REGION,
+    environment: "",
+    expectedAccount: "",
+    expectedOriginDomain: "",
+    lookbackHours: 24,
+  };
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--") continue;
+    if (argument === "--help") return { help: true };
+    const value = argv[index + 1];
+    if (value === undefined || value.startsWith("--"))
+      throw new Error(`Missing value for ${argument}`);
+    index += 1;
+    if (argument === "--environment") parsed.environment = value;
+    else if (argument === "--expected-account") parsed.expectedAccount = value;
+    else if (argument === "--expected-origin-domain")
+      parsed.expectedOriginDomain = value;
+    else if (argument === "--application-region")
+      parsed.applicationRegion = value;
+    else if (argument === "--lookback-hours")
+      parsed.lookbackHours = parsePositiveInteger(
+        value,
+        "--lookback-hours must be a positive integer",
+      );
+    else throw new Error(`Unknown argument ${argument}`);
+  }
+  if (parsed.environment !== "staging")
+    throw new Error("CloudFront qualification is staging-only");
+  if (!ACCOUNT_ID.test(parsed.expectedAccount))
+    throw new Error("--expected-account must be a 12-digit AWS account ID");
+  if (
+    !CLOUDFRONT_ORIGIN_DOMAIN.test(parsed.expectedOriginDomain) ||
+    parsed.expectedOriginDomain.endsWith(".cloudfront.net")
+  )
+    throw new Error(
+      "--expected-origin-domain must be a lowercase non-CloudFront DNS name",
+    );
+  if (!/^[a-z0-9-]{3,32}$/u.test(parsed.applicationRegion))
+    throw new Error("--application-region is invalid");
+  if (parsed.lookbackHours > 24 * 7)
+    throw new Error("--lookback-hours must not exceed 168");
+  return parsed;
+}
+
+export function classifyQualificationDistributions(distributions, environment) {
+  const prefix = `upskill:${environment}:offline-scorm:`;
+  const owned = distributions.filter((distribution) =>
+    distribution.Comment?.startsWith(prefix),
+  );
+  const comments = new Set();
+  const duplicateMarkers = new Set();
+  for (const distribution of owned) {
+    if (comments.has(distribution.Comment))
+      duplicateMarkers.add(distribution.Comment);
+    comments.add(distribution.Comment);
+  }
+  return { duplicateMarkers: [...duplicateMarkers].sort(), owned };
+}
+
+export function evaluateQuotaHeadroom({
+  distributionQuota,
+  ownedDistributionCount,
+  totalDistributionCount,
+  qualificationCap,
+}) {
+  const requiredAdditionalCapacity = Math.max(
+    qualificationCap - ownedDistributionCount,
+    0,
+  );
+  const availableCapacity = distributionQuota - totalDistributionCount;
+  return {
+    availableCapacity,
+    requiredAdditionalCapacity,
+    sufficient: availableCapacity >= requiredAdditionalCapacity,
+  };
+}
+
+export function summarizeCloudTrailEvents(events) {
+  return events
+    .filter((event) => MUTATING_CLOUDFRONT_EVENTS.has(event.EventName))
+    .map((event) => {
+      let detail = {};
+      try {
+        detail = JSON.parse(event.CloudTrailEvent ?? "{}");
+      } catch {
+        // Event History remains usable even when a malformed detail cannot be summarized.
+      }
+      return {
+        errorCode: detail.errorCode ?? null,
+        eventName: event.EventName,
+        eventTime: event.EventTime,
+        identityType: detail.userIdentity?.type ?? null,
+        invokedBy: detail.userIdentity?.invokedBy ?? null,
+        readOnly: event.ReadOnly === "true",
+      };
+    });
+}
+
+async function effectiveCloudFrontQuota(runAws) {
+  const args = [
+    "service-quotas",
+    "get-service-quota",
+    "--service-code",
+    "cloudfront",
+    "--quota-code",
+    CLOUDFRONT_DISTRIBUTION_QUOTA_CODE,
+    "--region",
+    CLOUDFRONT_CONTROL_PLANE_REGION,
+  ];
+  try {
+    const response = await runAws(args);
+    return { source: "account", value: response.Quota?.Value };
+  } catch (error) {
+    if (
+      !(error instanceof AwsCliError) ||
+      !error.hasCode("NoSuchResourceException")
+    )
+      throw error;
+    const response = await runAws([
+      "service-quotas",
+      "get-aws-default-service-quota",
+      "--service-code",
+      "cloudfront",
+      "--quota-code",
+      CLOUDFRONT_DISTRIBUTION_QUOTA_CODE,
+      "--region",
+      CLOUDFRONT_CONTROL_PLANE_REGION,
+    ]);
+    return { source: "aws-default", value: response.Quota?.Value };
+  }
+}
+
+function addCheck(checks, id, passed, summary, severity = "fail") {
+  checks.push({
+    id,
+    status: passed ? "pass" : severity === "warning" ? "warning" : "fail",
+    summary,
+  });
+}
+
+function stackName(environment, suffix) {
+  return `upskill-${environment}-${suffix}`;
+}
+
+export async function collectCloudFrontQualificationReport(
+  options,
+  dependencies = {},
+) {
+  const runAws = dependencies.runAws ?? runAwsJson;
+  const generatedAt = (dependencies.now ?? (() => new Date()))().toISOString();
+  const appStackName = stackName(options.environment, "application");
+  const edgeStackName = stackName(
+    options.environment,
+    "offline-scorm-edge-security",
+  );
+  const identity = await runAws(["sts", "get-caller-identity"]);
+  const accountId = requiredValue(
+    identity.Account,
+    "AWS caller account is unavailable",
+  );
+  if (accountId !== options.expectedAccount)
+    throw new Error(
+      `AWS caller account ${accountId} does not match --expected-account`,
+    );
+
+  const [applicationStack, edgeStack, originParameter, distributions, quota] =
+    await Promise.all([
+      runAws([
+        "cloudformation",
+        "describe-stacks",
+        "--stack-name",
+        appStackName,
+        "--region",
+        options.applicationRegion,
+      ]),
+      runAws([
+        "cloudformation",
+        "describe-stacks",
+        "--stack-name",
+        edgeStackName,
+        "--region",
+        CLOUDFRONT_CONTROL_PLANE_REGION,
+      ]),
+      runAws([
+        "ssm",
+        "get-parameter",
+        "--name",
+        `/upskill/${options.environment}/offline-scorm/cloudfront-origin-domain`,
+        "--region",
+        options.applicationRegion,
+      ]),
+      runAws(["cloudfront", "list-distributions"]),
+      effectiveCloudFrontQuota(runAws),
+    ]);
+
+  const applicationOutputs = outputMap(applicationStack, appStackName);
+  const edgeOutputs = outputMap(edgeStack, edgeStackName);
+  const qualificationCap = parsePositiveInteger(
+    requiredOutput(
+      applicationOutputs,
+      "OfflineScormCloudFrontMaxDistributions",
+      appStackName,
+    ),
+    "Offline SCORM qualification distribution cap is invalid",
+  );
+  const webAclArn = requiredOutput(
+    edgeOutputs,
+    "OfflineScormCloudFrontWebAclArn",
+    edgeStackName,
+  );
+  const webAclName = requiredOutput(
+    edgeOutputs,
+    "OfflineScormCloudFrontWebAclName",
+    edgeStackName,
+  );
+  const wafLogGroupName = requiredOutput(
+    edgeOutputs,
+    "OfflineScormWafLogGroupName",
+    edgeStackName,
+  );
+  const edgeAlarmTopicArn = requiredOutput(
+    edgeOutputs,
+    "OfflineScormEdgeAlarmTopicArn",
+    edgeStackName,
+  );
+  const logBucketArn = requiredOutput(
+    applicationOutputs,
+    "OfflineScormEdgeLogBucketArn",
+    appStackName,
+  );
+  const originDomain = requiredValue(
+    originParameter.Parameter?.Value,
+    "CloudFront origin domain parameter is unavailable",
+  );
+  const webAclMatch = CLOUDFRONT_WEB_ACL_ARN.exec(webAclArn);
+  if (!webAclMatch || webAclMatch[1] !== webAclName)
+    throw new Error("CloudFront Web ACL stack outputs are inconsistent");
+  const logBucket = logBucketArn.replace(/^arn:[a-z0-9-]+:s3:::/u, "");
+  if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/u.test(logBucket))
+    throw new Error("CloudFront access-log bucket output is invalid");
+  const distributionItems = distributions.DistributionList?.Items ?? [];
+  if (!Array.isArray(distributionItems))
+    throw new Error("CloudFront distribution inventory is invalid");
+  const totalDistributionCount = Number(
+    distributions.DistributionList?.Quantity ?? distributionItems.length,
+  );
+  if (
+    !Number.isSafeInteger(totalDistributionCount) ||
+    totalDistributionCount < 0
+  )
+    throw new Error("CloudFront distribution count is invalid");
+  const distributionQuota = Number(quota.value);
+  if (!Number.isSafeInteger(distributionQuota) || distributionQuota < 1)
+    throw new Error("CloudFront distribution quota is unavailable");
+  const { owned, duplicateMarkers } = classifyQualificationDistributions(
+    distributionItems,
+    options.environment,
+  );
+  const headroom = evaluateQuotaHeadroom({
+    distributionQuota,
+    ownedDistributionCount: owned.length,
+    qualificationCap,
+    totalDistributionCount,
+  });
+
+  const startTime = new Date(
+    Date.parse(generatedAt) - options.lookbackHours * 60 * 60 * 1_000,
+  ).toISOString();
+  const [
+    webAcl,
+    webAclTags,
+    wafLogging,
+    wafLogGroups,
+    subscriptions,
+    edgeAlarms,
+    allocatorAlarms,
+    cloudTrail,
+    logObjects,
+  ] = await Promise.all([
+    runAws([
+      "wafv2",
+      "get-web-acl",
+      "--name",
+      webAclName,
+      "--id",
+      webAclMatch[2],
+      "--scope",
+      "CLOUDFRONT",
+      "--region",
+      CLOUDFRONT_CONTROL_PLANE_REGION,
+    ]),
+    runAws([
+      "wafv2",
+      "list-tags-for-resource",
+      "--resource-arn",
+      webAclArn,
+      "--region",
+      CLOUDFRONT_CONTROL_PLANE_REGION,
+    ]),
+    runAws([
+      "wafv2",
+      "get-logging-configuration",
+      "--resource-arn",
+      webAclArn,
+      "--region",
+      CLOUDFRONT_CONTROL_PLANE_REGION,
+    ]),
+    runAws([
+      "logs",
+      "describe-log-groups",
+      "--log-group-name-prefix",
+      wafLogGroupName,
+      "--region",
+      CLOUDFRONT_CONTROL_PLANE_REGION,
+    ]),
+    runAws([
+      "sns",
+      "list-subscriptions-by-topic",
+      "--topic-arn",
+      edgeAlarmTopicArn,
+      "--region",
+      CLOUDFRONT_CONTROL_PLANE_REGION,
+    ]),
+    runAws([
+      "cloudwatch",
+      "describe-alarms",
+      "--alarm-names",
+      `upskill-${options.environment}-offline-scorm-waf-blocked-requests`,
+      "--region",
+      CLOUDFRONT_CONTROL_PLANE_REGION,
+    ]),
+    runAws([
+      "cloudwatch",
+      "describe-alarms",
+      "--alarm-names",
+      `upskill-${options.environment}-offline-scorm-cloudfront-allocator-errors`,
+      `upskill-${options.environment}-offline-scorm-cloudfront-allocator-throttles`,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "cloudtrail",
+      "lookup-events",
+      "--lookup-attributes",
+      "AttributeKey=EventSource,AttributeValue=cloudfront.amazonaws.com",
+      "--start-time",
+      startTime,
+      "--end-time",
+      generatedAt,
+      "--max-results",
+      "50",
+      "--region",
+      CLOUDFRONT_CONTROL_PLANE_REGION,
+    ]),
+    runAws([
+      "s3api",
+      "list-objects-v2",
+      "--bucket",
+      logBucket,
+      "--prefix",
+      `offline-scorm/${options.environment}/`,
+      "--max-items",
+      "1",
+      "--region",
+      options.applicationRegion,
+    ]),
+  ]);
+
+  const checks = [];
+  addCheck(
+    checks,
+    "origin-domain",
+    originDomain === options.expectedOriginDomain,
+    "Direct origin matches the expected staging domain",
+  );
+  addCheck(
+    checks,
+    "risk-acceptance",
+    applicationOutputs.get("OfflineScormCloudFrontSharedHostRiskAcceptance") ===
+      "staging-qualification-only",
+    "Shared-host staging-only risk acceptance is present",
+  );
+  addCheck(
+    checks,
+    "allocator-output",
+    Boolean(
+      applicationOutputs.get("OfflineScormCloudFrontAllocatorFunctionName"),
+    ),
+    "Allocator output is present",
+  );
+  addCheck(
+    checks,
+    "web-acl",
+    webAcl.WebACL?.ARN === webAclArn && webAcl.WebACL?.Scope === "CLOUDFRONT",
+    "CloudFront WAF ARN and scope match the edge stack",
+  );
+  const tags = new Map(
+    (webAclTags.TagInfoForResource?.TagList ?? []).map((tag) => [
+      tag.Key,
+      tag.Value,
+    ]),
+  );
+  addCheck(
+    checks,
+    "web-acl-tags",
+    tags.get("Application") === "upskill" &&
+      tags.get("Environment") === options.environment &&
+      tags.get("Purpose") === "offline-scorm-qualification",
+    "CloudFront WAF ownership tags match qualification scope",
+  );
+  const logDestinations =
+    wafLogging.LoggingConfiguration?.LogDestinationConfigs ?? [];
+  addCheck(
+    checks,
+    "waf-logging",
+    logDestinations.some((destination) =>
+      destination.endsWith(`:${wafLogGroupName}`),
+    ),
+    "WAF logging targets the expected CloudWatch log group",
+  );
+  const logGroup = (wafLogGroups.logGroups ?? []).find(
+    (group) => group.logGroupName === wafLogGroupName,
+  );
+  addCheck(
+    checks,
+    "waf-log-retention",
+    logGroup?.retentionInDays === 30,
+    "Staging WAF log retention is 30 days",
+  );
+  const confirmedSubscriptions = (subscriptions.Subscriptions ?? []).filter(
+    (subscription) =>
+      subscription.Protocol === "email" &&
+      subscription.SubscriptionArn !== "PendingConfirmation",
+  );
+  addCheck(
+    checks,
+    "edge-alert-subscription",
+    confirmedSubscriptions.length > 0,
+    "Edge alarm topic has a confirmed email subscription",
+  );
+  const namedAlarms = new Map(
+    [
+      ...(edgeAlarms.MetricAlarms ?? []),
+      ...(allocatorAlarms.MetricAlarms ?? []),
+    ].map((alarm) => [alarm.AlarmName, alarm]),
+  );
+  const requiredAlarmNames = [
+    `upskill-${options.environment}-offline-scorm-waf-blocked-requests`,
+    `upskill-${options.environment}-offline-scorm-cloudfront-allocator-errors`,
+    `upskill-${options.environment}-offline-scorm-cloudfront-allocator-throttles`,
+  ];
+  addCheck(
+    checks,
+    "alarms",
+    requiredAlarmNames.every((name) => namedAlarms.has(name)),
+    "WAF and allocator failure alarms are present",
+  );
+  addCheck(
+    checks,
+    "distribution-cap",
+    owned.length <= qualificationCap && duplicateMarkers.length === 0,
+    "Owned qualification distributions are within the cap and have unique markers",
+  );
+  addCheck(
+    checks,
+    "distribution-waf-binding",
+    owned.every((distribution) => distribution.WebACLId === webAclArn),
+    "Every owned qualification distribution is bound to the expected WAF",
+  );
+  addCheck(
+    checks,
+    "quota-headroom",
+    headroom.sufficient,
+    `CloudFront quota retains capacity for ${headroom.requiredAdditionalCapacity} additional qualification distributions`,
+  );
+  const mutationEvents = summarizeCloudTrailEvents(cloudTrail.Events ?? []);
+  addCheck(
+    checks,
+    "cloudtrail-control-plane",
+    true,
+    `CloudTrail Event History returned ${mutationEvents.length} CloudFront mutation event(s) in the selected window`,
+  );
+  const accessLogObjects = logObjects.Contents ?? [];
+  addCheck(
+    checks,
+    "access-log-evidence",
+    accessLogObjects.length > 0,
+    accessLogObjects.length > 0
+      ? "CloudFront access-log evidence is present"
+      : owned.length === 0
+        ? "No owned distribution is active; access-log evidence is not expected yet"
+        : "CloudFront access-log evidence is not available yet; standard delivery can be delayed",
+    "warning",
+  );
+
+  const failures = checks.filter((check) => check.status === "fail").length;
+  const warnings = checks.filter((check) => check.status === "warning").length;
+  return {
+    accessLogEvidencePresent: accessLogObjects.length > 0,
+    accountId,
+    checks,
+    cloudTrailMutations: mutationEvents,
+    generatedAt,
+    headroom: { ...headroom, quotaSource: quota.source },
+    status: failures > 0 ? "failed" : warnings > 0 ? "warning" : "passed",
+    target: {
+      applicationRegion: options.applicationRegion,
+      environment: options.environment,
+      webAclName,
+    },
+  };
+}
+
+function usage() {
+  return `Usage: pnpm run qualify:offline-scorm:cloudfront -- --environment staging --expected-account <12-digit-account-id> --expected-origin-domain staging.upskill.institute [--application-region ap-southeast-2] [--lookback-hours 24]`;
+}
+
+async function main() {
+  const options = parseQualificationArguments(process.argv.slice(2));
+  if (options.help) {
+    console.log(usage());
+    return;
+  }
+  const report = await collectCloudFrontQualificationReport(options);
+  console.log(JSON.stringify(report, null, 2));
+  if (report.status === "failed") process.exitCode = 1;
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1])
+  await main().catch((error) => {
+    console.error(
+      error instanceof Error ? error.message : "Qualification failed",
+    );
+    process.exitCode = 1;
+  });

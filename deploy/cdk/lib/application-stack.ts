@@ -791,6 +791,14 @@ UPSKILL_ENV`,
         description:
           "Explicit staging-only acceptance of the shared-host worker IAM boundary for Offline SCORM qualification",
       });
+      new CfnOutput(this, "OfflineScormCloudFrontMaxDistributions", {
+        value: String(
+          props.config.offlineScormCloudFrontQualification
+            .maxEntitlementDistributions,
+        ),
+        description:
+          "Maximum retained entitlement distributions allowed by the staging qualification allocator",
+      });
     }
     const packageHostLifecycleCode = Code.fromAsset(
       fileURLToPath(

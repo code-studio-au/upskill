@@ -312,6 +312,13 @@ allocator fails closed without exactly one matching WAF and caps staging at 25
 retained qualification distributions. None of this enables Offline SCORM or
 exposes a learner path. The acknowledgement is rejected for production, which
 requires a distinct worker AWS principal.
+
+After deploying the qualification stacks and confirming the edge-topic email
+subscription, run the [read-only CloudFront qualification harness](docs/testing/offline-scorm-cloudfront.md).
+It records the deployed boundary, WAF and alarm coverage, CloudFront account
+headroom, CloudTrail control-plane evidence and access-log availability without
+creating, changing or deleting an AWS resource.
+
 Create the matching GitHub
 `staging` environment, restrict its deployment branches to `main`, and populate
 its two deployment secrets. This repository has one maintainer, so the

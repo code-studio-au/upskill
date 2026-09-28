@@ -215,5 +215,10 @@ export class OfflineScormEdgeSecurityStack extends Stack {
     new CfnOutput(this, "OfflineScormWafLogGroupName", {
       value: wafLogGroup.logGroupName,
     });
+    new CfnOutput(this, "OfflineScormEdgeAlarmTopicArn", {
+      value: alarmTopic.topicArn,
+      description:
+        "Encrypted notification topic whose email subscription must be confirmed before qualification",
+    });
   }
 }
