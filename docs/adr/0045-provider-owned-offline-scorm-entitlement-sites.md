@@ -4,8 +4,8 @@
 
 Proposed; CloudFront qualification infrastructure, durable allocation,
 issuance and retirement models, origin validation, dormant worker recovery and
-an explicit staging-only shared-host risk gate are implemented but disabled by
-default.
+an explicit staging-only shared-host risk gate plus dormant WAF, logging, alarm
+and distribution-cap guardrails are implemented but disabled by default.
 Date: 2026-09-27
 
 ## Context
@@ -79,6 +79,13 @@ The allocator remains a dormant capability:
   worker environment and requires the worker process marker before constructing
   the provider;
 - every created distribution starts disabled;
+- the allocator resolves exactly one deterministic CloudFront-scope WAF web ACL
+  in `us-east-1`, verifies its application, environment and purpose tags,
+  attaches its ARN at creation and treats any later WAF binding drift as an
+  ownership-boundary failure;
+- the single-concurrency staging allocator refuses a new entitlement site once
+  25 retained qualification distributions exist, while still recovering an
+  existing exact-entitlement distribution at the cap;
 - mutation requires the exact environment, purpose and entitlement ownership
   tags plus an exact match for the expected origin, capability, cache, logging,
   certificate and isolation configuration; and
@@ -105,14 +112,14 @@ whole configuration rather than merging fields:
 
 ## Actors, entry points and targets
 
-| Dimension               | Qualification scope                                                                                                                                                                                                                                   |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Actors                  | Learner receiving an offline entitlement; application service issuing it; operator invoking the dormant allocator; allocator execution role; CloudFront service; existing package host.                                                               |
-| Entry points            | Future server-owned entitlement issuance/recovery; operator-only Lambda invocation during qualification; the assigned CloudFront viewer origin.                                                                                                       |
-| Targets                 | One exact entitlement, its cleanup inventory, one tagged distribution, its custom-origin binding and access-log prefix.                                                                                                                               |
-| Lifecycle               | Unallocated; allocating disabled; binding pending; enabling; active; disabling; deletion pending; deleted; needs attention.                                                                                                                           |
-| Downstream effects      | Package-origin CSP, signed entitlement envelope, offline course index, service-worker registration, synchronous spool, cleanup receipt, reconciliation and retained audit evidence.                                                                   |
-| Failure and concurrency | Lost allocator response, duplicate allocation, CloudFront deployment delay, quota exhaustion, stale ETag, tag mismatch, origin-key rotation, partial database binding, concurrent activation/retirement, cleanup while disabled and deletion failure. |
+| Dimension               | Qualification scope                                                                                                                                                                                                                                                                |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Actors                  | Learner receiving an offline entitlement; application service issuing it; operator invoking the dormant allocator; allocator execution role; CloudFront and WAF services; existing package host; operational responder receiving edge alarms.                                      |
+| Entry points            | Future server-owned entitlement issuance/recovery; operator-only Lambda invocation during qualification; the assigned CloudFront viewer origin.                                                                                                                                    |
+| Targets                 | One exact entitlement, its cleanup inventory, one tagged distribution, its custom-origin binding and access-log prefix.                                                                                                                                                            |
+| Lifecycle               | Unallocated; allocating disabled; binding pending; enabling; active; disabling; deletion pending; deleted; needs attention.                                                                                                                                                        |
+| Downstream effects      | Package-origin CSP, signed entitlement envelope, offline course index, service-worker registration, synchronous spool, cleanup receipt, reconciliation and retained audit evidence.                                                                                                |
+| Failure and concurrency | Lost allocator response, duplicate allocation, CloudFront deployment delay, missing or ambiguous WAF, WAF-binding drift, local cap or AWS quota exhaustion, stale ETag, tag mismatch, origin-key rotation, partial binding, concurrent activation/retirement and deletion failure. |
 
 The server-owned workflow must own these transitions through locked,
 retry-safe database work. A distribution being `Deployed` is infrastructure
@@ -205,14 +212,30 @@ This increment adds no learner route, deployment mode or activation flag.
 | Package response is cached across authority changes         | Initial qualification uses zero TTLs and no cache policy. Error and runtime responses remain origin-owned.                                                                                                                                                                                   |
 | Distribution becomes reachable before durable binding       | Creation is disabled; activation is a separate operation after persistence.                                                                                                                                                                                                                  |
 | Retired entitlement remains reachable                       | Disable, wait for global deployment, then delete. The package host independently rejects non-active or cleanup-invalid states.                                                                                                                                                               |
+| Public edge receives exploit or flood traffic               | One shared CloudFront-scope WAF blocks the AWS IP reputation list and more than 2,000 requests per source IP in five minutes. The Common Rule Set remains count-only during qualification so false positives can be measured before any acceptance amendment.                                |
+| Allocator creates an unprotected or drifted distribution    | It resolves exactly one deterministic WAF name, requires the returned global ARN in every new distribution and includes that ARN in the exact configuration checked before describe, enable, disable or delete.                                                                              |
+| Qualification leaks resources or approaches account quota   | Reserved allocator concurrency serializes creates and a staging-owned cap of 25 distributions blocks new allocations without blocking exact lost-response recovery. AWS account quota headroom remains an explicit qualification gate.                                                       |
 | Logs expose learner or bearer information                   | Distribution tags and paths use opaque internal identifiers; cookies are excluded from access logs; the log bucket is encrypted, private and lifecycle-limited. Query strings must be reviewed before production logging because cleanup capabilities currently appear in a query parameter. |
 | Origin capability is disclosed                              | Store its HMAC key in Secrets Manager, never return the capability from the allocator, rotate through an explicit dual-key migration, and restrict secret access to the allocator and package-host validation boundary.                                                                      |
 
-Before learner activation, add a global-scope AWS WAF web ACL with managed
-baseline protections and a rate-based rule, CloudFront access-log review,
-CloudTrail control-plane auditing and alarms for allocator failures,
-distribution quota headroom and anomalous origin denials. AWS Shield Standard is
-not a substitute for the L7 rate and abuse controls.
+The qualification context now creates a separate global-edge stack in
+`us-east-1`, as AWS requires for CloudFront-scope WAF. EC2, RDS, S3, the worker,
+allocator and origin stay in `ap-southeast-2`. The shared web ACL blocks the AWS
+IP reputation list and a per-IP rate rule, counts the AWS Common Rule Set for
+qualification tuning, samples requests and retains only `BLOCK`/`COUNT` logs in
+a 30-day CloudWatch log group. Authorization, cookie and query-string values are
+redacted. A blocked-request spike alarm publishes to a KMS-encrypted edge SNS
+topic; operators must confirm its separate `us-east-1` email subscription after
+deployment. CloudFront also receives AWS Shield Standard automatically. Shield
+Advanced is not enabled for this staging experiment because its subscription
+and operational commitment are disproportionate; revisit it before production
+acceptance if risk or organisational policy requires the additional response
+features.
+
+CloudFront access-log review, CloudTrail control-plane auditing, account quota
+headroom confirmation and anomalous origin-denial telemetry remain required
+before learner activation. The counted Common Rule Set must be tuned and the
+resulting block/count policy recorded during qualification.
 
 The AWS-owned hostname also forces use of the default CloudFront certificate.
 AWS documents that this fixes the minimum viewer security policy at `TLSv1`;
@@ -331,7 +354,10 @@ deleted stack still requires the normal retained-resource recovery process.
      issuance are **implemented and dormant** with migration 0122;
    - distribution retirement is **implemented and dormant**; and
    - exact staging-only shared-host risk acceptance is **implemented as a CDK
-     gate**; production still requires a distinct AWS worker principal.
+     gate**; production still requires a distinct AWS worker principal; and
+   - the separate CloudFront-scope WAF stack, filtered WAF logging, blocked
+     request alarm, exact allocator WAF binding and 25-distribution staging cap
+     are **implemented and dormant**.
 5. Run the browser, cleanup, latency, quota, WAF and cost qualification matrix.
 6. Amend this ADR to Accepted or Rejected. Only an Accepted amendment may add a
    deployment-mode flag and activate staging learners.

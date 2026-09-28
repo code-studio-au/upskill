@@ -8,6 +8,9 @@ const ENTITLEMENT_ID = /^[A-Za-z0-9_-]{1,255}$/u;
 const DISTRIBUTION_ID = /^[A-Z0-9]{8,32}$/u;
 const ORIGIN_DOMAIN =
   /^(?=.{3,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
+const WEB_ACL_ARN =
+  /^arn:[a-z0-9-]+:wafv2:us-east-1:[0-9]{12}:global\/webacl\/[A-Za-z0-9_-]{1,128}\/[A-Za-z0-9-]{36}$/u;
+const WEB_ACL_NAME = /^[A-Za-z0-9_-]{1,128}$/u;
 
 function requiredEnvironment(name, pattern) {
   const value = process.env[name]?.trim();
@@ -20,6 +23,19 @@ function assertEntitlementId(value) {
   if (typeof value !== "string" || !ENTITLEMENT_ID.test(value))
     throw new Error("Offline SCORM entitlement identifier is invalid");
   return value;
+}
+
+export function parseDistributionLimit(value) {
+  if (typeof value !== "string" || !/^[1-9][0-9]{0,2}$/u.test(value))
+    throw new Error(
+      "Missing or invalid UPSKILL_OFFLINE_SCORM_MAX_DISTRIBUTIONS",
+    );
+  const limit = Number(value);
+  if (!Number.isSafeInteger(limit) || limit > 100)
+    throw new Error(
+      "Missing or invalid UPSKILL_OFFLINE_SCORM_MAX_DISTRIBUTIONS",
+    );
+  return limit;
 }
 
 function entitlementDigest(environment, entitlementId) {
@@ -86,6 +102,8 @@ export function createDistributionConfig(input) {
     throw new Error("Offline SCORM CloudFront origin capability is invalid");
   if (!ORIGIN_DOMAIN.test(input.logBucketDomain))
     throw new Error("Offline SCORM CloudFront log bucket domain is invalid");
+  if (!WEB_ACL_ARN.test(input.webAclArn))
+    throw new Error("Offline SCORM CloudFront Web ACL ARN is invalid");
   const marker = distributionMarker(environment, entitlementId);
   return {
     CallerReference: marker,
@@ -169,7 +187,7 @@ export function createDistributionConfig(input) {
     ViewerCertificate: {
       CloudFrontDefaultCertificate: true,
     },
-    WebACLId: "",
+    WebACLId: input.webAclArn,
   };
 }
 
@@ -178,9 +196,10 @@ async function awsModules() {
   awsModulesPromise ??= Promise.all([
     import("@aws-sdk/client-cloudfront"),
     import("@aws-sdk/client-secrets-manager"),
+    import("@aws-sdk/client-wafv2"),
   ]);
-  const [cloudfront, secretsManager] = await awsModulesPromise;
-  return { cloudfront, secretsManager };
+  const [cloudfront, secretsManager, wafV2] = await awsModulesPromise;
+  return { cloudfront, secretsManager, wafV2 };
 }
 
 let originKeyPromise;
@@ -204,6 +223,62 @@ export async function readOriginKey(secretArn, secretsManager) {
     });
   }
   return await originKeyPromise;
+}
+
+let webAclArnPromise;
+export async function readCloudFrontWebAclArn(webAclName, environment, wafV2) {
+  if (!WEB_ACL_NAME.test(webAclName))
+    throw new Error("Offline SCORM CloudFront Web ACL name is invalid");
+  if (environment !== "staging" && environment !== "production")
+    throw new Error("Offline SCORM CloudFront environment is invalid");
+  if (!webAclArnPromise) {
+    const pendingWebAclArn = (async () => {
+      const client = new wafV2.WAFV2Client({ region: "us-east-1" });
+      const matches = [];
+      let NextMarker;
+      do {
+        const response = await client.send(
+          new wafV2.ListWebACLsCommand({
+            Scope: "CLOUDFRONT",
+            Limit: 100,
+            ...(NextMarker ? { NextMarker } : {}),
+          }),
+        );
+        for (const webAcl of response.WebACLs ?? [])
+          if (webAcl.Name === webAclName) matches.push(webAcl);
+        NextMarker = response.NextMarker;
+      } while (NextMarker);
+      if (matches.length !== 1 || !WEB_ACL_ARN.test(matches[0]?.ARN ?? ""))
+        throw new Error(
+          `Expected one Offline SCORM CloudFront Web ACL; found ${matches.length}`,
+        );
+      const webAclArn = matches[0].ARN;
+      const tagResponse = await client.send(
+        new wafV2.ListTagsForResourceCommand({ ResourceARN: webAclArn }),
+      );
+      const actualTags = new Map(
+        (tagResponse.TagInfoForResource?.TagList ?? []).map((tag) => [
+          tag.Key,
+          tag.Value,
+        ]),
+      );
+      for (const [key, value] of [
+        ["Application", "upskill"],
+        ["Environment", environment],
+        ["Purpose", "offline-scorm-qualification"],
+      ])
+        if (actualTags.get(key) !== value)
+          throw new Error(
+            "Offline SCORM CloudFront Web ACL ownership is invalid",
+          );
+      return webAclArn;
+    })();
+    webAclArnPromise = pendingWebAclArn;
+    void pendingWebAclArn.catch(() => {
+      if (webAclArnPromise === pendingWebAclArn) webAclArnPromise = undefined;
+    });
+  }
+  return await webAclArnPromise;
 }
 
 function ownedTags(environment, entitlementId) {
@@ -231,6 +306,7 @@ export function assertOwnedConfiguration(
   originCapability,
   originDomain,
   logBucketDomain,
+  webAclArn,
 ) {
   const expected = createDistributionConfig({
     environment,
@@ -238,6 +314,7 @@ export function assertOwnedConfiguration(
     originCapability,
     originDomain,
     logBucketDomain,
+    webAclArn,
   });
   if (typeof config.Enabled !== "boolean")
     throw new Error(
@@ -353,25 +430,74 @@ function normalizeCloudFrontConfiguration(config) {
   return normalized;
 }
 
+export function classifyDistributionInventory(
+  distributions,
+  environment,
+  entitlementId,
+) {
+  const ownedPrefix = `upskill:${environment}:offline-scorm:`;
+  const marker = distributionMarker(environment, entitlementId);
+  const owned = distributions.filter((distribution) =>
+    distribution.Comment?.startsWith(ownedPrefix),
+  );
+  return {
+    entitlementMatches: owned.filter(
+      (distribution) => distribution.Comment === marker,
+    ),
+    ownedCount: owned.length,
+  };
+}
+
+export function selectDistributionForAllocation(inventory, limit) {
+  if (inventory.entitlementMatches.length > 1)
+    throw new Error(
+      `Expected at most one recoverable CloudFront entitlement distribution; found ${inventory.entitlementMatches.length}`,
+    );
+  if (inventory.entitlementMatches.length === 1)
+    return inventory.entitlementMatches[0];
+  if (inventory.ownedCount >= limit)
+    throw new Error(
+      `Offline SCORM CloudFront distribution limit reached (${limit})`,
+    );
+  return null;
+}
+
+async function readDistributionInventory(
+  client,
+  cloudfront,
+  environment,
+  entitlementId,
+) {
+  const distributions = [];
+  let Marker;
+  do {
+    const response = await client.send(
+      new cloudfront.ListDistributionsCommand(Marker ? { Marker } : {}),
+    );
+    distributions.push(...(response.DistributionList?.Items ?? []));
+    Marker = response.DistributionList?.IsTruncated
+      ? response.DistributionList.NextMarker
+      : undefined;
+  } while (Marker);
+  return classifyDistributionInventory(
+    distributions,
+    environment,
+    entitlementId,
+  );
+}
+
 async function findOwnedDistribution(
   client,
   cloudfront,
   environment,
   entitlementId,
 ) {
-  const marker = distributionMarker(environment, entitlementId);
-  const matches = [];
-  let Marker;
-  do {
-    const response = await client.send(
-      new cloudfront.ListDistributionsCommand(Marker ? { Marker } : {}),
-    );
-    for (const distribution of response.DistributionList?.Items ?? [])
-      if (distribution.Comment === marker) matches.push(distribution);
-    Marker = response.DistributionList?.IsTruncated
-      ? response.DistributionList.NextMarker
-      : undefined;
-  } while (Marker);
+  const { entitlementMatches: matches } = await readDistributionInventory(
+    client,
+    cloudfront,
+    environment,
+    entitlementId,
+  );
   if (matches.length !== 1)
     throw new Error(
       `Expected one recoverable CloudFront entitlement distribution; found ${matches.length}`,
@@ -421,6 +547,7 @@ async function distributionConfiguration(
   originCapability,
   originDomain,
   logBucketDomain,
+  webAclArn,
 ) {
   const response = await client.send(
     new cloudfront.GetDistributionConfigCommand({ Id: distributionId }),
@@ -434,6 +561,7 @@ async function distributionConfiguration(
     originCapability,
     originDomain,
     logBucketDomain,
+    webAclArn,
   );
   return { config: response.DistributionConfig, etag: response.ETag };
 }
@@ -454,6 +582,44 @@ async function allocate(input, configuration, client, cloudfront) {
     ...configuration,
     entitlementId: input.entitlementId,
   });
+  const inventory = await readDistributionInventory(
+    client,
+    cloudfront,
+    configuration.environment,
+    input.entitlementId,
+  );
+  const existingDistribution = selectDistributionForAllocation(
+    inventory,
+    configuration.maxDistributions,
+  );
+  if (existingDistribution) {
+    const recovered = existingDistribution;
+    if (!recovered?.Id)
+      throw new Error("Recovered CloudFront distribution has no identifier");
+    await assertOwnedDistribution(
+      client,
+      cloudfront,
+      configuration.environment,
+      input.entitlementId,
+      recovered.Id,
+    );
+    const { config: recoveredConfig } = await distributionConfiguration(
+      client,
+      cloudfront,
+      configuration.environment,
+      input.entitlementId,
+      recovered.Id,
+      configuration.originCapability,
+      configuration.originDomain,
+      configuration.logBucketDomain,
+      configuration.webAclArn,
+    );
+    if (recoveredConfig.Enabled)
+      throw new Error(
+        "Refusing to recover an already-enabled CloudFront entitlement distribution",
+      );
+    return publicDistribution(recovered, "recovered-disabled");
+  }
   try {
     const response = await client.send(
       new cloudfront.CreateDistributionWithTagsCommand({
@@ -495,6 +661,7 @@ async function allocate(input, configuration, client, cloudfront) {
       configuration.originCapability,
       configuration.originDomain,
       configuration.logBucketDomain,
+      configuration.webAclArn,
     );
     if (recoveredConfig.Enabled)
       throw new Error(
@@ -526,6 +693,7 @@ async function activate(input, configuration, client, cloudfront) {
     configuration.originCapability,
     configuration.originDomain,
     configuration.logBucketDomain,
+    configuration.webAclArn,
   );
   if (config.Enabled) return publicDistribution(distribution, "active");
   const response = await client.send(
@@ -559,6 +727,7 @@ async function retire(input, configuration, client, cloudfront) {
     configuration.originCapability,
     configuration.originDomain,
     configuration.logBucketDomain,
+    configuration.webAclArn,
   );
   if (config.Enabled) {
     const response = await client.send(
@@ -597,12 +766,24 @@ export async function handler(event) {
     "UPSKILL_OFFLINE_SCORM_ORIGIN_KEY_SECRET_ARN",
     /^arn:[a-z0-9-]+:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+$/u,
   );
-  const { cloudfront, secretsManager } = await awsModules();
-  const originKey = await readOriginKey(secretArn, secretsManager);
+  const webAclName = requiredEnvironment(
+    "UPSKILL_OFFLINE_SCORM_WEB_ACL_NAME",
+    WEB_ACL_NAME,
+  );
+  const maxDistributions = parseDistributionLimit(
+    process.env.UPSKILL_OFFLINE_SCORM_MAX_DISTRIBUTIONS,
+  );
+  const { cloudfront, secretsManager, wafV2 } = await awsModules();
+  const [originKey, webAclArn] = await Promise.all([
+    readOriginKey(secretArn, secretsManager),
+    readCloudFrontWebAclArn(webAclName, environment, wafV2),
+  ]);
   const configuration = {
     environment,
+    maxDistributions,
     originDomain,
     logBucketDomain,
+    webAclArn,
     originCapability: createOriginCapability(
       originKey,
       environment,
@@ -634,6 +815,7 @@ export async function handler(event) {
     configuration.originCapability,
     configuration.originDomain,
     configuration.logBucketDomain,
+    configuration.webAclArn,
   );
   return publicDistribution(distribution, "described");
 }

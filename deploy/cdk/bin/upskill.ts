@@ -6,6 +6,7 @@ import { environmentConfig } from "../lib/config.js";
 import { DataStack } from "../lib/data-stack.js";
 import { DeploymentIdentityStack } from "../lib/deployment-identity-stack.js";
 import { NetworkStack } from "../lib/network-stack.js";
+import { OfflineScormEdgeSecurityStack } from "../lib/offline-scorm-edge-security-stack.js";
 import { StorageStack } from "../lib/storage-stack.js";
 
 const app = new App();
@@ -41,6 +42,21 @@ const storage = new StorageStack(
   config,
   stackProps,
 );
+let offlineScormEdgeSecurity: OfflineScormEdgeSecurityStack | undefined;
+if (config.offlineScormCloudFrontQualification) {
+  if (!account)
+    throw new Error(
+      "Offline SCORM CloudFront qualification requires a resolved AWS account",
+    );
+  offlineScormEdgeSecurity = new OfflineScormEdgeSecurityStack(
+    app,
+    `${stackPrefix}-offline-scorm-edge-security`,
+    {
+      env: { account, region: "us-east-1" },
+      config,
+    },
+  );
+}
 const data = new DataStack(app, `${stackPrefix}-data`, {
   ...stackProps,
   config,
@@ -65,6 +81,8 @@ const application = new ApplicationStack(app, `${stackPrefix}-application`, {
   alarmTopic: storage.alarmTopic,
   accessGrantsInstanceArn: accessGrants.instanceArn,
 });
+if (offlineScormEdgeSecurity)
+  application.addStackDependency(offlineScormEdgeSecurity);
 const deploymentIdentity = new DeploymentIdentityStack(
   app,
   `${stackPrefix}-deployment-identity`,
@@ -81,5 +99,9 @@ const deploymentIdentity = new DeploymentIdentityStack(
 for (const stack of [network, storage, data, application, deploymentIdentity]) {
   Tags.of(stack).add("Application", "upskill");
   Tags.of(stack).add("Environment", config.name);
+}
+if (offlineScormEdgeSecurity) {
+  Tags.of(offlineScormEdgeSecurity).add("Application", "upskill");
+  Tags.of(offlineScormEdgeSecurity).add("Environment", config.name);
 }
 Tags.of(accessGrants).add("Application", "upskill");

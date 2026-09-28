@@ -7,6 +7,7 @@ interface OfflineScormPackageHostConfig {
 }
 
 interface OfflineScormCloudFrontQualificationConfig {
+  maxEntitlementDistributions: number;
   originDomain: string;
   sharedHostRiskAcceptance: "staging-qualification-only";
 }
@@ -94,6 +95,7 @@ function offlineScormCloudFrontQualificationConfig(
       "CDK context offlineScormCloudFrontOriginDomain must not chain one CloudFront distribution through another",
     );
   return {
+    maxEntitlementDistributions: 25,
     originDomain: parsedOriginDomain,
     sharedHostRiskAcceptance,
   };

@@ -285,7 +285,15 @@ offline SCORM.
 
 The alternative CloudFront qualification topology is staging-only while the
 web and worker share one EC2 instance role. Provisioning it requires an exact,
-auditable acceptance of that shared-host boundary:
+auditable acceptance of that shared-host boundary. If the account has not
+already been bootstrapped in the AWS-mandated edge region, run the one-time
+standard CDK bootstrap before the first qualification deployment:
+
+```sh
+pnpm --dir deploy/cdk exec cdk bootstrap aws://<account-id>/us-east-1
+```
+
+Then deploy the complete qualification topology:
 
 ```sh
 pnpm --dir deploy/cdk exec cdk deploy --all \
@@ -294,9 +302,16 @@ pnpm --dir deploy/cdk exec cdk deploy --all \
   --context offlineScormCloudFrontSharedHostRiskAcceptance=staging-qualification-only
 ```
 
-This creates only the dormant allocator and origin-validation configuration;
-it does not enable Offline SCORM or expose a learner path. The acknowledgement
-is rejected for production, which requires a distinct worker AWS principal.
+This creates the dormant allocator and origin-validation configuration in
+`ap-southeast-2` plus the AWS-required CloudFront-scope WAF stack in
+`us-east-1`. The edge stack supplies AWS IP-reputation and rate-based blocking,
+counted Common Rule Set qualification telemetry, filtered 30-day WAF logs and a
+blocked-request alarm. Confirm the separate `us-east-1` SNS email subscription
+sent to the configured operations address after its first deployment. The
+allocator fails closed without exactly one matching WAF and caps staging at 25
+retained qualification distributions. None of this enables Offline SCORM or
+exposes a learner path. The acknowledgement is rejected for production, which
+requires a distinct worker AWS principal.
 Create the matching GitHub
 `staging` environment, restrict its deployment branches to `main`, and populate
 its two deployment secrets. This repository has one maintainer, so the

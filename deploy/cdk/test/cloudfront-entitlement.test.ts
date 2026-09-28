@@ -1,14 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
   assertOwnedConfiguration,
+  classifyDistributionInventory,
   createDistributionConfig,
   createOriginCapability,
   distributionMarker,
   parseAllocatorRequest,
+  parseDistributionLimit,
+  readCloudFrontWebAclArn,
   readOriginKey,
+  selectDistributionForAllocation,
 } from "../lambda/offline-scorm-cloudfront-entitlement/index.mjs";
 
 const originKey = "a".repeat(64);
+const webAclArn =
+  "arn:aws:wafv2:us-east-1:123456789012:global/webacl/upskill-staging-offline-scorm-cloudfront/11111111-2222-3333-4444-555555555555";
 
 describe("offline SCORM CloudFront entitlement allocator", () => {
   it("derives stable entitlement-bound capabilities and caller references", () => {
@@ -68,6 +74,150 @@ describe("offline SCORM CloudFront entitlement allocator", () => {
     expect(requests).toBe(2);
   });
 
+  it("resolves exactly one global Web ACL and caches only success", async () => {
+    let requests = 0;
+    class WAFV2Client {
+      constructor(readonly configuration: { region: string }) {
+        expect(configuration.region).toBe("us-east-1");
+      }
+      send(command: {
+        kind: "list" | "tags";
+        input: { NextMarker?: string; Scope?: string };
+      }) {
+        requests += 1;
+        if (command.kind === "tags")
+          return Promise.resolve({
+            TagInfoForResource: {
+              TagList: [
+                { Key: "Application", Value: "upskill" },
+                {
+                  Key: "Environment",
+                  Value: requests === 4 ? "production" : "staging",
+                },
+                { Key: "Purpose", Value: "offline-scorm-qualification" },
+              ],
+            },
+          });
+        expect(command.input.Scope).toBe("CLOUDFRONT");
+        if (requests === 1)
+          return Promise.reject(new Error("transient WAF outage"));
+        if (!command.input.NextMarker)
+          return Promise.resolve({
+            NextMarker: "next",
+            WebACLs: [{ Name: "another-acl", ARN: webAclArn }],
+          });
+        return Promise.resolve({
+          WebACLs: [
+            {
+              Name: "upskill-staging-offline-scorm-cloudfront",
+              ARN: webAclArn,
+            },
+          ],
+        });
+      }
+    }
+    class ListWebACLsCommand {
+      readonly kind = "list";
+      constructor(readonly input: { NextMarker?: string; Scope: string }) {}
+    }
+    class ListTagsForResourceCommand {
+      readonly kind = "tags";
+      constructor(readonly input: { ResourceARN: string }) {}
+    }
+    const wafV2 = {
+      WAFV2Client,
+      ListTagsForResourceCommand,
+      ListWebACLsCommand,
+    };
+
+    await expect(
+      readCloudFrontWebAclArn(
+        "upskill-staging-offline-scorm-cloudfront",
+        "staging",
+        wafV2,
+      ),
+    ).rejects.toThrow("transient WAF outage");
+    await expect(
+      readCloudFrontWebAclArn(
+        "upskill-staging-offline-scorm-cloudfront",
+        "staging",
+        wafV2,
+      ),
+    ).rejects.toThrow("Web ACL ownership is invalid");
+    await expect(
+      readCloudFrontWebAclArn(
+        "upskill-staging-offline-scorm-cloudfront",
+        "staging",
+        wafV2,
+      ),
+    ).resolves.toBe(webAclArn);
+    await expect(
+      readCloudFrontWebAclArn(
+        "upskill-staging-offline-scorm-cloudfront",
+        "staging",
+        wafV2,
+      ),
+    ).resolves.toBe(webAclArn);
+    expect(requests).toBe(7);
+  });
+
+  it("bounds qualification distribution inventory without breaking recovery", () => {
+    expect(parseDistributionLimit("25")).toBe(25);
+    expect(() => parseDistributionLimit("0")).toThrow("MAX_DISTRIBUTIONS");
+    expect(() => parseDistributionLimit("101")).toThrow("MAX_DISTRIBUTIONS");
+    expect(() => parseDistributionLimit(25)).toThrow("MAX_DISTRIBUTIONS");
+
+    const marker = distributionMarker("staging", "entitlement_a");
+    const inventory = classifyDistributionInventory(
+      [
+        { Comment: marker, Id: "E1234567890" },
+        {
+          Comment: distributionMarker("staging", "entitlement_b"),
+          Id: "E1234567891",
+        },
+        {
+          Comment: distributionMarker("production", "entitlement_c"),
+          Id: "E1234567892",
+        },
+        { Comment: "another-application", Id: "E1234567893" },
+      ],
+      "staging",
+      "entitlement_a",
+    );
+    expect(inventory.ownedCount).toBe(2);
+    expect(inventory.entitlementMatches).toEqual([
+      { Comment: marker, Id: "E1234567890" },
+    ]);
+    expect(selectDistributionForAllocation(inventory, 2)).toEqual({
+      Comment: marker,
+      Id: "E1234567890",
+    });
+    expect(
+      selectDistributionForAllocation(
+        { entitlementMatches: [], ownedCount: 1 },
+        2,
+      ),
+    ).toBeNull();
+    expect(() =>
+      selectDistributionForAllocation(
+        { entitlementMatches: [], ownedCount: 2 },
+        2,
+      ),
+    ).toThrow("distribution limit reached (2)");
+    expect(() =>
+      selectDistributionForAllocation(
+        {
+          entitlementMatches: [
+            { Comment: marker, Id: "E1234567890" },
+            { Comment: marker, Id: "E1234567894" },
+          ],
+          ownedCount: 2,
+        },
+        2,
+      ),
+    ).toThrow("at most one recoverable");
+  });
+
   it("creates a disabled no-cache distribution before database binding", () => {
     const capability = createOriginCapability(
       originKey,
@@ -80,6 +230,7 @@ describe("offline SCORM CloudFront entitlement allocator", () => {
       originDomain: "staging.upskill.institute",
       originCapability: capability,
       logBucketDomain: "offline-logs.s3.amazonaws.com",
+      webAclArn,
     });
 
     expect(config).toMatchObject({
@@ -110,7 +261,7 @@ describe("offline SCORM CloudFront entitlement allocator", () => {
       ViewerCertificate: {
         CloudFrontDefaultCertificate: true,
       },
-      WebACLId: "",
+      WebACLId: webAclArn,
     });
     expect(config).not.toHaveProperty("Aliases.Items");
     expect(config).not.toHaveProperty(
@@ -181,6 +332,7 @@ describe("offline SCORM CloudFront entitlement allocator", () => {
       originDomain: "staging.upskill.institute",
       originCapability: capability,
       logBucketDomain: "offline-logs.s3.amazonaws.com",
+      webAclArn,
     });
 
     expect(() => {
@@ -191,6 +343,7 @@ describe("offline SCORM CloudFront entitlement allocator", () => {
         capability,
         "staging.upskill.institute",
         "offline-logs.s3.amazonaws.com",
+        webAclArn,
       );
     }).not.toThrow();
     expect(() => {
@@ -201,6 +354,7 @@ describe("offline SCORM CloudFront entitlement allocator", () => {
         capability,
         "staging.upskill.institute",
         "offline-logs.s3.amazonaws.com",
+        webAclArn,
       );
     }).not.toThrow();
     expect(() => {
@@ -211,6 +365,7 @@ describe("offline SCORM CloudFront entitlement allocator", () => {
         createOriginCapability(originKey, "staging", "entitlement_b"),
         "staging.upskill.institute",
         "offline-logs.s3.amazonaws.com",
+        webAclArn,
       );
     }).toThrow("outside the exact entitlement boundary");
 
@@ -260,6 +415,7 @@ describe("offline SCORM CloudFront entitlement allocator", () => {
         capability,
         "staging.upskill.institute",
         "offline-logs.s3.amazonaws.com",
+        webAclArn,
       );
     }).not.toThrow();
     const driftedConfigurations = [
@@ -297,6 +453,11 @@ describe("offline SCORM CloudFront entitlement allocator", () => {
         ...structuredClone(serviceReturnedConfig),
         Staging: true,
       },
+      {
+        ...structuredClone(serviceReturnedConfig),
+        WebACLId:
+          "arn:aws:wafv2:us-east-1:123456789012:global/webacl/attacker/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      },
     ];
     for (const drifted of driftedConfigurations)
       expect(() => {
@@ -307,6 +468,7 @@ describe("offline SCORM CloudFront entitlement allocator", () => {
           capability,
           "staging.upskill.institute",
           "offline-logs.s3.amazonaws.com",
+          webAclArn,
         );
       }).toThrow("outside the exact entitlement boundary");
   });

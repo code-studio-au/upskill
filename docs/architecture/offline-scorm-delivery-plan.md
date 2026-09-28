@@ -404,7 +404,14 @@ distinct AWS principal. CloudFront qualification now requires an exact
 the same topology is rejected for production. This accepts only the bounded
 risk on the disposable, non-production staging host and does not enable a
 learner path or waive the remaining qualification gates. Production still
-requires a dedicated worker compute identity. The private-PSL package host and localhost
+requires a dedicated worker compute identity. Qualification also provisions a
+separate CloudFront-scope WAF stack in AWS's required `us-east-1` control
+region, while compute, data, allocator and origin remain in
+`ap-southeast-2`. Every entitlement distribution must bind the exact shared WAF
+ARN; IP-reputation and rate rules block, the Common Rule Set counts for tuning,
+filtered WAF logs and blocked-request alarms provide visibility, and a
+single-concurrency 25-distribution staging cap bounds leaks and cost. The
+private-PSL package host and localhost
 development topology remain the executable design until ADR 0045 passes its
 browser, cleanup, quota, WAF, latency and cost gates and is amended to Accepted.
 
