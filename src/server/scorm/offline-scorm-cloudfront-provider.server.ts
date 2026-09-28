@@ -8,7 +8,7 @@ import {
 import { z } from "#/validation/zod.server";
 import type { ServerEnv } from "#/server/runtime-environment";
 
-const allocatorResponseSchema = z
+const distributionResponseSchema = z
   .object({
     phase: z.enum([
       "allocated-disabled",
@@ -16,6 +16,7 @@ const allocatorResponseSchema = z
       "waiting-for-deployment",
       "activating",
       "active",
+      "disabling",
     ]),
     distributionId: z.string().regex(/^[A-Z0-9]{8,32}$/u),
     packageSiteOrigin: z.url(),
@@ -48,8 +49,22 @@ const allocatorResponseSchema = z
       });
   });
 
+const retirementResponseSchema = z.union([
+  distributionResponseSchema,
+  z
+    .object({
+      phase: z.literal("deleted"),
+      distributionId: z.string().regex(/^[A-Z0-9]{8,32}$/u),
+    })
+    .strict(),
+]);
+
 export type OfflineScormCloudFrontAllocatorResponse = z.infer<
-  typeof allocatorResponseSchema
+  typeof distributionResponseSchema
+>;
+
+export type OfflineScormCloudFrontRetirementResponse = z.infer<
+  typeof retirementResponseSchema
 >;
 
 export interface OfflineScormCloudFrontProvider {
@@ -60,6 +75,10 @@ export interface OfflineScormCloudFrontProvider {
     entitlementId: string,
     distributionId: string,
   ): Promise<OfflineScormCloudFrontAllocatorResponse>;
+  retire(
+    entitlementId: string,
+    distributionId: string,
+  ): Promise<OfflineScormCloudFrontRetirementResponse>;
 }
 
 export type OfflineScormCloudFrontProviderErrorCode =
@@ -101,7 +120,18 @@ export class LambdaOfflineScormCloudFrontProvider implements OfflineScormCloudFr
     });
   }
 
-  private async invoke(
+  retire(
+    entitlementId: string,
+    distributionId: string,
+  ): Promise<OfflineScormCloudFrontRetirementResponse> {
+    return this.invoke({
+      operation: "retire",
+      entitlementId,
+      distributionId,
+    });
+  }
+
+  private invoke(
     payload:
       | { operation: "allocate"; entitlementId: string }
       | {
@@ -109,7 +139,29 @@ export class LambdaOfflineScormCloudFrontProvider implements OfflineScormCloudFr
           entitlementId: string;
           distributionId: string;
         },
-  ): Promise<OfflineScormCloudFrontAllocatorResponse> {
+  ): Promise<OfflineScormCloudFrontAllocatorResponse>;
+  private invoke(payload: {
+    operation: "retire";
+    entitlementId: string;
+    distributionId: string;
+  }): Promise<OfflineScormCloudFrontRetirementResponse>;
+  private async invoke(
+    payload:
+      | { operation: "allocate"; entitlementId: string }
+      | {
+          operation: "activate";
+          entitlementId: string;
+          distributionId: string;
+        }
+      | {
+          operation: "retire";
+          entitlementId: string;
+          distributionId: string;
+        },
+  ): Promise<
+    | OfflineScormCloudFrontAllocatorResponse
+    | OfflineScormCloudFrontRetirementResponse
+  > {
     let output: InvokeCommandOutput;
     try {
       output = await this.client.send(
@@ -129,9 +181,13 @@ export class LambdaOfflineScormCloudFrontProvider implements OfflineScormCloudFr
         "allocator_response_invalid",
       );
     try {
-      const response = allocatorResponseSchema.parse(
-        JSON.parse(Buffer.from(output.Payload).toString("utf8")),
+      const decoded: unknown = JSON.parse(
+        Buffer.from(output.Payload).toString("utf8"),
       );
+      const response =
+        payload.operation === "retire"
+          ? retirementResponseSchema.parse(decoded)
+          : distributionResponseSchema.parse(decoded);
       if (
         (payload.operation === "allocate" &&
           response.phase !== "allocated-disabled" &&
@@ -139,7 +195,11 @@ export class LambdaOfflineScormCloudFrontProvider implements OfflineScormCloudFr
         (payload.operation === "activate" &&
           response.phase !== "waiting-for-deployment" &&
           response.phase !== "activating" &&
-          response.phase !== "active")
+          response.phase !== "active") ||
+        (payload.operation === "retire" &&
+          response.phase !== "waiting-for-deployment" &&
+          response.phase !== "disabling" &&
+          response.phase !== "deleted")
       )
         throw new Error("Allocator phase does not match the operation");
       return response;

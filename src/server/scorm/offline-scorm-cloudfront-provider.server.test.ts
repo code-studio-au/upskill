@@ -50,6 +50,51 @@ describe("offline SCORM CloudFront Lambda provider", () => {
     });
   });
 
+  it("retires the exact bound distribution and accepts idempotent deletion", async () => {
+    const send = vi
+      .fn<(command: InvokeCommand) => Promise<InvokeCommandOutput>>()
+      .mockResolvedValueOnce(
+        response({
+          phase: "disabling",
+          distributionId: "E123456789ABCD",
+          packageSiteOrigin: "https://d111111abcdef8.cloudfront.net",
+          status: "InProgress",
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          phase: "deleted",
+          distributionId: "E123456789ABCD",
+        }),
+      );
+    const provider = new LambdaOfflineScormCloudFrontProvider(
+      "upskill-staging-allocator",
+      { send },
+    );
+
+    await expect(
+      provider.retire("entitlement_1", "E123456789ABCD"),
+    ).resolves.toMatchObject({ phase: "disabling" });
+    await expect(
+      provider.retire("entitlement_1", "E123456789ABCD"),
+    ).resolves.toEqual({
+      phase: "deleted",
+      distributionId: "E123456789ABCD",
+    });
+
+    const firstCommand = send.mock.calls[0]?.[0];
+    if (!(firstCommand instanceof InvokeCommand))
+      throw new Error("Expected a retirement Lambda invocation");
+    const payload = firstCommand.input.Payload;
+    if (!(payload instanceof Uint8Array))
+      throw new Error("Expected a binary Lambda invocation payload");
+    expect(JSON.parse(Buffer.from(payload).toString("utf8"))).toEqual({
+      operation: "retire",
+      entitlementId: "entitlement_1",
+      distributionId: "E123456789ABCD",
+    });
+  });
+
   it("rejects function failures and untrusted response origins", async () => {
     const failedProvider = new LambdaOfflineScormCloudFrontProvider(
       "allocator",
