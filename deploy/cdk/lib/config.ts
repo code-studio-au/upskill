@@ -8,6 +8,7 @@ interface OfflineScormPackageHostConfig {
 
 interface OfflineScormCloudFrontQualificationConfig {
   originDomain: string;
+  sharedHostRiskAcceptance: "staging-qualification-only";
 }
 
 export interface EnvironmentConfig {
@@ -65,9 +66,25 @@ function canonicalDnsName(label: string, value: unknown): string {
 }
 
 function offlineScormCloudFrontQualificationConfig(
+  environment: EnvironmentName,
   originDomain: unknown,
+  sharedHostRiskAcceptance: unknown,
 ): OfflineScormCloudFrontQualificationConfig | null {
-  if (originDomain === undefined) return null;
+  if (originDomain === undefined) {
+    if (sharedHostRiskAcceptance !== undefined)
+      throw new Error(
+        "CDK context offlineScormCloudFrontSharedHostRiskAcceptance is only valid with offlineScormCloudFrontOriginDomain",
+      );
+    return null;
+  }
+  if (environment !== "staging")
+    throw new Error(
+      "Offline SCORM CloudFront qualification on the shared application host is staging-only; production requires a distinct worker AWS principal",
+    );
+  if (sharedHostRiskAcceptance !== "staging-qualification-only")
+    throw new Error(
+      'CDK context offlineScormCloudFrontSharedHostRiskAcceptance must equal "staging-qualification-only"',
+    );
   const parsedOriginDomain = canonicalDnsName(
     "CDK context offlineScormCloudFrontOriginDomain",
     originDomain,
@@ -76,7 +93,10 @@ function offlineScormCloudFrontQualificationConfig(
     throw new Error(
       "CDK context offlineScormCloudFrontOriginDomain must not chain one CloudFront distribution through another",
     );
-  return { originDomain: parsedOriginDomain };
+  return {
+    originDomain: parsedOriginDomain,
+    sharedHostRiskAcceptance,
+  };
 }
 
 function offlineScormPackageHostConfig(input: {
@@ -123,6 +143,7 @@ export function environmentConfig(
     hostedZoneName: undefined,
   },
   offlineScormCloudFrontOriginDomain?: unknown,
+  offlineScormCloudFrontSharedHostRiskAcceptance?: unknown,
 ): EnvironmentConfig {
   if (value !== "staging" && value !== "production")
     throw new Error("CDK context environment must be staging or production");
@@ -139,7 +160,9 @@ export function environmentConfig(
     liveKitApprovedMonthlySpendAud: parsedSpend,
     offlineScormCloudFrontQualification:
       offlineScormCloudFrontQualificationConfig(
+        value,
         offlineScormCloudFrontOriginDomain,
+        offlineScormCloudFrontSharedHostRiskAcceptance,
       ),
     offlineScormPackageHost: offlineScormPackageHostConfig(
       offlineScormPackageHost,

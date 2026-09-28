@@ -281,7 +281,23 @@ pnpm --dir deploy/cdk exec cdk deploy --all \
 
 The suffix must equal or be below that hosted-zone name. This creates the
 wildcard A record and a non-secret SSM runtime binding, but does not enable
-offline SCORM. Create the matching GitHub
+offline SCORM.
+
+The alternative CloudFront qualification topology is staging-only while the
+web and worker share one EC2 instance role. Provisioning it requires an exact,
+auditable acceptance of that shared-host boundary:
+
+```sh
+pnpm --dir deploy/cdk exec cdk deploy --all \
+  --context environment=staging \
+  --context offlineScormCloudFrontOriginDomain=staging.upskill.institute \
+  --context offlineScormCloudFrontSharedHostRiskAcceptance=staging-qualification-only
+```
+
+This creates only the dormant allocator and origin-validation configuration;
+it does not enable Offline SCORM or expose a learner path. The acknowledgement
+is rejected for production, which requires a distinct worker AWS principal.
+Create the matching GitHub
 `staging` environment, restrict its deployment branches to `main`, and populate
 its two deployment secrets. This repository has one maintainer, so the
 environment deliberately has no required-reviewer rule. A successful `main`

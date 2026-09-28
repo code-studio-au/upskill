@@ -756,6 +756,13 @@ UPSKILL_ENV`,
         description:
           "Dormant qualification allocator configured for the worker recovery boundary on the shared application host",
       });
+      new CfnOutput(this, "OfflineScormCloudFrontSharedHostRiskAcceptance", {
+        value:
+          props.config.offlineScormCloudFrontQualification
+            .sharedHostRiskAcceptance,
+        description:
+          "Explicit staging-only acceptance of the shared-host worker IAM boundary for Offline SCORM qualification",
+      });
     }
     const packageHostLifecycleCode = Code.fromAsset(
       fileURLToPath(
