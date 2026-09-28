@@ -8,6 +8,8 @@ import {
   collectCloudFrontQualificationReport,
   evaluateQuotaHeadroom,
   hasConfirmedEmailSubscription,
+  hasExpectedAllocatorConfiguration,
+  hasExpectedCloudFrontLogDeliveryAcl,
   haveExpectedAlarmConfigurations,
   haveExpectedDistributionLogging,
   haveExpectedDistributionOwnership,
@@ -39,6 +41,7 @@ const distributionId = "E1234567890ABC";
 const distributionArn = `arn:aws:cloudfront::${options.expectedAccount}:distribution/${distributionId}`;
 const unrelatedDistributionId = "E0987654321XYZ";
 const unrelatedDistributionArn = `arn:aws:cloudfront::${options.expectedAccount}:distribution/${unrelatedDistributionId}`;
+const allocatorFunctionName = "allocator";
 const entitlementId = "entitlement-123";
 const originKey = "qualification-origin-key-".repeat(3);
 const entitlementDigest = createHash("sha256")
@@ -141,6 +144,64 @@ function expectedDistributionConfiguration() {
     originDomain: options.expectedOriginDomain,
     webAclArn,
   });
+}
+
+function expectedAllocatorBaseline() {
+  return {
+    environment: options.environment,
+    functionName: allocatorFunctionName,
+    logBucketDomain,
+    originDomain: options.expectedOriginDomain,
+    originKeySecretArn,
+    qualificationCap: 25,
+    webAclName: "upskill-staging-offline-scorm-cloudfront",
+  };
+}
+
+function expectedAllocatorConfiguration() {
+  return {
+    Description:
+      "Dormant worker-owned allocator for exact-entitlement CloudFront qualification sites",
+    Environment: {
+      Variables: {
+        UPSKILL_ENVIRONMENT: options.environment,
+        UPSKILL_OFFLINE_SCORM_EDGE_LOG_BUCKET_DOMAIN: logBucketDomain,
+        UPSKILL_OFFLINE_SCORM_MAX_DISTRIBUTIONS: "25",
+        UPSKILL_OFFLINE_SCORM_ORIGIN_DOMAIN: options.expectedOriginDomain,
+        UPSKILL_OFFLINE_SCORM_ORIGIN_KEY_SECRET_ARN: originKeySecretArn,
+        UPSKILL_OFFLINE_SCORM_WEB_ACL_NAME:
+          "upskill-staging-offline-scorm-cloudfront",
+      },
+    },
+    FunctionName: allocatorFunctionName,
+    Handler: "index.handler",
+    LastUpdateStatus: "Successful",
+    Runtime: "nodejs22.x",
+    State: "Active",
+    Timeout: 120,
+  };
+}
+
+function expectedLogBucketAcl() {
+  const ownerId = "canonical-owner-id";
+  const logDeliveryUri = "http://acs.amazonaws.com/groups/s3/LogDelivery";
+  return {
+    Owner: { ID: ownerId },
+    Grants: [
+      {
+        Grantee: { ID: ownerId, Type: "CanonicalUser" },
+        Permission: "FULL_CONTROL",
+      },
+      {
+        Grantee: { Type: "Group", URI: logDeliveryUri },
+        Permission: "READ_ACP",
+      },
+      {
+        Grantee: { Type: "Group", URI: logDeliveryUri },
+        Permission: "WRITE",
+      },
+    ],
+  };
 }
 
 function expectedAlarmConfigurations() {
@@ -384,6 +445,81 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         ),
       ).toBe(false);
     }
+  });
+
+  it("requires the live allocator runtime, environment and concurrency baseline", () => {
+    const configuration = expectedAllocatorConfiguration();
+    const concurrency = { ReservedConcurrentExecutions: 1 };
+    const baseline = expectedAllocatorBaseline();
+    expect(
+      hasExpectedAllocatorConfiguration(configuration, concurrency, baseline),
+    ).toBe(true);
+    for (const drift of [
+      { State: "Pending" },
+      { LastUpdateStatus: "InProgress" },
+      { Runtime: "nodejs20.x" },
+      { Handler: "other.handler" },
+      { Timeout: 30 },
+      { Description: "drifted" },
+    ]) {
+      expect(
+        hasExpectedAllocatorConfiguration(
+          { ...configuration, ...drift },
+          concurrency,
+          baseline,
+        ),
+      ).toBe(false);
+    }
+    expect(
+      hasExpectedAllocatorConfiguration(
+        {
+          ...configuration,
+          Environment: {
+            Variables: {
+              ...configuration.Environment.Variables,
+              UPSKILL_OFFLINE_SCORM_MAX_DISTRIBUTIONS: "50",
+            },
+          },
+        },
+        concurrency,
+        baseline,
+      ),
+    ).toBe(false);
+    expect(
+      hasExpectedAllocatorConfiguration(
+        configuration,
+        { ReservedConcurrentExecutions: 2 },
+        baseline,
+      ),
+    ).toBe(false);
+  });
+
+  it("requires the exact CloudFront log-delivery bucket ACL", () => {
+    const acl = expectedLogBucketAcl();
+    expect(hasExpectedCloudFrontLogDeliveryAcl(acl)).toBe(true);
+    for (const permission of ["READ_ACP", "WRITE"]) {
+      expect(
+        hasExpectedCloudFrontLogDeliveryAcl({
+          ...acl,
+          Grants: acl.Grants.filter((grant) => grant.Permission !== permission),
+        }),
+      ).toBe(false);
+    }
+    expect(
+      hasExpectedCloudFrontLogDeliveryAcl({
+        ...acl,
+        Grants: [
+          ...acl.Grants,
+          {
+            Grantee: {
+              Type: "Group",
+              URI: "http://acs.amazonaws.com/groups/global/AllUsers",
+            },
+            Permission: "READ",
+          },
+        ],
+      }),
+    ).toBe(false);
   });
 
   it("requires the configured operations endpoint to be confirmed", () => {
@@ -740,7 +876,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
               },
               {
                 OutputKey: "OfflineScormCloudFrontAllocatorFunctionName",
-                OutputValue: "allocator",
+                OutputValue: allocatorFunctionName,
               },
               {
                 OutputKey: "OfflineScormCloudFrontAllocatorAlarmTopicArn",
@@ -903,6 +1039,11 @@ describe("Offline SCORM CloudFront qualification harness", () => {
             }),
         };
       }
+      if (command === "lambda get-function-configuration")
+        return expectedAllocatorConfiguration();
+      if (command === "lambda get-function-concurrency")
+        return { ReservedConcurrentExecutions: 1 };
+      if (command === "s3api get-bucket-acl") return expectedLogBucketAcl();
       if (command === "cloudtrail lookup-events") return { Events: [] };
       if (command === "s3api list-objects-v2") return { Contents: [] };
       throw new Error(`Unexpected AWS command ${command}`);
@@ -925,6 +1066,12 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     expect(report.checks.find((check) => check.id === "alarms")).toMatchObject({
       status: "pass",
     });
+    expect(
+      report.checks.find((check) => check.id === "allocator-configuration"),
+    ).toMatchObject({ status: "pass" });
+    expect(
+      report.checks.find((check) => check.id === "access-log-bucket-acl"),
+    ).toMatchObject({ status: "pass" });
     expect(
       report.checks.find((check) => check.id === "distribution-access-logging"),
     ).toMatchObject({ status: "pass" });
@@ -976,6 +1123,19 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       expect.arrayContaining(["--max-items", "50"]),
     );
     expect(cloudTrailCall).not.toContain("--max-results");
+    expect(
+      calls
+        .filter((args) => args[0] === "lambda")
+        .map((args) => args.slice(0, 2)),
+    ).toEqual([
+      ["lambda", "get-function-configuration"],
+      ["lambda", "get-function-concurrency"],
+    ]);
+    expect(
+      calls.filter(
+        (args) => args.slice(0, 2).join(" ") === "s3api get-bucket-acl",
+      ),
+    ).toHaveLength(1);
     expect(
       calls.filter(
         (args) =>

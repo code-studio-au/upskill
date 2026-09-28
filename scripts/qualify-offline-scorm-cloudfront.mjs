@@ -24,6 +24,10 @@ const ORIGIN_CAPABILITY_FORMAT =
   "upskill-offline-scorm-cloudfront-origin-capability-v1";
 const ENTITLEMENT_HEADER = "X-Upskill-Offline-Entitlement";
 const ORIGIN_CAPABILITY_HEADER = "X-Upskill-Offline-Origin-Capability";
+const ALLOCATOR_DESCRIPTION =
+  "Dormant worker-owned allocator for exact-entitlement CloudFront qualification sites";
+const S3_LOG_DELIVERY_GROUP_URI =
+  "http://acs.amazonaws.com/groups/s3/LogDelivery";
 const MUTATING_CLOUDFRONT_EVENTS = new Set([
   "CreateDistribution",
   "CreateDistributionWithTags",
@@ -365,6 +369,54 @@ export function haveExpectedAlarmConfigurations(alarms, expectedAlarms) {
       alarm.Unit === unit
     );
   });
+}
+
+export function hasExpectedAllocatorConfiguration(
+  configuration,
+  concurrency,
+  expected,
+) {
+  return (
+    configuration?.FunctionName === expected.functionName &&
+    configuration?.State === "Active" &&
+    configuration?.LastUpdateStatus === "Successful" &&
+    configuration?.Runtime === "nodejs22.x" &&
+    configuration?.Handler === "index.handler" &&
+    configuration?.Timeout === 120 &&
+    configuration?.Description === ALLOCATOR_DESCRIPTION &&
+    isDeepStrictEqual(configuration?.Environment?.Variables, {
+      UPSKILL_ENVIRONMENT: expected.environment,
+      UPSKILL_OFFLINE_SCORM_EDGE_LOG_BUCKET_DOMAIN: expected.logBucketDomain,
+      UPSKILL_OFFLINE_SCORM_MAX_DISTRIBUTIONS: String(
+        expected.qualificationCap,
+      ),
+      UPSKILL_OFFLINE_SCORM_ORIGIN_DOMAIN: expected.originDomain,
+      UPSKILL_OFFLINE_SCORM_ORIGIN_KEY_SECRET_ARN: expected.originKeySecretArn,
+      UPSKILL_OFFLINE_SCORM_WEB_ACL_NAME: expected.webAclName,
+    }) &&
+    concurrency?.ReservedConcurrentExecutions === 1
+  );
+}
+
+export function hasExpectedCloudFrontLogDeliveryAcl(acl) {
+  const ownerId = acl?.Owner?.ID;
+  if (typeof ownerId !== "string" || ownerId.length === 0) return false;
+  const grants = acl?.Grants;
+  if (!Array.isArray(grants)) return false;
+  const actual = grants
+    .map(
+      (grant) =>
+        `${String(grant?.Permission)}|${String(grant?.Grantee?.Type)}|${String(
+          grant?.Grantee?.ID ?? "",
+        )}|${String(grant?.Grantee?.URI ?? "")}`,
+    )
+    .sort();
+  const expected = [
+    `FULL_CONTROL|CanonicalUser|${ownerId}|`,
+    `READ_ACP|Group||${S3_LOG_DELIVERY_GROUP_URI}`,
+    `WRITE|Group||${S3_LOG_DELIVERY_GROUP_URI}`,
+  ].sort();
+  return isDeepStrictEqual(actual, expected);
 }
 
 function haveExpectedDimensions(actual, expected) {
@@ -790,8 +842,10 @@ export async function collectCloudFrontQualificationReport(
     "OfflineScormCloudFrontOriginKeySecretArn",
     appStackName,
   );
-  const allocatorFunctionName = applicationOutputs.get(
+  const allocatorFunctionName = requiredOutput(
+    applicationOutputs,
     "OfflineScormCloudFrontAllocatorFunctionName",
+    appStackName,
   );
   const originDomain = requiredValue(
     originParameter.Parameter?.Value,
@@ -898,6 +952,9 @@ export async function collectCloudFrontQualificationReport(
     allocatorSubscriptions,
     edgeAlarms,
     allocatorAlarms,
+    allocatorConfiguration,
+    allocatorConcurrency,
+    logBucketAcl,
     cloudTrail,
     logObjects,
   ] = await Promise.all([
@@ -971,6 +1028,30 @@ export async function collectCloudFrontQualificationReport(
       options.applicationRegion,
     ]),
     runAws([
+      "lambda",
+      "get-function-configuration",
+      "--function-name",
+      allocatorFunctionName,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "lambda",
+      "get-function-concurrency",
+      "--function-name",
+      allocatorFunctionName,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "s3api",
+      "get-bucket-acl",
+      "--bucket",
+      logBucket,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
       "cloudtrail",
       "lookup-events",
       "--lookup-attributes",
@@ -1014,11 +1095,27 @@ export async function collectCloudFrontQualificationReport(
   );
   addCheck(
     checks,
-    "allocator-output",
-    Boolean(
-      applicationOutputs.get("OfflineScormCloudFrontAllocatorFunctionName"),
+    "allocator-configuration",
+    hasExpectedAllocatorConfiguration(
+      allocatorConfiguration,
+      allocatorConcurrency,
+      {
+        environment: options.environment,
+        functionName: allocatorFunctionName,
+        logBucketDomain,
+        originDomain,
+        originKeySecretArn,
+        qualificationCap,
+        webAclName,
+      },
     ),
-    "Allocator output is present",
+    "Live allocator matches the staging runtime, environment and reserved-concurrency baseline",
+  );
+  addCheck(
+    checks,
+    "access-log-bucket-acl",
+    hasExpectedCloudFrontLogDeliveryAcl(logBucketAcl),
+    "CloudFront log-delivery retains only its required bucket ACL grants and owner control",
   );
   addCheck(
     checks,

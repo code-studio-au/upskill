@@ -9,6 +9,8 @@ distribution, invoke the allocator, alter a WAF rule, or write to AWS.
 - AWS CLI credentials for the staging account.
 - Read access to the staging CloudFront origin-key secret; its value is used
   only in memory and is never included in the qualification report.
+- Read access to the allocator Lambda configuration and reserved concurrency,
+  and to the CloudFront access-log bucket ACL.
 - The application and edge stacks deployed with the CloudFront qualification
   context.
 - The shared `ap-southeast-2` operational SNS email subscription and the
@@ -37,11 +39,12 @@ acknowledgement, WAF ownership/binding, mandatory rules, safe log filtering and
 redaction, ACL-level and per-rule WAF metric publication/sampling, 30-day WAF
 retention, exact confirmed alarm-subscription endpoints, exact alarm
 metrics/units/evaluation/actions, per-distribution entitlement-specific access
-logging, fully deployed edge status, tag-first lifecycle ownership discovery,
-entitlement-bound protected origin headers, HTTPS-only TLS 1.2 origin transport
-and the remaining canonical allocator configuration, distribution-cap markers,
-service-quota headroom and a globally bounded sample of recent CloudFront
-control-plane mutations.
+logging, the bucket's exact owner and S3 LogDelivery ACL grants, fully deployed
+edge status, tag-first lifecycle ownership discovery, entitlement-bound
+protected origin headers, HTTPS-only TLS 1.2 origin transport, the live
+allocator runtime, exact environment and reserved concurrency, the canonical
+distribution configuration, distribution-cap markers, service-quota headroom
+and a globally bounded sample of recent CloudFront control-plane mutations.
 
 The report intentionally includes only a small CloudTrail mutation summary:
 event name/time, read-only status, error code and service identity type. It
@@ -60,6 +63,9 @@ distribution whose mutable comment has drifted cannot disappear from the
 ownership, cap or configuration checks. Configuration reads remain limited to
 the union of comment-identified and exactly tag-identified qualification
 distributions.
+
+The live allocator and bucket ACL responses are evaluated only in memory. They
+are not copied into the report; only the pass/fail checks are retained.
 
 ## Interpreting results
 
