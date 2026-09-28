@@ -1017,6 +1017,9 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
   template.hasOutput("OfflineScormCloudFrontMaxDistributions", {
     Value: "25",
   });
+  template.hasOutput("OfflineScormCloudFrontAllocatorAlarmTopicArn", {
+    Description: Match.stringLikeRegexp("required by the Offline SCORM"),
+  });
   const serialized = JSON.stringify(template.toJSON());
   expect(serialized).toContain("OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN");
   expect(serialized).toContain("OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY");

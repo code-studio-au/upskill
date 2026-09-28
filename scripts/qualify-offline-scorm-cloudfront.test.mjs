@@ -4,6 +4,7 @@ import {
   classifyQualificationDistributions,
   collectCloudFrontQualificationReport,
   evaluateQuotaHeadroom,
+  haveExpectedAlarmActions,
   parseQualificationArguments,
   summarizeCloudTrailEvents,
 } from "./qualify-offline-scorm-cloudfront.mjs";
@@ -17,6 +18,9 @@ const options = {
 };
 const webAclArn =
   "arn:aws:wafv2:us-east-1:123456789012:global/webacl/upskill-staging-offline-scorm-cloudfront/11111111-2222-3333-4444-555555555555";
+const edgeAlarmTopicArn = "arn:aws:sns:us-east-1:123456789012:edge-alarms";
+const allocatorAlarmTopicArn =
+  "arn:aws:sns:ap-southeast-2:123456789012:operational-alarms";
 
 describe("Offline SCORM CloudFront qualification harness", () => {
   it("requires an explicit staging target and expected account", () => {
@@ -101,6 +105,46 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     ]);
   });
 
+  it("requires every alarm action to be enabled and target the expected topic", () => {
+    const expectedActions = [
+      { alarmName: "edge", actionArn: edgeAlarmTopicArn },
+      { alarmName: "allocator", actionArn: allocatorAlarmTopicArn },
+    ];
+    const alarms = [
+      {
+        AlarmName: "edge",
+        ActionsEnabled: true,
+        AlarmActions: [edgeAlarmTopicArn],
+      },
+      {
+        AlarmName: "allocator",
+        ActionsEnabled: true,
+        AlarmActions: [allocatorAlarmTopicArn],
+      },
+    ];
+    expect(haveExpectedAlarmActions(alarms, expectedActions)).toBe(true);
+    expect(
+      haveExpectedAlarmActions(
+        alarms.map((alarm) =>
+          alarm.AlarmName === "edge"
+            ? { ...alarm, ActionsEnabled: false }
+            : alarm,
+        ),
+        expectedActions,
+      ),
+    ).toBe(false);
+    expect(
+      haveExpectedAlarmActions(
+        alarms.map((alarm) =>
+          alarm.AlarmName === "allocator"
+            ? { ...alarm, AlarmActions: [edgeAlarmTopicArn] }
+            : alarm,
+        ),
+        expectedActions,
+      ),
+    ).toBe(false);
+  });
+
   it("falls back to the AWS default quota and reports delayed log evidence as a warning", async () => {
     const calls = [];
     const runner = async (args) => {
@@ -125,6 +169,10 @@ describe("Offline SCORM CloudFront qualification harness", () => {
                 OutputValue: "allocator",
               },
               {
+                OutputKey: "OfflineScormCloudFrontAllocatorAlarmTopicArn",
+                OutputValue: allocatorAlarmTopicArn,
+              },
+              {
                 OutputKey: "OfflineScormEdgeLogBucketArn",
                 OutputValue: "arn:aws:s3:::upskill-edge-logs",
               },
@@ -145,7 +193,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
               },
               {
                 OutputKey: "OfflineScormEdgeAlarmTopicArn",
-                OutputValue: "arn:aws:sns:us-east-1:123456789012:edge-alarms",
+                OutputValue: edgeAlarmTopicArn,
               },
             ];
         return {
@@ -161,7 +209,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       if (command === "service-quotas get-aws-default-service-quota")
         return { Quota: { Value: 500 } };
       if (command === "wafv2 get-web-acl")
-        return { WebACL: { ARN: webAclArn, Scope: "CLOUDFRONT" } };
+        return { WebACL: { ARN: webAclArn } };
       if (command === "wafv2 list-tags-for-resource")
         return {
           TagInfoForResource: {
@@ -190,22 +238,31 @@ describe("Offline SCORM CloudFront qualification harness", () => {
             },
           ],
         };
-      if (command === "sns list-subscriptions-by-topic")
+      if (command === "sns list-subscriptions-by-topic") {
+        const topicArn = args[args.indexOf("--topic-arn") + 1];
         return {
           Subscriptions: [
             {
               Protocol: "email",
-              SubscriptionArn:
-                "arn:aws:sns:us-east-1:123456789012:edge-alarms:subscription",
+              SubscriptionArn: `${topicArn}:subscription`,
             },
           ],
         };
-      if (command === "cloudwatch describe-alarms")
+      }
+      if (command === "cloudwatch describe-alarms") {
+        const region = args[args.indexOf("--region") + 1];
+        const actionArn =
+          region === "us-east-1" ? edgeAlarmTopicArn : allocatorAlarmTopicArn;
         return {
           MetricAlarms: args
             .slice(args.indexOf("--alarm-names") + 1, args.indexOf("--region"))
-            .map((AlarmName) => ({ AlarmName })),
+            .map((AlarmName) => ({
+              ActionsEnabled: true,
+              AlarmActions: [actionArn],
+              AlarmName,
+            })),
         };
+      }
       if (command === "cloudtrail lookup-events") return { Events: [] };
       if (command === "s3api list-objects-v2") return { Contents: [] };
       throw new Error(`Unexpected AWS command ${command}`);
@@ -222,6 +279,12 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     expect(
       report.checks.find((check) => check.id === "access-log-evidence"),
     ).toMatchObject({ status: "warning" });
+    expect(report.checks.find((check) => check.id === "web-acl")).toMatchObject(
+      { status: "pass" },
+    );
+    expect(report.checks.find((check) => check.id === "alarms")).toMatchObject({
+      status: "pass",
+    });
     const alarmRegions = calls
       .filter(
         (args) => args.slice(0, 2).join(" ") === "cloudwatch describe-alarms",

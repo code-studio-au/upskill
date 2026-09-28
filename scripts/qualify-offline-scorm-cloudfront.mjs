@@ -197,6 +197,28 @@ export function summarizeCloudTrailEvents(events) {
     });
 }
 
+export function haveExpectedAlarmActions(alarms, expectedActions) {
+  if (!Array.isArray(alarms)) return false;
+  const alarmsByName = new Map(alarms.map((alarm) => [alarm.AlarmName, alarm]));
+  return expectedActions.every(({ alarmName, actionArn }) => {
+    const alarm = alarmsByName.get(alarmName);
+    return (
+      alarm?.ActionsEnabled === true &&
+      Array.isArray(alarm.AlarmActions) &&
+      alarm.AlarmActions.includes(actionArn)
+    );
+  });
+}
+
+function hasConfirmedEmailSubscription(response, topicArn) {
+  return (response.Subscriptions ?? []).some(
+    (subscription) =>
+      subscription.Protocol === "email" &&
+      typeof subscription.SubscriptionArn === "string" &&
+      subscription.SubscriptionArn.startsWith(`${topicArn}:`),
+  );
+}
+
 async function effectiveCloudFrontQuota(runAws) {
   const args = [
     "service-quotas",
@@ -324,6 +346,11 @@ export async function collectCloudFrontQualificationReport(
     "OfflineScormEdgeAlarmTopicArn",
     edgeStackName,
   );
+  const allocatorAlarmTopicArn = requiredOutput(
+    applicationOutputs,
+    "OfflineScormCloudFrontAllocatorAlarmTopicArn",
+    appStackName,
+  );
   const logBucketArn = requiredOutput(
     applicationOutputs,
     "OfflineScormEdgeLogBucketArn",
@@ -372,7 +399,8 @@ export async function collectCloudFrontQualificationReport(
     webAclTags,
     wafLogging,
     wafLogGroups,
-    subscriptions,
+    edgeSubscriptions,
+    allocatorSubscriptions,
     edgeAlarms,
     allocatorAlarms,
     cloudTrail,
@@ -421,6 +449,14 @@ export async function collectCloudFrontQualificationReport(
       edgeAlarmTopicArn,
       "--region",
       CLOUDFRONT_CONTROL_PLANE_REGION,
+    ]),
+    runAws([
+      "sns",
+      "list-subscriptions-by-topic",
+      "--topic-arn",
+      allocatorAlarmTopicArn,
+      "--region",
+      options.applicationRegion,
     ]),
     runAws([
       "cloudwatch",
@@ -492,8 +528,8 @@ export async function collectCloudFrontQualificationReport(
   addCheck(
     checks,
     "web-acl",
-    webAcl.WebACL?.ARN === webAclArn && webAcl.WebACL?.Scope === "CLOUDFRONT",
-    "CloudFront WAF ARN and scope match the edge stack",
+    webAcl.WebACL?.ARN === webAclArn,
+    "CloudFront-scoped WAF lookup returned the edge stack ARN",
   );
   const tags = new Map(
     (webAclTags.TagInfoForResource?.TagList ?? []).map((tag) => [
@@ -528,33 +564,46 @@ export async function collectCloudFrontQualificationReport(
     logGroup?.retentionInDays === 30,
     "Staging WAF log retention is 30 days",
   );
-  const confirmedSubscriptions = (subscriptions.Subscriptions ?? []).filter(
-    (subscription) =>
-      subscription.Protocol === "email" &&
-      subscription.SubscriptionArn !== "PendingConfirmation",
-  );
   addCheck(
     checks,
     "edge-alert-subscription",
-    confirmedSubscriptions.length > 0,
+    hasConfirmedEmailSubscription(edgeSubscriptions, edgeAlarmTopicArn),
     "Edge alarm topic has a confirmed email subscription",
   );
-  const namedAlarms = new Map(
-    [
-      ...(edgeAlarms.MetricAlarms ?? []),
-      ...(allocatorAlarms.MetricAlarms ?? []),
-    ].map((alarm) => [alarm.AlarmName, alarm]),
+  addCheck(
+    checks,
+    "allocator-alert-subscription",
+    hasConfirmedEmailSubscription(
+      allocatorSubscriptions,
+      allocatorAlarmTopicArn,
+    ),
+    "Allocator alarm topic has a confirmed email subscription",
   );
-  const requiredAlarmNames = [
-    `upskill-${options.environment}-offline-scorm-waf-blocked-requests`,
-    `upskill-${options.environment}-offline-scorm-cloudfront-allocator-errors`,
-    `upskill-${options.environment}-offline-scorm-cloudfront-allocator-throttles`,
+  const expectedAlarmActions = [
+    {
+      alarmName: `upskill-${options.environment}-offline-scorm-waf-blocked-requests`,
+      actionArn: edgeAlarmTopicArn,
+    },
+    {
+      alarmName: `upskill-${options.environment}-offline-scorm-cloudfront-allocator-errors`,
+      actionArn: allocatorAlarmTopicArn,
+    },
+    {
+      alarmName: `upskill-${options.environment}-offline-scorm-cloudfront-allocator-throttles`,
+      actionArn: allocatorAlarmTopicArn,
+    },
   ];
   addCheck(
     checks,
     "alarms",
-    requiredAlarmNames.every((name) => namedAlarms.has(name)),
-    "WAF and allocator failure alarms are present",
+    haveExpectedAlarmActions(
+      [
+        ...(edgeAlarms.MetricAlarms ?? []),
+        ...(allocatorAlarms.MetricAlarms ?? []),
+      ],
+      expectedAlarmActions,
+    ),
+    "WAF and allocator alarms have enabled actions targeting their expected notification topics",
   );
   addCheck(
     checks,

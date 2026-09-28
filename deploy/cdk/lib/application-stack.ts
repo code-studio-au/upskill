@@ -784,6 +784,11 @@ UPSKILL_ENV`,
         description:
           "Dormant qualification allocator configured for the worker recovery boundary on the shared application host",
       });
+      new CfnOutput(this, "OfflineScormCloudFrontAllocatorAlarmTopicArn", {
+        value: props.alarmTopic.topicArn,
+        description:
+          "Operational notification topic required by the Offline SCORM allocator alarms",
+      });
       new CfnOutput(this, "OfflineScormCloudFrontSharedHostRiskAcceptance", {
         value:
           props.config.offlineScormCloudFrontQualification
