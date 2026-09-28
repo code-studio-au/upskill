@@ -2357,6 +2357,8 @@ for (const invariant of [
   "LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID",
   "/offline-scorm/cloudfront-allocator-function-name",
   "OFFLINE_SCORM_CLOUDFRONT_ALLOCATOR_FUNCTION_NAME",
+  "Offline SCORM CloudFront allocator immutable version ARN is invalid",
+  "^arn:(aws|aws-cn|aws-us-gov):lambda:[a-z0-9-]+:[0-9]{12}:function:[A-Za-z0-9_-]{1,64}:[1-9][0-9]*$",
   'UPSKILL_PROCESS_ROLE="worker"',
   'LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT',
   'OFFLINE_SCORM_ENABLED" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID',

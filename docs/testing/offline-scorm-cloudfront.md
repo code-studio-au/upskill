@@ -11,7 +11,9 @@ distribution, invoke the allocator, alter a WAF rule, or write to AWS.
   only in memory and is never included in the qualification report.
 - Read access to the allocator Lambda version configuration and reserved
   concurrency, its IAM role/trust/managed and inline policies, both Offline
-  SCORM SSM parameters, and the CloudFront access-log bucket ACL.
+  SCORM SSM parameters, and the CloudFront access-log bucket ACL, public-access
+  block and policy status. The operator must also be able to simulate the
+  deployed worker role's permission to invoke the exact allocator version.
 - The application and edge stacks deployed with the CloudFront qualification
   context.
 - The shared `ap-southeast-2` operational SNS email subscription and the
@@ -40,15 +42,17 @@ acknowledgement, WAF ownership/binding, mandatory rules, safe log filtering and
 redaction, ACL-level and per-rule WAF metric publication/sampling, 30-day WAF
 retention, exact confirmed alarm-subscription endpoints, exact alarm
 metrics/units/evaluation/actions, per-distribution entitlement-specific access
-logging, the bucket's exact owner and S3 LogDelivery ACL grants, fully deployed
-edge status, lifecycle ownership discovery across the comment, exact tags and
+logging, the bucket's exact owner and S3 LogDelivery ACL grants, all four S3
+public-access blocks and a non-public bucket-policy status, fully deployed edge
+status, lifecycle ownership discovery across the comment, exact tags and
 dedicated Web ACL binding, entitlement-bound protected origin headers,
-HTTPS-only TLS 1.2 origin transport, the worker's exact SSM allocator target,
-the live immutable allocator version and code digest, exact execution role,
-runtime, environment and reserved concurrency, the role's Lambda-only trust
-policy and least-privilege managed/inline permission boundary, the canonical
-distribution configuration, distribution-cap markers, service-quota headroom
-and a globally bounded sample of recent CloudFront control-plane mutations.
+HTTPS-only TLS 1.2 origin transport, the worker's exact SSM allocator target
+and effective permission to invoke that immutable version, the live allocator
+version and code digest, exact execution role, runtime, environment and
+reserved concurrency, the role's Lambda-only trust policy and least-privilege
+managed/inline permission boundary, the canonical distribution configuration,
+distribution-cap markers, service-quota headroom and a globally bounded sample
+of recent CloudFront control-plane mutations.
 
 The report intentionally includes only a small CloudTrail mutation summary:
 event name/time, read-only status, error code and service identity type. It
@@ -76,11 +80,13 @@ The harness requires the stack output, worker SSM target and exact live version
 to agree. Updating mutable `$LATEST` cannot change the code the worker invokes;
 a code change requires a deployment that publishes and selects a new version.
 
-The live allocator, IAM role/policy and bucket ACL responses are evaluated only
-in memory. They are not copied into the report; only the pass/fail checks are
-retained. The operator identity therefore needs these additional read-only IAM
+The live allocator, IAM role/policy, worker permission simulation, bucket ACL,
+public-access block and bucket-policy status responses are evaluated only in
+memory. They are not copied into the report; only the pass/fail checks are
+retained. The operator identity therefore needs these additional read-only
 actions: `iam:GetRole`, `iam:ListAttachedRolePolicies`,
-`iam:ListRolePolicies`, and `iam:GetRolePolicy`.
+`iam:ListRolePolicies`, `iam:GetRolePolicy`, `iam:SimulatePrincipalPolicy`,
+`s3:GetBucketPublicAccessBlock`, and `s3:GetBucketPolicyStatus`.
 
 ## Interpreting results
 

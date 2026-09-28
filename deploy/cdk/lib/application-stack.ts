@@ -550,8 +550,8 @@ else
   exit 1
 fi
 rm -f -- "$offline_scorm_cloudfront_allocator_parameter_error"
-if [[ -n "$offline_scorm_cloudfront_allocator_function_name" && ! "$offline_scorm_cloudfront_allocator_function_name" =~ ^[A-Za-z0-9_-]{1,64}$ ]]; then
-  echo 'Offline SCORM CloudFront allocator function name is invalid' >&2
+if [[ -n "$offline_scorm_cloudfront_allocator_function_name" && ! "$offline_scorm_cloudfront_allocator_function_name" =~ ^arn:(aws|aws-cn|aws-us-gov):lambda:[a-z0-9-]+:[0-9]{12}:function:[A-Za-z0-9_-]{1,64}:[1-9][0-9]*$ ]]; then
+  echo 'Offline SCORM CloudFront allocator immutable version ARN is invalid' >&2
   exit 1
 fi
 database_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${props.databaseSecretArn}' --query SecretString --output text)
@@ -804,6 +804,11 @@ UPSKILL_ENV`,
         value: allocatorRole.roleArn,
         description:
           "Deployment-owned execution role required by the Offline SCORM allocator",
+      });
+      new CfnOutput(this, "OfflineScormCloudFrontWorkerRoleArn", {
+        value: role.roleArn,
+        description:
+          "Application worker role that must invoke the pinned Offline SCORM allocator version",
       });
       new CfnOutput(this, "OfflineScormCloudFrontAllocatorAlarmTopicArn", {
         value: props.alarmTopic.topicArn,

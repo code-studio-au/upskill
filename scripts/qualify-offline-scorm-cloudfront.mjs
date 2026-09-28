@@ -549,6 +549,35 @@ export function hasExpectedAllocatorRoleBoundary(
   );
 }
 
+function hasNoMissingContextValues(result) {
+  return (
+    result?.MissingContextValues === undefined ||
+    (Array.isArray(result.MissingContextValues) &&
+      result.MissingContextValues.length === 0)
+  );
+}
+
+export function canWorkerInvokePinnedAllocator(
+  simulation,
+  qualifiedFunctionName,
+) {
+  if (!LAMBDA_VERSION_ARN.test(qualifiedFunctionName ?? "")) return false;
+  const results = simulation?.EvaluationResults;
+  if (!Array.isArray(results) || results.length !== 1) return false;
+  const [result] = results;
+  const resourceResults = result?.ResourceSpecificResults;
+  return (
+    result?.EvalActionName === "lambda:InvokeFunction" &&
+    result?.EvalDecision === "allowed" &&
+    hasNoMissingContextValues(result) &&
+    Array.isArray(resourceResults) &&
+    resourceResults.length === 1 &&
+    resourceResults[0]?.EvalResourceName === qualifiedFunctionName &&
+    resourceResults[0]?.EvalResourceDecision === "allowed" &&
+    hasNoMissingContextValues(resourceResults[0])
+  );
+}
+
 export function hasExpectedCloudFrontLogDeliveryAcl(acl) {
   const ownerId = acl?.Owner?.ID;
   if (typeof ownerId !== "string" || ownerId.length === 0) return false;
@@ -568,6 +597,20 @@ export function hasExpectedCloudFrontLogDeliveryAcl(acl) {
     `WRITE|Group||${S3_LOG_DELIVERY_GROUP_URI}`,
   ].sort();
   return isDeepStrictEqual(actual, expected);
+}
+
+export function hasExpectedLogBucketPublicAccessBoundary(
+  publicAccessBlock,
+  policyStatus,
+) {
+  return (
+    isDeepStrictEqual(publicAccessBlock?.PublicAccessBlockConfiguration, {
+      BlockPublicAcls: true,
+      BlockPublicPolicy: true,
+      IgnorePublicAcls: true,
+      RestrictPublicBuckets: true,
+    }) && policyStatus?.PolicyStatus?.IsPublic === false
+  );
 }
 
 function haveExpectedDimensions(actual, expected) {
@@ -1022,6 +1065,11 @@ export async function collectCloudFrontQualificationReport(
     "OfflineScormCloudFrontAllocatorRoleArn",
     appStackName,
   );
+  const workerRoleArn = requiredOutput(
+    applicationOutputs,
+    "OfflineScormCloudFrontWorkerRoleArn",
+    appStackName,
+  );
   const allocatorRoleMatch = IAM_ROLE_ARN.exec(allocatorRoleArn);
   const allocatorRoleName = allocatorRoleMatch?.[3].split("/").at(-1);
   if (
@@ -1030,6 +1078,8 @@ export async function collectCloudFrontQualificationReport(
     allocatorRoleName.length === 0
   )
     throw new Error("Offline SCORM allocator role output is invalid");
+  if (IAM_ROLE_ARN.exec(workerRoleArn)?.[2] !== accountId)
+    throw new Error("Offline SCORM worker role output is invalid");
   const originDomain = requiredValue(
     originParameter.Parameter?.Value,
     "CloudFront origin domain parameter is unavailable",
@@ -1141,8 +1191,11 @@ export async function collectCloudFrontQualificationReport(
     allocatorRole,
     allocatorAttachedPolicies,
     allocatorInlinePolicyNames,
+    workerInvocationSimulation,
     allocatorConcurrency,
     logBucketAcl,
+    logBucketPublicAccessBlock,
+    logBucketPolicyStatus,
     cloudTrail,
     logObjects,
   ] = await Promise.all([
@@ -1248,6 +1301,19 @@ export async function collectCloudFrontQualificationReport(
       options.applicationRegion,
     ]),
     runAws([
+      "iam",
+      "simulate-principal-policy",
+      "--policy-source-arn",
+      workerRoleArn,
+      "--action-names",
+      "lambda:InvokeFunction",
+      "--resource-arns",
+      allocatorQualifiedFunctionName,
+      "--no-paginate",
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
       "lambda",
       "get-function-concurrency",
       "--function-name",
@@ -1260,6 +1326,28 @@ export async function collectCloudFrontQualificationReport(
       "get-bucket-acl",
       "--bucket",
       logBucket,
+      "--expected-bucket-owner",
+      accountId,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "s3api",
+      "get-public-access-block",
+      "--bucket",
+      logBucket,
+      "--expected-bucket-owner",
+      accountId,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "s3api",
+      "get-bucket-policy-status",
+      "--bucket",
+      logBucket,
+      "--expected-bucket-owner",
+      accountId,
       "--region",
       options.applicationRegion,
     ]),
@@ -1286,6 +1374,8 @@ export async function collectCloudFrontQualificationReport(
       `offline-scorm/${options.environment}/`,
       "--max-items",
       "1",
+      "--expected-bucket-owner",
+      accountId,
       "--region",
       options.applicationRegion,
     ]),
@@ -1368,9 +1458,27 @@ export async function collectCloudFrontQualificationReport(
   );
   addCheck(
     checks,
+    "worker-allocator-permission",
+    canWorkerInvokePinnedAllocator(
+      workerInvocationSimulation,
+      allocatorQualifiedFunctionName,
+    ),
+    "Application worker role is authorized to invoke the deployment-owned allocator version",
+  );
+  addCheck(
+    checks,
     "access-log-bucket-acl",
     hasExpectedCloudFrontLogDeliveryAcl(logBucketAcl),
     "CloudFront log-delivery retains only its required bucket ACL grants and owner control",
+  );
+  addCheck(
+    checks,
+    "access-log-bucket-public-access",
+    hasExpectedLogBucketPublicAccessBoundary(
+      logBucketPublicAccessBlock,
+      logBucketPolicyStatus,
+    ),
+    "CloudFront access-log bucket blocks every public-access path and has no public policy",
   );
   addCheck(
     checks,

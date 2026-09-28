@@ -4,6 +4,7 @@ import { createDistributionConfig } from "../deploy/cdk/lambda/offline-scorm-clo
 import {
   areOwnedDistributionsDeployed,
   AwsCliError,
+  canWorkerInvokePinnedAllocator,
   classifyQualificationDistributions,
   collectCloudFrontQualificationReport,
   evaluateQuotaHeadroom,
@@ -11,6 +12,7 @@ import {
   hasExpectedAllocatorConfiguration,
   hasExpectedAllocatorRoleBoundary,
   hasExpectedCloudFrontLogDeliveryAcl,
+  hasExpectedLogBucketPublicAccessBoundary,
   haveExpectedAlarmConfigurations,
   haveExpectedDistributionLogging,
   haveExpectedDistributionOwnership,
@@ -47,6 +49,8 @@ const allocatorQualifiedFunctionName =
   "arn:aws:lambda:ap-southeast-2:123456789012:function:allocator:12";
 const allocatorRoleName = "upskill-staging-allocator-role";
 const allocatorRoleArn = `arn:aws:iam::${options.expectedAccount}:role/${allocatorRoleName}`;
+const workerRoleName = "upskill-staging-worker-role";
+const workerRoleArn = `arn:aws:iam::${options.expectedAccount}:role/${workerRoleName}`;
 const entitlementId = "entitlement-123";
 const originKey = "qualification-origin-key-".repeat(3);
 const entitlementDigest = createHash("sha256")
@@ -301,6 +305,40 @@ function expectedLogBucketAcl() {
       },
     ],
   };
+}
+
+function expectedWorkerInvocationSimulation() {
+  return {
+    EvaluationResults: [
+      {
+        EvalActionName: "lambda:InvokeFunction",
+        EvalDecision: "allowed",
+        MissingContextValues: [],
+        ResourceSpecificResults: [
+          {
+            EvalResourceDecision: "allowed",
+            EvalResourceName: allocatorQualifiedFunctionName,
+            MissingContextValues: [],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function expectedLogBucketPublicAccessBlock() {
+  return {
+    PublicAccessBlockConfiguration: {
+      BlockPublicAcls: true,
+      BlockPublicPolicy: true,
+      IgnorePublicAcls: true,
+      RestrictPublicBuckets: true,
+    },
+  };
+}
+
+function expectedLogBucketPolicyStatus() {
+  return { PolicyStatus: { IsPublic: false } };
 }
 
 function expectedAlarmConfigurations() {
@@ -713,6 +751,95 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     ).toBe(false);
   });
 
+  it("requires the worker to invoke the exact pinned allocator version", () => {
+    const simulation = expectedWorkerInvocationSimulation();
+    expect(
+      canWorkerInvokePinnedAllocator(
+        simulation,
+        allocatorQualifiedFunctionName,
+      ),
+    ).toBe(true);
+    expect(
+      canWorkerInvokePinnedAllocator(
+        simulation,
+        allocatorQualifiedFunctionName.replace(":12", ""),
+      ),
+    ).toBe(false);
+    expect(
+      canWorkerInvokePinnedAllocator(
+        {
+          EvaluationResults: [
+            {
+              ...simulation.EvaluationResults[0],
+              EvalDecision: "implicitDeny",
+            },
+          ],
+        },
+        allocatorQualifiedFunctionName,
+      ),
+    ).toBe(false);
+    expect(
+      canWorkerInvokePinnedAllocator(
+        {
+          EvaluationResults: [
+            {
+              ...simulation.EvaluationResults[0],
+              MissingContextValues: ["aws:RequestedRegion"],
+            },
+          ],
+        },
+        allocatorQualifiedFunctionName,
+      ),
+    ).toBe(false);
+    expect(
+      canWorkerInvokePinnedAllocator(
+        {
+          EvaluationResults: [
+            {
+              ...simulation.EvaluationResults[0],
+              ResourceSpecificResults: [
+                {
+                  ...simulation.EvaluationResults[0].ResourceSpecificResults[0],
+                  EvalResourceName:
+                    "arn:aws:lambda:ap-southeast-2:123456789012:function:allocator:11",
+                },
+              ],
+            },
+          ],
+        },
+        allocatorQualifiedFunctionName,
+      ),
+    ).toBe(false);
+  });
+
+  it("requires every bucket public-access block and a non-public policy", () => {
+    const publicAccessBlock = expectedLogBucketPublicAccessBlock();
+    const policyStatus = expectedLogBucketPolicyStatus();
+    expect(
+      hasExpectedLogBucketPublicAccessBoundary(publicAccessBlock, policyStatus),
+    ).toBe(true);
+    for (const property of Object.keys(
+      publicAccessBlock.PublicAccessBlockConfiguration,
+    )) {
+      expect(
+        hasExpectedLogBucketPublicAccessBoundary(
+          {
+            PublicAccessBlockConfiguration: {
+              ...publicAccessBlock.PublicAccessBlockConfiguration,
+              [property]: false,
+            },
+          },
+          policyStatus,
+        ),
+      ).toBe(false);
+    }
+    expect(
+      hasExpectedLogBucketPublicAccessBoundary(publicAccessBlock, {
+        PolicyStatus: { IsPublic: true },
+      }),
+    ).toBe(false);
+  });
+
   it("requires the configured operations endpoint to be confirmed", () => {
     const expectedEndpoint = "ops@codestudio.au";
     const subscription = {
@@ -1079,6 +1206,10 @@ describe("Offline SCORM CloudFront qualification harness", () => {
                 OutputValue: allocatorRoleArn,
               },
               {
+                OutputKey: "OfflineScormCloudFrontWorkerRoleArn",
+                OutputValue: workerRoleArn,
+              },
+              {
                 OutputKey: "OfflineScormCloudFrontAllocatorAlarmTopicArn",
                 OutputValue: allocatorAlarmTopicArn,
               },
@@ -1258,9 +1389,15 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         return expectedAllocatorRoleResponses().attached;
       if (command === "iam list-role-policies")
         return expectedAllocatorRoleResponses().names;
+      if (command === "iam simulate-principal-policy")
+        return expectedWorkerInvocationSimulation();
       if (command === "iam get-role-policy")
         return expectedAllocatorRoleResponses().policies[0];
       if (command === "s3api get-bucket-acl") return expectedLogBucketAcl();
+      if (command === "s3api get-public-access-block")
+        return expectedLogBucketPublicAccessBlock();
+      if (command === "s3api get-bucket-policy-status")
+        return expectedLogBucketPolicyStatus();
       if (command === "cloudtrail lookup-events") return { Events: [] };
       if (command === "s3api list-objects-v2") return { Contents: [] };
       throw new Error(`Unexpected AWS command ${command}`);
@@ -1297,6 +1434,14 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     ).toMatchObject({ status: "pass" });
     expect(
       report.checks.find((check) => check.id === "access-log-bucket-acl"),
+    ).toMatchObject({ status: "pass" });
+    expect(
+      report.checks.find(
+        (check) => check.id === "access-log-bucket-public-access",
+      ),
+    ).toMatchObject({ status: "pass" });
+    expect(
+      report.checks.find((check) => check.id === "worker-allocator-permission"),
     ).toMatchObject({ status: "pass" });
     expect(
       report.checks.find((check) => check.id === "distribution-access-logging"),
@@ -1376,13 +1521,42 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       "get-role",
       "list-attached-role-policies",
       "list-role-policies",
+      "simulate-principal-policy",
       "get-role-policy",
     ]);
     expect(
-      calls.filter(
-        (args) => args.slice(0, 2).join(" ") === "s3api get-bucket-acl",
+      calls.find(
+        (args) =>
+          args.slice(0, 2).join(" ") === "iam simulate-principal-policy",
       ),
-    ).toHaveLength(1);
+    ).toEqual([
+      "iam",
+      "simulate-principal-policy",
+      "--policy-source-arn",
+      workerRoleArn,
+      "--action-names",
+      "lambda:InvokeFunction",
+      "--resource-arns",
+      allocatorQualifiedFunctionName,
+      "--no-paginate",
+      "--region",
+      options.applicationRegion,
+    ]);
+    for (const command of [
+      "get-bucket-acl",
+      "get-public-access-block",
+      "get-bucket-policy-status",
+      "list-objects-v2",
+    ]) {
+      expect(
+        calls.find((args) => args.slice(0, 2).join(" ") === `s3api ${command}`),
+      ).toEqual(
+        expect.arrayContaining([
+          "--expected-bucket-owner",
+          options.expectedAccount,
+        ]),
+      );
+    }
     expect(
       calls.filter(
         (args) =>

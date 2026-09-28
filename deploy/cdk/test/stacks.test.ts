@@ -1009,6 +1009,11 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
   )[0];
   expect(allocatorVersionLogicalId).toBeDefined();
   const allocatorVersionReference = { Ref: allocatorVersionLogicalId };
+  const roles = template.findResources("AWS::IAM::Role");
+  const instanceRoleLogicalId = Object.keys(roles).find((logicalId) =>
+    logicalId.startsWith("InstanceRole"),
+  );
+  expect(instanceRoleLogicalId).toBeDefined();
   template.hasResourceProperties("AWS::SSM::Parameter", {
     Name: "/upskill/staging/offline-scorm/cloudfront-allocator-function-name",
     Type: "String",
@@ -1046,11 +1051,23 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
   template.hasOutput("OfflineScormCloudFrontAllocatorRoleArn", {
     Value: Match.anyValue(),
   });
+  template.hasOutput("OfflineScormCloudFrontWorkerRoleArn", {
+    Value: { "Fn::GetAtt": [instanceRoleLogicalId, "Arn"] },
+  });
   const serialized = JSON.stringify(template.toJSON());
   expect(serialized).toContain("OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN");
   expect(serialized).toContain("OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY");
   expect(serialized).toContain(
     "OFFLINE_SCORM_CLOUDFRONT_ALLOCATOR_FUNCTION_NAME",
+  );
+  expect(serialized).toContain(
+    "Offline SCORM CloudFront allocator immutable version ARN is invalid",
+  );
+  expect(serialized).toContain(
+    "^arn:(aws|aws-cn|aws-us-gov):lambda:[a-z0-9-]+:[0-9]{12}:function:[A-Za-z0-9_-]{1,64}:[1-9][0-9]*$",
+  );
+  expect(serialized).not.toContain(
+    "Offline SCORM CloudFront allocator function name is invalid",
   );
   expect(serialized).toContain("upskill-worker.env");
   expect(serialized).toContain("upskill-web.env");
@@ -1076,11 +1093,6 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
   });
   expect(serialized).not.toContain('"cloudfront:*"');
   expect(serialized).not.toContain('"wafv2:*"');
-  const roles = template.findResources("AWS::IAM::Role");
-  const instanceRoleLogicalId = Object.keys(roles).find((logicalId) =>
-    logicalId.startsWith("InstanceRole"),
-  );
-  expect(instanceRoleLogicalId).toBeDefined();
   const policies = template.findResources("AWS::IAM::Policy") as Record<
     string,
     { Properties?: { Roles?: unknown[] } }
