@@ -2,9 +2,9 @@
 
 ## Status
 
-Proposed; CloudFront qualification infrastructure, durable allocation and
-issuance models, origin validation and dormant worker recovery are implemented
-but disabled by default.
+Proposed; CloudFront qualification infrastructure, durable allocation,
+issuance and retirement models, origin validation and dormant worker recovery
+are implemented but disabled by default.
 Date: 2026-09-27
 
 ## Context
@@ -175,6 +175,19 @@ until the allocation is `active`. Legacy operator qualification reservations
 remain unowned and cannot be claimed by this workflow. No route, deployment
 mode or learner activation path is added by this increment.
 
+The dormant worker now also owns distribution retirement. An active
+distribution remains available while cleanup is pending or actively clearing;
+terminal cleanup evidence, a recorded cleanup failure requiring attention, or
+an entitlement that has been replaced or hard-revoked promotes the allocation
+to `disabling` under row locks. The worker invokes the exact entitlement and
+distribution binding, waits without consuming the failure budget while
+CloudFront deploys the disabled configuration, records `deletion_pending`, and
+requires a subsequent idempotent absence confirmation before recording
+`deleted`. Lost responses and provider failures reuse the existing bounded
+lease, backoff and needs-attention recovery model. Distribution deletion never
+marks device cleanup successful and all lifecycle evidence remains retained.
+This increment adds no learner route, deployment mode or activation flag.
+
 ## Threat model and controls
 
 | Threat                                                      | Required control                                                                                                                                                                                                                                                                             |
@@ -310,7 +323,7 @@ deleted stack still requires the normal retained-resource recovery process.
      **implemented and dormant** with migration 0121;
    - authenticated Course reservation creation and atomic entitlement/cleanup
      issuance are **implemented and dormant** with migration 0122;
-   - distribution retirement remains pending; and
+   - distribution retirement is **implemented and dormant**; and
    - a distinct AWS worker principal or explicit shared-host risk acceptance
      remains required before learner activation.
 5. Run the browser, cleanup, latency, quota, WAF and cost qualification matrix.

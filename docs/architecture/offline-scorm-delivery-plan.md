@@ -385,8 +385,14 @@ version without consuming the provider-failure budget. It promotes activation
 only after an active entitlement and pending cleanup inventory exist with the
 exact bound CloudFront origin, rechecks that authority before and after each
 activation call and moves stale activation work to `disabling`. It does not
-create reservations, issue entitlements, process distribution retirement or
-expose learner UI.
+create reservations, issue entitlements or expose learner UI. The following
+dormant retirement increment keeps an active distribution available while
+device cleanup remains pending or clearing, then promotes terminal or
+needs-attention cleanup and replaced/hard-revoked authority to `disabling`.
+The same leased worker waits for the disabled configuration to deploy, requests
+deletion, confirms idempotent absence and retains the complete lifecycle and
+bounded failure evidence. Edge deletion does not overwrite or imply local
+cleanup success.
 
 Under the current low-cost topology, web and worker share the EC2 instance IAM
 role. CDK grants that role invoke permission only for the exact allocator, while
