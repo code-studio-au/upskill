@@ -322,6 +322,11 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
       PasswordLength: 64,
     },
   });
+  applicationTemplate.hasOutput("OfflineScormCloudFrontOriginKeySecretArn", {
+    Description:
+      "Read-only qualification binding for the CloudFront origin capability authority",
+    Value: { Ref: Match.anyValue() },
+  });
   applicationTemplate.hasOutput("OfflineScormEdgeLogBucketArn", {
     Description:
       "Stable cross-stack binding retained across CloudFront qualification toggles",

@@ -7,6 +7,8 @@ distribution, invoke the allocator, alter a WAF rule, or write to AWS.
 ## Prerequisites
 
 - AWS CLI credentials for the staging account.
+- Read access to the staging CloudFront origin-key secret; its value is used
+  only in memory and is never included in the qualification report.
 - The application and edge stacks deployed with the CloudFront qualification
   context.
 - The shared `ap-southeast-2` operational SNS email subscription and the
@@ -33,8 +35,9 @@ origin parameter and deployed-distribution binding, staging risk
 acknowledgement, WAF ownership/binding, mandatory rules, safe log filtering and
 redaction, WAF metric publication, 30-day WAF retention, confirmed alarm
 subscriptions, exact alarm metrics/evaluation/actions, per-distribution
-entitlement-specific access logging, distribution-cap markers, service-quota
-headroom and recent CloudFront control-plane mutations.
+entitlement-specific access logging, exact lifecycle ownership tags,
+entitlement-bound protected origin headers, distribution-cap markers,
+service-quota headroom and recent CloudFront control-plane mutations.
 
 The report intentionally includes only a small CloudTrail mutation summary:
 event name/time, read-only status, error code and service identity type. It
@@ -42,8 +45,10 @@ never emits CloudTrail request parameters, headers, cookies, query strings,
 source IP addresses or user ARNs.
 
 The per-distribution configuration read includes the protected origin headers.
-The harness evaluates that response only in memory and never serializes the
-configuration or header values into the report.
+The harness reads the staging origin-key secret solely to recompute each
+entitlement-bound capability, evaluates the configuration and tag responses
+only in memory, and never serializes the secret, configuration, tags or header
+values into the report.
 
 ## Interpreting results
 

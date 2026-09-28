@@ -1,3 +1,4 @@
+import { createHash, createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   AwsCliError,
@@ -6,6 +7,7 @@ import {
   evaluateQuotaHeadroom,
   haveExpectedAlarmConfigurations,
   haveExpectedDistributionLogging,
+  haveExpectedDistributionOwnership,
   haveExpectedDistributionOrigins,
   hasExpectedWafLoggingBaseline,
   hasExpectedWebAclBaseline,
@@ -25,11 +27,39 @@ const webAclArn =
 const edgeAlarmTopicArn = "arn:aws:sns:us-east-1:123456789012:edge-alarms";
 const allocatorAlarmTopicArn =
   "arn:aws:sns:ap-southeast-2:123456789012:operational-alarms";
+const originKeySecretArn =
+  "arn:aws:secretsmanager:ap-southeast-2:123456789012:secret:upskill/staging/offline-scorm/cloudfront-origin-key-example";
 const wafLogGroupName = "aws-waf-logs-upskill-staging-offline-scorm-cloudfront";
 const logBucketDomain = "upskill-edge-logs.s3.amazonaws.com";
 const distributionId = "E1234567890ABC";
-const entitlementDigest = "a".repeat(32);
+const distributionArn = `arn:aws:cloudfront::${options.expectedAccount}:distribution/${distributionId}`;
+const entitlementId = "entitlement-123";
+const originKey = "qualification-origin-key-".repeat(3);
+const entitlementDigest = createHash("sha256")
+  .update("upskill-offline-scorm-cloudfront-entitlement-v1", "utf8")
+  .update("\0", "utf8")
+  .update(options.environment, "utf8")
+  .update("\0", "utf8")
+  .update(entitlementId, "utf8")
+  .digest("hex")
+  .slice(0, 32);
 const distributionComment = `upskill:staging:offline-scorm:${entitlementDigest}`;
+const originCapability = createHmac("sha256", originKey)
+  .update("upskill-offline-scorm-cloudfront-origin-capability-v1", "utf8")
+  .update("\0", "utf8")
+  .update(options.environment, "utf8")
+  .update("\0", "utf8")
+  .update(entitlementId, "utf8")
+  .digest("base64url");
+
+function expectedDistributionTags() {
+  return [
+    { Key: "Application", Value: "upskill" },
+    { Key: "Environment", Value: options.environment },
+    { Key: "OfflineScormEntitlementId", Value: entitlementId },
+    { Key: "Purpose", Value: "offline-scorm-qualification" },
+  ];
+}
 
 function expectedWebAcl() {
   return {
@@ -95,6 +125,19 @@ function expectedDistributionConfiguration() {
       Quantity: 1,
       Items: [
         {
+          CustomHeaders: {
+            Quantity: 2,
+            Items: [
+              {
+                HeaderName: "X-Upskill-Offline-Entitlement",
+                HeaderValue: entitlementId,
+              },
+              {
+                HeaderName: "X-Upskill-Offline-Origin-Capability",
+                HeaderValue: originCapability,
+              },
+            ],
+          },
           DomainName: options.expectedOriginDomain,
           Id: "upskill-offline-package-host",
         },
@@ -323,29 +366,115 @@ describe("Offline SCORM CloudFront qualification harness", () => {
 
   it("requires every owned distribution to target only the direct package origin", () => {
     const distribution = expectedDistributionConfiguration();
+    const record = {
+      configuration: distribution,
+      tags: expectedDistributionTags(),
+    };
     expect(
       haveExpectedDistributionOrigins(
-        [distribution],
+        [record],
+        options.environment,
         options.expectedOriginDomain,
+        originKey,
       ),
     ).toBe(true);
-    expect(
-      haveExpectedDistributionOrigins(
-        [
-          {
-            ...distribution,
-            Origins: {
-              Quantity: 1,
-              Items: [
-                {
-                  DomainName: "attacker.example",
-                  Id: "upskill-offline-package-host",
-                },
-              ],
+    for (const originDrift of [
+      { DomainName: "attacker.example" },
+      {
+        CustomHeaders: {
+          Quantity: 1,
+          Items: [
+            {
+              HeaderName: "X-Upskill-Offline-Entitlement",
+              HeaderValue: entitlementId,
             },
-          },
-        ],
-        options.expectedOriginDomain,
+          ],
+        },
+      },
+      {
+        CustomHeaders: {
+          Quantity: 2,
+          Items: [
+            {
+              HeaderName: "X-Upskill-Offline-Entitlement",
+              HeaderValue: entitlementId,
+            },
+            {
+              HeaderName: "X-Upskill-Offline-Origin-Capability",
+              HeaderValue: "a".repeat(43),
+            },
+          ],
+        },
+      },
+    ]) {
+      expect(
+        haveExpectedDistributionOrigins(
+          [
+            {
+              ...record,
+              configuration: {
+                ...distribution,
+                Origins: {
+                  Quantity: 1,
+                  Items: [
+                    {
+                      ...distribution.Origins.Items[0],
+                      ...originDrift,
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+          options.environment,
+          options.expectedOriginDomain,
+          originKey,
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it("requires exact lifecycle ownership tags and marker binding", () => {
+    const record = {
+      configuration: expectedDistributionConfiguration(),
+      distributionArn,
+      distributionId,
+      inventoryComment: distributionComment,
+      tags: expectedDistributionTags(),
+    };
+    expect(
+      haveExpectedDistributionOwnership(
+        [record],
+        options.environment,
+        options.expectedAccount,
+      ),
+    ).toBe(true);
+    for (const tagDrift of [
+      { Key: "Application", Value: "another-application" },
+      { Key: "Environment", Value: "production" },
+      { Key: "OfflineScormEntitlementId", Value: "another-entitlement" },
+      { Key: "Purpose", Value: "another-purpose" },
+    ]) {
+      expect(
+        haveExpectedDistributionOwnership(
+          [
+            {
+              ...record,
+              tags: record.tags.map((tag) =>
+                tag.Key === tagDrift.Key ? tagDrift : tag,
+              ),
+            },
+          ],
+          options.environment,
+          options.expectedAccount,
+        ),
+      ).toBe(false);
+    }
+    expect(
+      haveExpectedDistributionOwnership(
+        [{ ...record, distributionArn: distributionArn.replace("123", "999") }],
+        options.environment,
+        options.expectedAccount,
       ),
     ).toBe(false);
   });
@@ -503,6 +632,10 @@ describe("Offline SCORM CloudFront qualification harness", () => {
                 OutputKey: "OfflineScormEdgeLogBucketDomain",
                 OutputValue: logBucketDomain,
               },
+              {
+                OutputKey: "OfflineScormCloudFrontOriginKeySecretArn",
+                OutputValue: originKeySecretArn,
+              },
             ]
           : [
               {
@@ -528,15 +661,25 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       }
       if (command === "ssm get-parameter")
         return { Parameter: { Value: options.expectedOriginDomain } };
+      if (command === "secretsmanager get-secret-value")
+        return { SecretString: originKey };
       if (command === "cloudfront list-distributions")
         return {
           DistributionList: {
-            Items: [{ Comment: distributionComment, Id: distributionId }],
+            Items: [
+              {
+                ARN: distributionArn,
+                Comment: distributionComment,
+                Id: distributionId,
+              },
+            ],
             Quantity: 1,
           },
         };
       if (command === "cloudfront get-distribution-config")
         return { DistributionConfig: expectedDistributionConfiguration() };
+      if (command === "cloudfront list-tags-for-resource")
+        return { Tags: { Items: expectedDistributionTags() } };
       if (command === "service-quotas get-service-quota")
         throw new AwsCliError("not found", "NoSuchResourceException");
       if (command === "service-quotas get-aws-default-service-quota")
@@ -640,6 +783,16 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     expect(
       report.checks.find((check) => check.id === "distribution-access-logging"),
     ).toMatchObject({ status: "pass" });
+    expect(
+      report.checks.find((check) => check.id === "distribution-ownership"),
+    ).toMatchObject({ status: "pass" });
+    expect(
+      report.checks.find((check) => check.id === "distribution-origin-binding"),
+    ).toMatchObject({ status: "pass" });
+    const serializedReport = JSON.stringify(report);
+    expect(serializedReport).not.toContain(originKey);
+    expect(serializedReport).not.toContain(originCapability);
+    expect(serializedReport).not.toContain(entitlementId);
     const alarmRegions = calls
       .filter(
         (args) => args.slice(0, 2).join(" ") === "cloudwatch describe-alarms",
@@ -653,6 +806,29 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       ),
     ).toEqual([
       ["cloudfront", "get-distribution-config", "--id", distributionId],
+    ]);
+    expect(
+      calls.filter(
+        (args) =>
+          args.slice(0, 2).join(" ") === "cloudfront list-tags-for-resource",
+      ),
+    ).toEqual([
+      ["cloudfront", "list-tags-for-resource", "--resource", distributionArn],
+    ]);
+    expect(
+      calls.filter(
+        (args) =>
+          args.slice(0, 2).join(" ") === "secretsmanager get-secret-value",
+      ),
+    ).toEqual([
+      [
+        "secretsmanager",
+        "get-secret-value",
+        "--secret-id",
+        originKeySecretArn,
+        "--region",
+        options.applicationRegion,
+      ],
     ]);
   });
 });

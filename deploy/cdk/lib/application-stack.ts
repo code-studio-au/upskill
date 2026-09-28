@@ -1174,6 +1174,11 @@ UPSKILL_ENV`,
       description:
         "Populate the P-256 signing authority only before deliberate offline SCORM activation",
     });
+    new CfnOutput(this, "OfflineScormCloudFrontOriginKeySecretArn", {
+      value: offlineScormCloudFrontOriginKey.secretArn,
+      description:
+        "Read-only qualification binding for the CloudFront origin capability authority",
+    });
     new CfnOutput(this, "OfflineScormEdgeLogBucketArn", {
       value: props.offlineScormEdgeLogBucket.bucketArn,
       description:

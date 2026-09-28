@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash, createHmac } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual, promisify } from "node:util";
 
@@ -11,8 +12,17 @@ const CLOUDFRONT_ORIGIN_DOMAIN =
   /^(?=.{3,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
 const ACCOUNT_ID = /^[0-9]{12}$/u;
 const CLOUDFRONT_DISTRIBUTION_ID = /^[A-Z0-9]{8,32}$/u;
+const CLOUDFRONT_DISTRIBUTION_ARN =
+  /^arn:aws:cloudfront::([0-9]{12}):distribution\/([A-Z0-9]{8,32})$/u;
 const CLOUDFRONT_WEB_ACL_ARN =
   /^arn:[a-z0-9-]+:wafv2:us-east-1:[0-9]{12}:global\/webacl\/([A-Za-z0-9_-]{1,128})\/([A-Za-z0-9-]{36})$/u;
+const ENTITLEMENT_ID = /^[A-Za-z0-9_-]{1,255}$/u;
+const ORIGIN_CAPABILITY = /^[A-Za-z0-9_-]{43}$/u;
+const ALLOCATOR_FORMAT = "upskill-offline-scorm-cloudfront-entitlement-v1";
+const ORIGIN_CAPABILITY_FORMAT =
+  "upskill-offline-scorm-cloudfront-origin-capability-v1";
+const ENTITLEMENT_HEADER = "X-Upskill-Offline-Entitlement";
+const ORIGIN_CAPABILITY_HEADER = "X-Upskill-Offline-Origin-Capability";
 const MUTATING_CLOUDFRONT_EVENTS = new Set([
   "CreateDistribution",
   "CreateDistributionWithTags",
@@ -159,6 +169,85 @@ export function classifyQualificationDistributions(distributions, environment) {
   return { duplicateMarkers: [...duplicateMarkers].sort(), owned };
 }
 
+function entitlementDigest(environment, entitlementId) {
+  if (!ENTITLEMENT_ID.test(entitlementId)) return null;
+  return createHash("sha256")
+    .update(ALLOCATOR_FORMAT, "utf8")
+    .update("\0", "utf8")
+    .update(environment, "utf8")
+    .update("\0", "utf8")
+    .update(entitlementId, "utf8")
+    .digest("hex");
+}
+
+function expectedDistributionMarker(environment, entitlementId) {
+  const digest = entitlementDigest(environment, entitlementId);
+  return digest === null
+    ? null
+    : `upskill:${environment}:offline-scorm:${digest.slice(0, 32)}`;
+}
+
+function expectedOriginCapability(originKey, environment, entitlementId) {
+  if (
+    typeof originKey !== "string" ||
+    originKey.length < 43 ||
+    originKey.length > 512 ||
+    !ENTITLEMENT_ID.test(entitlementId)
+  )
+    return null;
+  return createHmac("sha256", originKey)
+    .update(ORIGIN_CAPABILITY_FORMAT, "utf8")
+    .update("\0", "utf8")
+    .update(environment, "utf8")
+    .update("\0", "utf8")
+    .update(entitlementId, "utf8")
+    .digest("base64url");
+}
+
+function distributionTagMap(tags) {
+  if (!Array.isArray(tags)) return null;
+  const tagMap = new Map();
+  for (const tag of tags) {
+    if (
+      typeof tag?.Key !== "string" ||
+      typeof tag?.Value !== "string" ||
+      tagMap.has(tag.Key)
+    )
+      return null;
+    tagMap.set(tag.Key, tag.Value);
+  }
+  return tagMap;
+}
+
+export function haveExpectedDistributionOwnership(
+  distributions,
+  environment,
+  expectedAccount,
+) {
+  if (!Array.isArray(distributions)) return false;
+  return distributions.every((distribution) => {
+    const arnMatch = CLOUDFRONT_DISTRIBUTION_ARN.exec(
+      distribution?.distributionArn ?? "",
+    );
+    const tags = distributionTagMap(distribution?.tags);
+    const entitlementId = tags?.get("OfflineScormEntitlementId");
+    const expectedMarker = expectedDistributionMarker(
+      environment,
+      entitlementId,
+    );
+    return (
+      arnMatch?.[1] === expectedAccount &&
+      arnMatch?.[2] === distribution?.distributionId &&
+      tags?.get("Application") === "upskill" &&
+      tags?.get("Environment") === environment &&
+      tags?.get("Purpose") === "offline-scorm-qualification" &&
+      expectedMarker !== null &&
+      distribution?.inventoryComment === expectedMarker &&
+      distribution?.configuration?.Comment === expectedMarker
+    );
+  });
+}
+
 export function evaluateQuotaHeadroom({
   distributionQuota,
   ownedDistributionCount,
@@ -251,19 +340,48 @@ function haveExpectedDimensions(actual, expected) {
 
 export function haveExpectedDistributionOrigins(
   distributions,
+  environment,
   expectedOriginDomain,
+  originKey,
 ) {
   if (!Array.isArray(distributions)) return false;
   return distributions.every((distribution) => {
-    const origins = distribution?.Origins;
+    const configuration = distribution?.configuration;
+    const tags = distributionTagMap(distribution?.tags);
+    const entitlementId = tags?.get("OfflineScormEntitlementId");
+    const capability = expectedOriginCapability(
+      originKey,
+      environment,
+      entitlementId,
+    );
+    const origins = configuration?.Origins;
     const originItems = origins?.Items;
+    const origin = originItems?.[0];
+    const customHeaders = origin?.CustomHeaders;
+    const customHeaderItems = customHeaders?.Items;
+    const headerMap = new Map(
+      Array.isArray(customHeaderItems)
+        ? customHeaderItems.map((header) => [
+            header?.HeaderName,
+            header?.HeaderValue,
+          ])
+        : [],
+    );
     return (
       origins?.Quantity === 1 &&
       Array.isArray(originItems) &&
       originItems.length === 1 &&
-      originItems[0]?.Id === "upskill-offline-package-host" &&
-      originItems[0]?.DomainName === expectedOriginDomain &&
-      distribution?.DefaultCacheBehavior?.TargetOriginId ===
+      origin?.Id === "upskill-offline-package-host" &&
+      origin?.DomainName === expectedOriginDomain &&
+      customHeaders?.Quantity === 2 &&
+      Array.isArray(customHeaderItems) &&
+      customHeaderItems.length === 2 &&
+      headerMap.size === 2 &&
+      headerMap.get(ENTITLEMENT_HEADER) === entitlementId &&
+      capability !== null &&
+      ORIGIN_CAPABILITY.test(headerMap.get(ORIGIN_CAPABILITY_HEADER) ?? "") &&
+      headerMap.get(ORIGIN_CAPABILITY_HEADER) === capability &&
+      configuration?.DefaultCacheBehavior?.TargetOriginId ===
         "upskill-offline-package-host"
     );
   });
@@ -561,6 +679,11 @@ export async function collectCloudFrontQualificationReport(
     "OfflineScormEdgeLogBucketDomain",
     appStackName,
   );
+  const originKeySecretArn = requiredOutput(
+    applicationOutputs,
+    "OfflineScormCloudFrontOriginKeySecretArn",
+    appStackName,
+  );
   const allocatorFunctionName = applicationOutputs.get(
     "OfflineScormCloudFrontAllocatorFunctionName",
   );
@@ -568,6 +691,20 @@ export async function collectCloudFrontQualificationReport(
     originParameter.Parameter?.Value,
     "CloudFront origin domain parameter is unavailable",
   );
+  const originKeySecret = await runAws([
+    "secretsmanager",
+    "get-secret-value",
+    "--secret-id",
+    originKeySecretArn,
+    "--region",
+    options.applicationRegion,
+  ]);
+  const originKey = requiredValue(
+    originKeySecret.SecretString,
+    "CloudFront origin key secret is unavailable",
+  );
+  if (originKey.length < 43 || originKey.length > 512)
+    throw new Error("CloudFront origin key secret is invalid");
   const webAclMatch = CLOUDFRONT_WEB_ACL_ARN.exec(webAclArn);
   if (!webAclMatch || webAclMatch[1] !== webAclName)
     throw new Error("CloudFront Web ACL stack outputs are inconsistent");
@@ -605,15 +742,29 @@ export async function collectCloudFrontQualificationReport(
         !CLOUDFRONT_DISTRIBUTION_ID.test(distribution.Id)
       )
         throw new Error("Owned CloudFront distribution ID is invalid");
-      const response = await runAws([
-        "cloudfront",
-        "get-distribution-config",
-        "--id",
-        distribution.Id,
+      const arnMatch = CLOUDFRONT_DISTRIBUTION_ARN.exec(distribution.ARN ?? "");
+      if (arnMatch?.[1] !== accountId || arnMatch?.[2] !== distribution.Id)
+        throw new Error("Owned CloudFront distribution ARN is invalid");
+      const [configurationResponse, tagResponse] = await Promise.all([
+        runAws([
+          "cloudfront",
+          "get-distribution-config",
+          "--id",
+          distribution.Id,
+        ]),
+        runAws([
+          "cloudfront",
+          "list-tags-for-resource",
+          "--resource",
+          distribution.ARN,
+        ]),
       ]);
       return {
-        configuration: response.DistributionConfig,
+        configuration: configurationResponse.DistributionConfig,
+        distributionArn: distribution.ARN,
+        distributionId: distribution.Id,
         inventoryComment: distribution.Comment,
+        tags: tagResponse.Tags?.Items,
       };
     }),
   );
@@ -870,6 +1021,16 @@ export async function collectCloudFrontQualificationReport(
   );
   addCheck(
     checks,
+    "distribution-ownership",
+    haveExpectedDistributionOwnership(
+      ownedDistributionConfigurations,
+      options.environment,
+      accountId,
+    ),
+    "Every owned qualification distribution has the expected account binding, entitlement marker and lifecycle ownership tags",
+  );
+  addCheck(
+    checks,
     "distribution-waf-binding",
     currentOwnedConfigurations.every(
       (distribution) => distribution?.WebACLId === webAclArn,
@@ -880,10 +1041,12 @@ export async function collectCloudFrontQualificationReport(
     checks,
     "distribution-origin-binding",
     haveExpectedDistributionOrigins(
-      currentOwnedConfigurations,
+      ownedDistributionConfigurations,
+      options.environment,
       options.expectedOriginDomain,
+      originKey,
     ),
-    "Every owned qualification distribution targets only the expected direct origin",
+    "Every owned qualification distribution targets only the expected direct origin with entitlement-bound protected headers",
   );
   addCheck(
     checks,
