@@ -36,16 +36,18 @@ origin parameter and deployed-distribution binding, staging risk
 acknowledgement, WAF ownership/binding, mandatory rules, safe log filtering and
 redaction, ACL-level and per-rule WAF metric publication/sampling, 30-day WAF
 retention, exact confirmed alarm-subscription endpoints, exact alarm
-metrics/evaluation/actions, per-distribution entitlement-specific access
-logging, tag-first lifecycle ownership discovery, entitlement-bound protected
-origin headers, HTTPS-only TLS 1.2 origin transport and the remaining canonical
-allocator configuration, distribution-cap markers, service-quota headroom and
-recent CloudFront control-plane mutations.
+metrics/units/evaluation/actions, per-distribution entitlement-specific access
+logging, fully deployed edge status, tag-first lifecycle ownership discovery,
+entitlement-bound protected origin headers, HTTPS-only TLS 1.2 origin transport
+and the remaining canonical allocator configuration, distribution-cap markers,
+service-quota headroom and a globally bounded sample of recent CloudFront
+control-plane mutations.
 
 The report intentionally includes only a small CloudTrail mutation summary:
 event name/time, read-only status, error code and service identity type. It
 never emits CloudTrail request parameters, headers, cookies, query strings,
-source IP addresses or user ARNs.
+source IP addresses or user ARNs. The AWS CLI result set is globally capped at
+50 events rather than allowing pagination to expand the evidence sample.
 
 The per-distribution configuration read includes the protected origin headers.
 The harness reads the staging origin-key secret solely to recompute each

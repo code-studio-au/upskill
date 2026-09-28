@@ -299,6 +299,15 @@ export function evaluateQuotaHeadroom({
   };
 }
 
+export function areOwnedDistributionsDeployed(distributions) {
+  return (
+    Array.isArray(distributions) &&
+    distributions.every(
+      (distribution) => distribution?.deploymentStatus === "Deployed",
+    )
+  );
+}
+
 export function summarizeCloudTrailEvents(events) {
   return events
     .filter((event) => MUTATING_CLOUDFRONT_EVENTS.has(event.EventName))
@@ -336,6 +345,7 @@ export function haveExpectedAlarmConfigurations(alarms, expectedAlarms) {
       statistic,
       threshold,
       treatMissingData,
+      unit,
     } = expected;
     const alarm = alarmsByName.get(alarmName);
     return (
@@ -351,7 +361,8 @@ export function haveExpectedAlarmConfigurations(alarms, expectedAlarms) {
       alarm.Threshold === threshold &&
       alarm.ComparisonOperator === comparisonOperator &&
       alarm.EvaluationPeriods === evaluationPeriods &&
-      alarm.TreatMissingData === treatMissingData
+      alarm.TreatMissingData === treatMissingData &&
+      alarm.Unit === unit
     );
   });
 }
@@ -839,6 +850,7 @@ export async function collectCloudFrontQualificationReport(
         distribution.ARN,
       ]);
       return {
+        deploymentStatus: distribution.Status,
         distributionArn: distribution.ARN,
         distributionId: distribution.Id,
         inventoryComment: distribution.Comment,
@@ -967,7 +979,7 @@ export async function collectCloudFrontQualificationReport(
       startTime,
       "--end-time",
       generatedAt,
-      "--max-results",
+      "--max-items",
       "50",
       "--region",
       CLOUDFRONT_CONTROL_PLANE_REGION,
@@ -1125,6 +1137,12 @@ export async function collectCloudFrontQualificationReport(
     "distribution-cap",
     owned.length <= qualificationCap && duplicateMarkers.length === 0,
     "Owned qualification distributions are within the cap and have unique markers",
+  );
+  addCheck(
+    checks,
+    "distribution-deployment",
+    areOwnedDistributionsDeployed(ownedDistributionConfigurations),
+    "Every owned qualification distribution has finished deploying to the CloudFront edge",
   );
   addCheck(
     checks,

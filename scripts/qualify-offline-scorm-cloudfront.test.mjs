@@ -2,6 +2,7 @@ import { createHash, createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createDistributionConfig } from "../deploy/cdk/lambda/offline-scorm-cloudfront-entitlement/index.mjs";
 import {
+  areOwnedDistributionsDeployed,
   AwsCliError,
   classifyQualificationDistributions,
   collectCloudFrontQualificationReport,
@@ -193,6 +194,7 @@ function expectedAlarmDefinitions() {
       statistic: "Sum",
       threshold: 100,
       treatMissingData: "notBreaching",
+      unit: undefined,
     },
     {
       actionArn: allocatorAlarmTopicArn,
@@ -206,6 +208,7 @@ function expectedAlarmDefinitions() {
       statistic: "Sum",
       threshold: 1,
       treatMissingData: "notBreaching",
+      unit: undefined,
     },
   ];
 }
@@ -297,6 +300,22 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     ]);
   });
 
+  it("requires every owned distribution to be fully deployed", () => {
+    expect(
+      areOwnedDistributionsDeployed([
+        { deploymentStatus: "Deployed" },
+        { deploymentStatus: "Deployed" },
+      ]),
+    ).toBe(true);
+    expect(
+      areOwnedDistributionsDeployed([
+        { deploymentStatus: "Deployed" },
+        { deploymentStatus: "InProgress" },
+      ]),
+    ).toBe(false);
+    expect(areOwnedDistributionsDeployed([{}])).toBe(false);
+  });
+
   it("redacts CloudTrail request detail while retaining mutation evidence", () => {
     expect(
       summarizeCloudTrailEvents([
@@ -354,6 +373,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       { ComparisonOperator: "LessThanThreshold" },
       { EvaluationPeriods: 5 },
       { TreatMissingData: "missing" },
+      { Unit: "Bytes" },
     ]) {
       expect(
         haveExpectedAlarmConfigurations(
@@ -781,11 +801,13 @@ describe("Offline SCORM CloudFront qualification harness", () => {
                 ARN: distributionArn,
                 Comment: distributionComment,
                 Id: distributionId,
+                Status: "Deployed",
               },
               {
                 ARN: unrelatedDistributionArn,
                 Comment: "unrelated",
                 Id: unrelatedDistributionId,
+                Status: "Deployed",
               },
             ],
             Quantity: 2,
@@ -910,6 +932,9 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       report.checks.find((check) => check.id === "distribution-ownership"),
     ).toMatchObject({ status: "pass" });
     expect(
+      report.checks.find((check) => check.id === "distribution-deployment"),
+    ).toMatchObject({ status: "pass" });
+    expect(
       report.checks.find((check) => check.id === "distribution-origin-binding"),
     ).toMatchObject({ status: "pass" });
     const serializedReport = JSON.stringify(report);
@@ -944,6 +969,13 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         unrelatedDistributionArn,
       ],
     ]);
+    const cloudTrailCall = calls.find(
+      (args) => args.slice(0, 2).join(" ") === "cloudtrail lookup-events",
+    );
+    expect(cloudTrailCall).toEqual(
+      expect.arrayContaining(["--max-items", "50"]),
+    );
+    expect(cloudTrailCall).not.toContain("--max-results");
     expect(
       calls.filter(
         (args) =>
