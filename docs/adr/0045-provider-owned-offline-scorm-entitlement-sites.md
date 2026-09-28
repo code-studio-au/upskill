@@ -176,10 +176,11 @@ remain unowned and cannot be claimed by this workflow. No route, deployment
 mode or learner activation path is added by this increment.
 
 The dormant worker now also owns distribution retirement. An active
-distribution remains available while cleanup is pending or actively clearing;
-terminal cleanup evidence, a recorded cleanup failure requiring attention, or
-an entitlement that has been replaced or hard-revoked promotes the allocation
-to `disabling` under row locks. The worker invokes the exact entitlement and
+distribution remains available while cleanup is pending, actively clearing or
+waiting for an explicit cleanup retry; confirmed cleanup, or an entitlement
+that has been replaced or hard-revoked, promotes the allocation to `disabling`
+under row locks. Exhausted activation work is also promoted to retirement if
+its activation authority is later lost. The worker invokes the exact entitlement and
 distribution binding, waits without consuming the failure budget while
 CloudFront deploys the disabled configuration, records `deletion_pending`, and
 requires a subsequent idempotent absence confirmation before recording

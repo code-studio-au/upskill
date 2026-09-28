@@ -1583,10 +1583,47 @@ try {
     })
     .where("id", "=", ids.cleanup)
     .executeTakeFirstOrThrow();
-  assert.deepEqual(
+  assert.equal(
     await processNextOfflineScormCloudFrontAllocation(provider, {
       database,
       now: () => cleanupNeedsAttentionAt,
+    }),
+    undefined,
+    "A retryable cleanup failure must retain its active distribution",
+  );
+  const cleanupRetryAt = new Date("2030-02-02T01:10:01.000Z");
+  await database
+    .updateTable("offline_scorm_cleanup_inventory")
+    .set({
+      state: "clearing",
+      lastErrorCode: null,
+      updatedAt: cleanupRetryAt,
+    })
+    .where("id", "=", ids.cleanup)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    await processNextOfflineScormCloudFrontAllocation(provider, {
+      database,
+      now: () => cleanupRetryAt,
+    }),
+    undefined,
+    "A cleanup retry must retain its active distribution",
+  );
+  const cleanupClearedAt = new Date("2030-02-02T01:10:02.000Z");
+  await database
+    .updateTable("offline_scorm_cleanup_inventory")
+    .set({
+      state: "cleared",
+      clearedAt: cleanupClearedAt,
+      cleanupReceiptSha256: "3".repeat(64),
+      updatedAt: cleanupClearedAt,
+    })
+    .where("id", "=", ids.cleanup)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await processNextOfflineScormCloudFrontAllocation(provider, {
+      database,
+      now: () => cleanupClearedAt,
     }),
     {
       status: "retirement_requested",
@@ -1598,7 +1635,7 @@ try {
   assert.deepEqual(
     await processNextOfflineScormCloudFrontAllocation(provider, {
       database,
-      now: () => cleanupNeedsAttentionAt,
+      now: () => cleanupClearedAt,
     }),
     {
       status: "needs_attention",
@@ -1610,14 +1647,14 @@ try {
   assert.equal(
     await processNextOfflineScormCloudFrontAllocation(provider, {
       database,
-      now: () => new Date("2030-02-02T01:10:29.999Z"),
+      now: () => new Date("2030-02-02T01:10:31.999Z"),
     }),
     undefined,
   );
   assert.deepEqual(
     await processNextOfflineScormCloudFrontAllocation(provider, {
       database,
-      now: () => new Date("2030-02-02T01:10:30.000Z"),
+      now: () => new Date("2030-02-02T01:10:32.000Z"),
     }),
     {
       status: "waiting",
@@ -1628,7 +1665,7 @@ try {
   assert.deepEqual(
     await processNextOfflineScormCloudFrontAllocation(provider, {
       database,
-      now: () => new Date("2030-02-02T01:11:00.000Z"),
+      now: () => new Date("2030-02-02T01:11:02.000Z"),
     }),
     {
       status: "waiting",
@@ -1639,7 +1676,7 @@ try {
   assert.deepEqual(
     await processNextOfflineScormCloudFrontAllocation(provider, {
       database,
-      now: () => new Date("2030-02-02T01:11:30.000Z"),
+      now: () => new Date("2030-02-02T01:11:32.000Z"),
     }),
     {
       status: "deletion_pending",
@@ -1650,7 +1687,7 @@ try {
   assert.deepEqual(
     await processNextOfflineScormCloudFrontAllocation(provider, {
       database,
-      now: () => new Date("2030-02-02T01:11:30.001Z"),
+      now: () => new Date("2030-02-02T01:11:32.001Z"),
     }),
     {
       status: "deleted",
@@ -1674,10 +1711,10 @@ try {
     {
       state: "deleted",
       attempts: 0,
-      disableRequestedAt: cleanupNeedsAttentionAt,
-      disabledAt: new Date("2030-02-02T01:11:30.000Z"),
-      deletionRequestedAt: new Date("2030-02-02T01:11:30.000Z"),
-      deletedAt: new Date("2030-02-02T01:11:30.001Z"),
+      disableRequestedAt: cleanupClearedAt,
+      disabledAt: new Date("2030-02-02T01:11:32.000Z"),
+      deletionRequestedAt: new Date("2030-02-02T01:11:32.000Z"),
+      deletedAt: new Date("2030-02-02T01:11:32.001Z"),
     },
   );
 
@@ -1813,6 +1850,55 @@ try {
     .deleteFrom("offline_scorm_cloudfront_allocation")
     .where("entitlementId", "=", ids.entitlement)
     .execute();
+
+  const exhaustedActivationAt = new Date("2030-02-02T01:50:00.000Z");
+  const exhaustedActivationOrigin = "https://d8888888888888.cloudfront.net";
+  await replaceCleanupInventory(exhaustedActivationOrigin);
+  await insertCloudFrontAllocation(ids.entitlement, exhaustedActivationAt);
+  await database
+    .updateTable("offline_scorm_cloudfront_allocation")
+    .set({
+      state: "binding_pending",
+      distributionId: "E8888888888888",
+      distributionDomain: "d8888888888888.cloudfront.net",
+      boundAt: exhaustedActivationAt,
+      updatedAt: exhaustedActivationAt,
+    })
+    .where("entitlementId", "=", ids.entitlement)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("offline_scorm_cloudfront_allocation")
+    .set({
+      state: "enabling",
+      enableRequestedAt: exhaustedActivationAt,
+      updatedAt: exhaustedActivationAt,
+    })
+    .where("entitlementId", "=", ids.entitlement)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("offline_scorm_cloudfront_allocation")
+    .set({
+      state: "needs_attention",
+      recoveryState: "enabling",
+      lastErrorCode: "allocator_attempts_exhausted",
+      attempts: 10,
+      updatedAt: exhaustedActivationAt,
+    })
+    .where("entitlementId", "=", ids.entitlement)
+    .executeTakeFirstOrThrow();
+  const exhaustedActivationProvider: OfflineScormCloudFrontProvider = {
+    allocate: () => Promise.reject(new Error("allocation must not be called")),
+    activate: () => Promise.reject(new Error("activation must not be called")),
+    retire: () => Promise.reject(new Error("retirement must not be called")),
+  };
+  assert.equal(
+    await processNextOfflineScormCloudFrontAllocation(
+      exhaustedActivationProvider,
+      { database, now: () => exhaustedActivationAt },
+    ),
+    undefined,
+    "Exhausted activation must remain recoverable while authority is intact",
+  );
 
   const retryStartedAt = new Date("2030-02-02T02:00:00.000Z");
   await database
@@ -2152,6 +2238,30 @@ try {
       .where("id", "=", ids.installation)
       .execute();
   });
+  assert.deepEqual(
+    await processNextOfflineScormCloudFrontAllocation(
+      exhaustedActivationProvider,
+      { database, now: () => replacedAt },
+    ),
+    {
+      status: "retirement_requested",
+      entitlementId: ids.entitlement,
+      operation: "enabling",
+      reasonCode: "activation_authority_absent",
+    },
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("offline_scorm_cloudfront_allocation")
+      .select(["state", "attempts", "disableRequestedAt"])
+      .where("entitlementId", "=", ids.entitlement)
+      .executeTakeFirstOrThrow(),
+    {
+      state: "disabling",
+      attempts: 0,
+      disableRequestedAt: replacedAt,
+    },
+  );
   await assert.rejects(
     database
       .updateTable("offline_learning_entitlement")
