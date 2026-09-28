@@ -31,14 +31,19 @@ pnpm run qualify:offline-scorm:cloudfront -- \
 Store the JSON output with the qualification record. It verifies the direct
 origin parameter and deployed-distribution binding, staging risk
 acknowledgement, WAF ownership/binding, mandatory rules, safe log filtering and
-redaction, 30-day WAF retention, confirmed alarm subscriptions, enabled regional alarm
-actions targeting their expected topics, distribution-cap markers,
-service-quota headroom and recent CloudFront control-plane mutations.
+redaction, WAF metric publication, 30-day WAF retention, confirmed alarm
+subscriptions, exact alarm metrics/evaluation/actions, per-distribution
+entitlement-specific access logging, distribution-cap markers, service-quota
+headroom and recent CloudFront control-plane mutations.
 
 The report intentionally includes only a small CloudTrail mutation summary:
 event name/time, read-only status, error code and service identity type. It
 never emits CloudTrail request parameters, headers, cookies, query strings,
 source IP addresses or user ARNs.
+
+The per-distribution configuration read includes the protected origin headers.
+The harness evaluates that response only in memory and never serializes the
+configuration or header values into the report.
 
 ## Interpreting results
 

@@ -4,7 +4,8 @@ import {
   classifyQualificationDistributions,
   collectCloudFrontQualificationReport,
   evaluateQuotaHeadroom,
-  haveExpectedAlarmActions,
+  haveExpectedAlarmConfigurations,
+  haveExpectedDistributionLogging,
   haveExpectedDistributionOrigins,
   hasExpectedWafLoggingBaseline,
   hasExpectedWebAclBaseline,
@@ -25,11 +26,20 @@ const edgeAlarmTopicArn = "arn:aws:sns:us-east-1:123456789012:edge-alarms";
 const allocatorAlarmTopicArn =
   "arn:aws:sns:ap-southeast-2:123456789012:operational-alarms";
 const wafLogGroupName = "aws-waf-logs-upskill-staging-offline-scorm-cloudfront";
+const logBucketDomain = "upskill-edge-logs.s3.amazonaws.com";
+const distributionId = "E1234567890ABC";
+const entitlementDigest = "a".repeat(32);
+const distributionComment = `upskill:staging:offline-scorm:${entitlementDigest}`;
 
 function expectedWebAcl() {
   return {
     ARN: webAclArn,
     DefaultAction: { Allow: {} },
+    VisibilityConfig: {
+      CloudWatchMetricsEnabled: true,
+      MetricName: "upskill-staging-offline-scorm-all",
+      SampledRequestsEnabled: true,
+    },
     Rules: [
       {
         Name: "aws-managed-ip-reputation",
@@ -67,6 +77,99 @@ function expectedWebAcl() {
       },
     ],
   };
+}
+
+function expectedDistributionConfiguration() {
+  return {
+    Comment: distributionComment,
+    DefaultCacheBehavior: {
+      TargetOriginId: "upskill-offline-package-host",
+    },
+    Logging: {
+      Bucket: logBucketDomain,
+      Enabled: true,
+      IncludeCookies: false,
+      Prefix: `offline-scorm/staging/${entitlementDigest}/`,
+    },
+    Origins: {
+      Quantity: 1,
+      Items: [
+        {
+          DomainName: options.expectedOriginDomain,
+          Id: "upskill-offline-package-host",
+        },
+      ],
+    },
+    WebACLId: webAclArn,
+  };
+}
+
+function expectedAlarmConfigurations() {
+  const defaults = {
+    ActionsEnabled: true,
+    ComparisonOperator: "GreaterThanOrEqualToThreshold",
+    EvaluationPeriods: 1,
+    Period: 300,
+    Statistic: "Sum",
+    TreatMissingData: "notBreaching",
+  };
+  return [
+    {
+      ...defaults,
+      AlarmActions: [edgeAlarmTopicArn],
+      AlarmName: "edge",
+      Dimensions: [
+        { Name: "Rule", Value: "ALL" },
+        { Name: "Region", Value: "Global" },
+      ],
+      MetricName: "BlockedRequests",
+      Namespace: "AWS/WAFV2",
+      Threshold: 100,
+    },
+    {
+      ...defaults,
+      AlarmActions: [allocatorAlarmTopicArn],
+      AlarmName: "allocator",
+      Dimensions: [{ Name: "FunctionName", Value: "allocator" }],
+      MetricName: "Errors",
+      Namespace: "AWS/Lambda",
+      Threshold: 1,
+    },
+  ];
+}
+
+function expectedAlarmDefinitions() {
+  return [
+    {
+      actionArn: edgeAlarmTopicArn,
+      alarmName: "edge",
+      comparisonOperator: "GreaterThanOrEqualToThreshold",
+      dimensions: [
+        { Name: "Region", Value: "Global" },
+        { Name: "Rule", Value: "ALL" },
+      ],
+      evaluationPeriods: 1,
+      metricName: "BlockedRequests",
+      namespace: "AWS/WAFV2",
+      period: 300,
+      statistic: "Sum",
+      threshold: 100,
+      treatMissingData: "notBreaching",
+    },
+    {
+      actionArn: allocatorAlarmTopicArn,
+      alarmName: "allocator",
+      comparisonOperator: "GreaterThanOrEqualToThreshold",
+      dimensions: [{ Name: "FunctionName", Value: "allocator" }],
+      evaluationPeriods: 1,
+      metricName: "Errors",
+      namespace: "AWS/Lambda",
+      period: 300,
+      statistic: "Sum",
+      threshold: 1,
+      treatMissingData: "notBreaching",
+    },
+  ];
 }
 
 function expectedWafLoggingConfiguration() {
@@ -179,61 +282,47 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     ]);
   });
 
-  it("requires every alarm action to be enabled and target the expected topic", () => {
-    const expectedActions = [
-      { alarmName: "edge", actionArn: edgeAlarmTopicArn },
-      { alarmName: "allocator", actionArn: allocatorAlarmTopicArn },
-    ];
-    const alarms = [
-      {
-        AlarmName: "edge",
-        ActionsEnabled: true,
-        AlarmActions: [edgeAlarmTopicArn],
-      },
-      {
-        AlarmName: "allocator",
-        ActionsEnabled: true,
-        AlarmActions: [allocatorAlarmTopicArn],
-      },
-    ];
-    expect(haveExpectedAlarmActions(alarms, expectedActions)).toBe(true);
+  it("requires every alarm to match its metric, evaluation and notification baseline", () => {
+    const expectedDefinitions = expectedAlarmDefinitions();
+    const alarms = expectedAlarmConfigurations();
+    expect(haveExpectedAlarmConfigurations(alarms, expectedDefinitions)).toBe(
+      true,
+    );
     expect(
-      haveExpectedAlarmActions(
+      haveExpectedAlarmConfigurations(
         alarms.map((alarm) =>
           alarm.AlarmName === "edge"
             ? { ...alarm, ActionsEnabled: false }
             : alarm,
         ),
-        expectedActions,
+        expectedDefinitions,
       ),
     ).toBe(false);
-    expect(
-      haveExpectedAlarmActions(
-        alarms.map((alarm) =>
-          alarm.AlarmName === "allocator"
-            ? { ...alarm, AlarmActions: [edgeAlarmTopicArn] }
-            : alarm,
+    for (const drift of [
+      { AlarmActions: [edgeAlarmTopicArn] },
+      { Namespace: "Unrelated/Namespace" },
+      { MetricName: "Invocations" },
+      { Dimensions: [{ Name: "FunctionName", Value: "another-function" }] },
+      { Period: 60 },
+      { Statistic: "Average" },
+      { Threshold: 100 },
+      { ComparisonOperator: "LessThanThreshold" },
+      { EvaluationPeriods: 5 },
+      { TreatMissingData: "missing" },
+    ]) {
+      expect(
+        haveExpectedAlarmConfigurations(
+          alarms.map((alarm) =>
+            alarm.AlarmName === "allocator" ? { ...alarm, ...drift } : alarm,
+          ),
+          expectedDefinitions,
         ),
-        expectedActions,
-      ),
-    ).toBe(false);
+      ).toBe(false);
+    }
   });
 
   it("requires every owned distribution to target only the direct package origin", () => {
-    const distribution = {
-      DefaultCacheBehavior: {
-        TargetOriginId: "upskill-offline-package-host",
-      },
-      Origins: {
-        Quantity: 1,
-        Items: [
-          {
-            DomainName: options.expectedOriginDomain,
-            Id: "upskill-offline-package-host",
-          },
-        ],
-      },
-    };
+    const distribution = expectedDistributionConfiguration();
     expect(
       haveExpectedDistributionOrigins(
         [distribution],
@@ -261,35 +350,89 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     ).toBe(false);
   });
 
+  it("requires entitlement-specific access logging on every owned distribution", () => {
+    const configuration = expectedDistributionConfiguration();
+    const distributions = [
+      { configuration, inventoryComment: distributionComment },
+    ];
+    expect(
+      haveExpectedDistributionLogging(
+        distributions,
+        options.environment,
+        logBucketDomain,
+      ),
+    ).toBe(true);
+    for (const loggingDrift of [
+      { Enabled: false },
+      { IncludeCookies: true },
+      { Bucket: "redirected-logs.s3.amazonaws.com" },
+      { Prefix: "offline-scorm/staging/another-package/" },
+    ]) {
+      expect(
+        haveExpectedDistributionLogging(
+          [
+            {
+              configuration: {
+                ...configuration,
+                Logging: { ...configuration.Logging, ...loggingDrift },
+              },
+              inventoryComment: distributionComment,
+            },
+          ],
+          options.environment,
+          logBucketDomain,
+        ),
+      ).toBe(false);
+    }
+  });
+
   it("requires the complete deployed WAF security baseline", () => {
     const webAcl = expectedWebAcl();
-    expect(hasExpectedWebAclBaseline(webAcl)).toBe(true);
+    expect(hasExpectedWebAclBaseline(webAcl, options.environment)).toBe(true);
     expect(
-      hasExpectedWebAclBaseline({
-        ...webAcl,
-        Rules: webAcl.Rules.map((rule) =>
-          rule.Name === "per-ip-request-rate"
-            ? {
-                ...rule,
-                Statement: {
-                  RateBasedStatement: {
-                    AggregateKeyType: "IP",
-                    EvaluationWindowSec: 300,
-                    Limit: 4_000,
+      hasExpectedWebAclBaseline(
+        {
+          ...webAcl,
+          Rules: webAcl.Rules.map((rule) =>
+            rule.Name === "per-ip-request-rate"
+              ? {
+                  ...rule,
+                  Statement: {
+                    RateBasedStatement: {
+                      AggregateKeyType: "IP",
+                      EvaluationWindowSec: 300,
+                      Limit: 4_000,
+                    },
                   },
-                },
-              }
-            : rule,
-        ),
-      }),
+                }
+              : rule,
+          ),
+        },
+        options.environment,
+      ),
     ).toBe(false);
     expect(
-      hasExpectedWebAclBaseline({
-        ...webAcl,
-        Rules: webAcl.Rules.filter(
-          (rule) => rule.Name !== "aws-managed-ip-reputation",
-        ),
-      }),
+      hasExpectedWebAclBaseline(
+        {
+          ...webAcl,
+          Rules: webAcl.Rules.filter(
+            (rule) => rule.Name !== "aws-managed-ip-reputation",
+          ),
+        },
+        options.environment,
+      ),
+    ).toBe(false);
+    expect(
+      hasExpectedWebAclBaseline(
+        {
+          ...webAcl,
+          VisibilityConfig: {
+            ...webAcl.VisibilityConfig,
+            CloudWatchMetricsEnabled: false,
+          },
+        },
+        options.environment,
+      ),
     ).toBe(false);
   });
 
@@ -356,6 +499,10 @@ describe("Offline SCORM CloudFront qualification harness", () => {
                 OutputKey: "OfflineScormEdgeLogBucketArn",
                 OutputValue: "arn:aws:s3:::upskill-edge-logs",
               },
+              {
+                OutputKey: "OfflineScormEdgeLogBucketDomain",
+                OutputValue: logBucketDomain,
+              },
             ]
           : [
               {
@@ -382,7 +529,14 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       if (command === "ssm get-parameter")
         return { Parameter: { Value: options.expectedOriginDomain } };
       if (command === "cloudfront list-distributions")
-        return { DistributionList: { Items: [], Quantity: 0 } };
+        return {
+          DistributionList: {
+            Items: [{ Comment: distributionComment, Id: distributionId }],
+            Quantity: 1,
+          },
+        };
+      if (command === "cloudfront get-distribution-config")
+        return { DistributionConfig: expectedDistributionConfiguration() };
       if (command === "service-quotas get-service-quota")
         throw new AwsCliError("not found", "NoSuchResourceException");
       if (command === "service-quotas get-aws-default-service-quota")
@@ -429,11 +583,36 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         return {
           MetricAlarms: args
             .slice(args.indexOf("--alarm-names") + 1, args.indexOf("--region"))
-            .map((AlarmName) => ({
-              ActionsEnabled: true,
-              AlarmActions: [actionArn],
-              AlarmName,
-            })),
+            .map((AlarmName) => {
+              const isEdge = region === "us-east-1";
+              return {
+                ActionsEnabled: true,
+                AlarmActions: [actionArn],
+                AlarmName,
+                ComparisonOperator: "GreaterThanOrEqualToThreshold",
+                Dimensions: isEdge
+                  ? [
+                      { Name: "Region", Value: "Global" },
+                      { Name: "Rule", Value: "ALL" },
+                      {
+                        Name: "WebACL",
+                        Value: "upskill-staging-offline-scorm-cloudfront",
+                      },
+                    ]
+                  : [{ Name: "FunctionName", Value: "allocator" }],
+                EvaluationPeriods: 1,
+                MetricName: isEdge
+                  ? "BlockedRequests"
+                  : AlarmName.endsWith("-errors")
+                    ? "Errors"
+                    : "Throttles",
+                Namespace: isEdge ? "AWS/WAFV2" : "AWS/Lambda",
+                Period: 300,
+                Statistic: "Sum",
+                Threshold: isEdge ? 100 : 1,
+                TreatMissingData: "notBreaching",
+              };
+            }),
         };
       }
       if (command === "cloudtrail lookup-events") return { Events: [] };
@@ -458,11 +637,22 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     expect(report.checks.find((check) => check.id === "alarms")).toMatchObject({
       status: "pass",
     });
+    expect(
+      report.checks.find((check) => check.id === "distribution-access-logging"),
+    ).toMatchObject({ status: "pass" });
     const alarmRegions = calls
       .filter(
         (args) => args.slice(0, 2).join(" ") === "cloudwatch describe-alarms",
       )
       .map((args) => args[args.indexOf("--region") + 1]);
     expect(alarmRegions).toEqual(["us-east-1", options.applicationRegion]);
+    expect(
+      calls.filter(
+        (args) =>
+          args.slice(0, 2).join(" ") === "cloudfront get-distribution-config",
+      ),
+    ).toEqual([
+      ["cloudfront", "get-distribution-config", "--id", distributionId],
+    ]);
   });
 });

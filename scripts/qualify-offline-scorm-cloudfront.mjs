@@ -10,6 +10,7 @@ const APPLICATION_REGION = "ap-southeast-2";
 const CLOUDFRONT_ORIGIN_DOMAIN =
   /^(?=.{3,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
 const ACCOUNT_ID = /^[0-9]{12}$/u;
+const CLOUDFRONT_DISTRIBUTION_ID = /^[A-Z0-9]{8,32}$/u;
 const CLOUDFRONT_WEB_ACL_ARN =
   /^arn:[a-z0-9-]+:wafv2:us-east-1:[0-9]{12}:global\/webacl\/([A-Za-z0-9_-]{1,128})\/([A-Za-z0-9-]{36})$/u;
 const MUTATING_CLOUDFRONT_EVENTS = new Set([
@@ -197,17 +198,55 @@ export function summarizeCloudTrailEvents(events) {
     });
 }
 
-export function haveExpectedAlarmActions(alarms, expectedActions) {
+export function haveExpectedAlarmConfigurations(alarms, expectedAlarms) {
   if (!Array.isArray(alarms)) return false;
   const alarmsByName = new Map(alarms.map((alarm) => [alarm.AlarmName, alarm]));
-  return expectedActions.every(({ alarmName, actionArn }) => {
+  return expectedAlarms.every((expected) => {
+    const {
+      actionArn,
+      alarmName,
+      comparisonOperator,
+      dimensions,
+      evaluationPeriods,
+      metricName,
+      namespace,
+      period,
+      statistic,
+      threshold,
+      treatMissingData,
+    } = expected;
     const alarm = alarmsByName.get(alarmName);
     return (
       alarm?.ActionsEnabled === true &&
       Array.isArray(alarm.AlarmActions) &&
-      alarm.AlarmActions.includes(actionArn)
+      alarm.AlarmActions.length === 1 &&
+      alarm.AlarmActions[0] === actionArn &&
+      alarm.Namespace === namespace &&
+      alarm.MetricName === metricName &&
+      haveExpectedDimensions(alarm.Dimensions, dimensions) &&
+      alarm.Period === period &&
+      alarm.Statistic === statistic &&
+      alarm.Threshold === threshold &&
+      alarm.ComparisonOperator === comparisonOperator &&
+      alarm.EvaluationPeriods === evaluationPeriods &&
+      alarm.TreatMissingData === treatMissingData
     );
   });
+}
+
+function haveExpectedDimensions(actual, expected) {
+  if (
+    !Array.isArray(actual) ||
+    !Array.isArray(expected) ||
+    actual.length !== expected.length
+  )
+    return false;
+  const actualDimensions = new Map(
+    actual.map((dimension) => [dimension.Name, dimension.Value]),
+  );
+  return expected.every(
+    (dimension) => actualDimensions.get(dimension.Name) === dimension.Value,
+  );
 }
 
 export function haveExpectedDistributionOrigins(
@@ -216,7 +255,7 @@ export function haveExpectedDistributionOrigins(
 ) {
   if (!Array.isArray(distributions)) return false;
   return distributions.every((distribution) => {
-    const origins = distribution.Origins;
+    const origins = distribution?.Origins;
     const originItems = origins?.Items;
     return (
       origins?.Quantity === 1 &&
@@ -224,10 +263,38 @@ export function haveExpectedDistributionOrigins(
       originItems.length === 1 &&
       originItems[0]?.Id === "upskill-offline-package-host" &&
       originItems[0]?.DomainName === expectedOriginDomain &&
-      distribution.DefaultCacheBehavior?.TargetOriginId ===
+      distribution?.DefaultCacheBehavior?.TargetOriginId ===
         "upskill-offline-package-host"
     );
   });
+}
+
+export function haveExpectedDistributionLogging(
+  distributionConfigurations,
+  environment,
+  expectedLogBucketDomain,
+) {
+  if (!Array.isArray(distributionConfigurations)) return false;
+  const markerPrefix = `upskill:${environment}:offline-scorm:`;
+  return distributionConfigurations.every(
+    ({ inventoryComment, configuration }) => {
+      if (
+        typeof inventoryComment !== "string" ||
+        configuration?.Comment !== inventoryComment ||
+        !inventoryComment.startsWith(markerPrefix)
+      )
+        return false;
+      const entitlementDigest = inventoryComment.slice(markerPrefix.length);
+      if (!/^[a-f0-9]{32}$/u.test(entitlementDigest)) return false;
+      return (
+        configuration.Logging?.Enabled === true &&
+        configuration.Logging.IncludeCookies === false &&
+        configuration.Logging.Bucket === expectedLogBucketDomain &&
+        configuration.Logging.Prefix ===
+          `offline-scorm/${environment}/${entitlementDigest}/`
+      );
+    },
+  );
 }
 
 function hasOnlyEmptyAction(action, expectedAction) {
@@ -243,8 +310,16 @@ function hasOnlyEmptyAction(action, expectedAction) {
   );
 }
 
-export function hasExpectedWebAclBaseline(webAcl) {
+export function hasExpectedWebAclBaseline(webAcl, environment) {
   if (!hasOnlyEmptyAction(webAcl?.DefaultAction, "Allow")) return false;
+  if (
+    !isDeepStrictEqual(webAcl?.VisibilityConfig, {
+      CloudWatchMetricsEnabled: true,
+      MetricName: `upskill-${environment}-offline-scorm-all`,
+      SampledRequestsEnabled: true,
+    })
+  )
+    return false;
   if (!Array.isArray(webAcl?.Rules) || webAcl.Rules.length !== 3) return false;
   const rules = new Map(webAcl.Rules.map((rule) => [rule.Name, rule]));
   const ipReputation = rules.get("aws-managed-ip-reputation");
@@ -481,6 +556,14 @@ export async function collectCloudFrontQualificationReport(
     "OfflineScormEdgeLogBucketArn",
     appStackName,
   );
+  const logBucketDomain = requiredOutput(
+    applicationOutputs,
+    "OfflineScormEdgeLogBucketDomain",
+    appStackName,
+  );
+  const allocatorFunctionName = applicationOutputs.get(
+    "OfflineScormCloudFrontAllocatorFunctionName",
+  );
   const originDomain = requiredValue(
     originParameter.Parameter?.Value,
     "CloudFront origin domain parameter is unavailable",
@@ -515,6 +598,28 @@ export async function collectCloudFrontQualificationReport(
     qualificationCap,
     totalDistributionCount,
   });
+  const ownedDistributionConfigurations = await Promise.all(
+    owned.map(async (distribution) => {
+      if (
+        typeof distribution.Id !== "string" ||
+        !CLOUDFRONT_DISTRIBUTION_ID.test(distribution.Id)
+      )
+        throw new Error("Owned CloudFront distribution ID is invalid");
+      const response = await runAws([
+        "cloudfront",
+        "get-distribution-config",
+        "--id",
+        distribution.Id,
+      ]);
+      return {
+        configuration: response.DistributionConfig,
+        inventoryComment: distribution.Comment,
+      };
+    }),
+  );
+  const currentOwnedConfigurations = ownedDistributionConfigurations.map(
+    ({ configuration }) => configuration,
+  );
 
   const startTime = new Date(
     Date.parse(generatedAt) - options.lookbackHours * 60 * 60 * 1_000,
@@ -654,8 +759,8 @@ export async function collectCloudFrontQualificationReport(
     checks,
     "web-acl",
     webAcl.WebACL?.ARN === webAclArn &&
-      hasExpectedWebAclBaseline(webAcl.WebACL),
-    "CloudFront-scoped WAF matches the mandatory default action and managed, count-only and rate-blocking rules",
+      hasExpectedWebAclBaseline(webAcl.WebACL, options.environment),
+    "CloudFront-scoped WAF matches the mandatory rules and emits the aggregate metric used by the edge alarm",
   );
   const tags = new Map(
     (webAclTags.TagInfoForResource?.TagList ?? []).map((tag) => [
@@ -705,31 +810,57 @@ export async function collectCloudFrontQualificationReport(
     ),
     "Allocator alarm topic has a confirmed email subscription",
   );
-  const expectedAlarmActions = [
+  const alarmDefaults = {
+    comparisonOperator: "GreaterThanOrEqualToThreshold",
+    evaluationPeriods: 1,
+    period: 300,
+    statistic: "Sum",
+    treatMissingData: "notBreaching",
+  };
+  const expectedAlarmConfigurations = [
     {
+      ...alarmDefaults,
       alarmName: `upskill-${options.environment}-offline-scorm-waf-blocked-requests`,
       actionArn: edgeAlarmTopicArn,
+      dimensions: [
+        { Name: "Region", Value: "Global" },
+        { Name: "Rule", Value: "ALL" },
+        { Name: "WebACL", Value: webAclName },
+      ],
+      metricName: "BlockedRequests",
+      namespace: "AWS/WAFV2",
+      threshold: 100,
     },
     {
+      ...alarmDefaults,
       alarmName: `upskill-${options.environment}-offline-scorm-cloudfront-allocator-errors`,
       actionArn: allocatorAlarmTopicArn,
+      dimensions: [{ Name: "FunctionName", Value: allocatorFunctionName }],
+      metricName: "Errors",
+      namespace: "AWS/Lambda",
+      threshold: 1,
     },
     {
+      ...alarmDefaults,
       alarmName: `upskill-${options.environment}-offline-scorm-cloudfront-allocator-throttles`,
       actionArn: allocatorAlarmTopicArn,
+      dimensions: [{ Name: "FunctionName", Value: allocatorFunctionName }],
+      metricName: "Throttles",
+      namespace: "AWS/Lambda",
+      threshold: 1,
     },
   ];
   addCheck(
     checks,
     "alarms",
-    haveExpectedAlarmActions(
+    haveExpectedAlarmConfigurations(
       [
         ...(edgeAlarms.MetricAlarms ?? []),
         ...(allocatorAlarms.MetricAlarms ?? []),
       ],
-      expectedAlarmActions,
+      expectedAlarmConfigurations,
     ),
-    "WAF and allocator alarms have enabled actions targeting their expected notification topics",
+    "WAF and allocator alarms match their expected metrics, thresholds, evaluation and notification configuration",
   );
   addCheck(
     checks,
@@ -740,14 +871,29 @@ export async function collectCloudFrontQualificationReport(
   addCheck(
     checks,
     "distribution-waf-binding",
-    owned.every((distribution) => distribution.WebACLId === webAclArn),
+    currentOwnedConfigurations.every(
+      (distribution) => distribution?.WebACLId === webAclArn,
+    ),
     "Every owned qualification distribution is bound to the expected WAF",
   );
   addCheck(
     checks,
     "distribution-origin-binding",
-    haveExpectedDistributionOrigins(owned, options.expectedOriginDomain),
+    haveExpectedDistributionOrigins(
+      currentOwnedConfigurations,
+      options.expectedOriginDomain,
+    ),
     "Every owned qualification distribution targets only the expected direct origin",
+  );
+  addCheck(
+    checks,
+    "distribution-access-logging",
+    haveExpectedDistributionLogging(
+      ownedDistributionConfigurations,
+      options.environment,
+      logBucketDomain,
+    ),
+    "Every owned qualification distribution logs without cookies to its entitlement-specific prefix in the expected bucket",
   );
   addCheck(
     checks,
