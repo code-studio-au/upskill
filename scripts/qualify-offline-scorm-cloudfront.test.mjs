@@ -1369,6 +1369,13 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       "cloudfront:*",
       "wafv2:UpdateWebACL",
       "waf*:GetWebACL",
+      "iam:PutRolePolicy",
+      "iam:*",
+      "sts:AssumeRole",
+      "lambda:UpdateFunctionCode",
+      "cloudformation:CreateStack",
+      "ec2:AssociateIamInstanceProfile",
+      "ssm:SendCommand",
     ]) {
       expect(
         evaluate([
@@ -2517,6 +2524,32 @@ describe("Offline SCORM CloudFront qualification harness", () => {
             }),
           })),
         },
+        wafLogGroupArn,
+        options.expectedAccount,
+      ),
+    ).toBe(false);
+    expect(
+      hasExpectedWafLogDeliveryPolicy(
+        {
+          resourcePolicies: [
+            {
+              policyDocument: JSON.stringify({
+                Version: "2008-10-17",
+                Statement: [
+                  {
+                    Effect: "Deny",
+                    Principal: { Service: "delivery.logs.amazonaws.com" },
+                    Action: "logs:PutLogEvents",
+                    Resource: `${wafLogGroupArn}:log-stream:*`,
+                  },
+                ],
+              }),
+              policyName: "legacy-account-deny",
+              policyScope: "ACCOUNT",
+            },
+          ],
+        },
+        logPolicies,
         wafLogGroupArn,
         options.expectedAccount,
       ),

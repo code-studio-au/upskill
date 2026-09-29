@@ -55,6 +55,22 @@ const MUTATING_CLOUDFRONT_EVENTS = new Set([
   "UntagResource",
   "UpdateDistribution",
 ]);
+const PRIVILEGE_ESCALATION_ACTIONS = [
+  "cloudformation:CreateStack",
+  "cloudformation:CreateStackSet",
+  "cloudformation:UpdateStack",
+  "cloudformation:UpdateStackSet",
+  "ec2:AssociateIamInstanceProfile",
+  "ec2:ReplaceIamInstanceProfileAssociation",
+  "ec2:RunInstances",
+  "lambda:AddPermission",
+  "lambda:CreateFunction",
+  "lambda:UpdateFunctionCode",
+  "lambda:UpdateFunctionConfiguration",
+  "ssm:SendCommand",
+  "ssm:StartSession",
+  "sts:AssumeRole",
+];
 
 export class AwsCliError extends Error {
   constructor(message, stderr = "") {
@@ -832,13 +848,18 @@ export function hasExpectedWorkerAllocatorPolicyBoundary(
         actions.some(
           (action) =>
             actionPatternMayTargetService(action, "cloudfront") ||
-            actionPatternMayTargetService(action, "wafv2"),
+            actionPatternMayTargetService(action, "wafv2") ||
+            actionPatternMayTargetService(action, "iam") ||
+            actionPatternMayTargetService(action, "organizations") ||
+            PRIVILEGE_ESCALATION_ACTIONS.some((privilegedAction) =>
+              actionPatternMatches(action, privilegedAction),
+            ),
         )
       )
         return false;
       if (
         actions.some((action) =>
-          actionPatternMatches(action, "lambda:InvokeFunction"),
+          actionPatternMayTargetService(action, "lambda"),
         )
       ) {
         if (!isExactAllocatorInvokeStatement(statement, qualifiedFunctionName))
@@ -1461,6 +1482,7 @@ export function hasExpectedWafLogDeliveryPolicy(
     ...(accountPoliciesResponse?.resourcePolicies ?? []),
     ...(resourcePoliciesResponse?.resourcePolicies ?? []),
   ];
+  let hasUnevaluablePolicy = false;
   const statements = policies.flatMap((resourcePolicy) => {
     if (
       resourcePolicy?.policyScope === "RESOURCE" &&
@@ -1468,8 +1490,10 @@ export function hasExpectedWafLogDeliveryPolicy(
     )
       return [];
     const policy = parsePolicyDocument(resourcePolicy?.policyDocument);
-    if (policy?.Version !== "2012-10-17" || !Array.isArray(policy.Statement))
+    if (policy?.Version !== "2012-10-17" || !Array.isArray(policy.Statement)) {
+      hasUnevaluablePolicy = true;
       return [];
+    }
     return policy.Statement;
   });
   const isExpectedAllow = (statement) => {
@@ -1582,7 +1606,10 @@ export function hasExpectedWafLogDeliveryPolicy(
       !isExpectedAllow(statement),
   );
   return (
-    hasExpectedAllow && !hasApplicableDeny && !hasUnexpectedApplicableAllow
+    !hasUnevaluablePolicy &&
+    hasExpectedAllow &&
+    !hasApplicableDeny &&
+    !hasUnexpectedApplicableAllow
   );
 }
 

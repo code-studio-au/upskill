@@ -76,7 +76,8 @@ permissions boundary, its exact SSM allocator target and effective permission
 to invoke that immutable version, a current healthy `WorkerActive` datapoint
 with the heartbeat alarm in `OK`, the post-restart worker runtime attestation
 for that same target, the absence of direct CloudFront or WAF permissions on the
-worker, the live allocator version and code digest, lack of executable
+worker and IAM, Lambda mutation or equivalent privilege-escalation actions, the
+live allocator version and code digest, lack of executable
 Lambda layers, exact execution role, runtime, environment and reserved
 concurrency,
 the allocator role's Lambda-only trust policy and least-privilege
@@ -91,6 +92,10 @@ administration and CloudWatch policy without an overriding deny, the absence of
 an allocator-version resource policy, distribution-cap markers, service-quota
 headroom and a globally bounded sample of recent CloudFront control-plane
 mutations.
+
+Applicable account- and resource-scoped CloudWatch Logs policies must use the
+supported `2012-10-17` policy language. Qualification fails closed rather than
+discarding a policy whose statements cannot be evaluated.
 
 The deployed cap output must remain the repository qualification baseline of
 25, and quota headroom is calculated from every distribution item aggregated
