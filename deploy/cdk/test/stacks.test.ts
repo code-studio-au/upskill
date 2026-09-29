@@ -1064,6 +1064,25 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
     Type: "String",
     Value: allocatorVersionReference,
   });
+  template.hasResourceProperties("AWS::SSM::Parameter", {
+    Name: "/upskill/staging/offline-scorm/cloudfront-worker-runtime-target",
+    Type: "String",
+    Value: {
+      "Fn::Join": ["", ["pending:", allocatorVersionReference]],
+    },
+  });
+  const ssmParameters = template.findResources("AWS::SSM::Parameter") as Record<
+    string,
+    { Properties?: { Name?: unknown } }
+  >;
+  const workerRuntimeTargetParameterLogicalId = Object.entries(
+    ssmParameters,
+  ).find(
+    ([, resource]) =>
+      resource.Properties?.Name ===
+      "/upskill/staging/offline-scorm/cloudfront-worker-runtime-target",
+  )?.[0];
+  expect(workerRuntimeTargetParameterLogicalId).toBeDefined();
   template.hasResourceProperties("AWS::Lambda::Function", {
     Description: Match.stringLikeRegexp("worker-owned allocator"),
     ReservedConcurrentExecutions: 1,
@@ -1209,6 +1228,10 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
       Effect: "Allow",
       Resource: allocatorVersionReference,
     }),
+  );
+  expect(JSON.stringify(instancePolicies)).toContain("ssm:PutParameter");
+  expect(JSON.stringify(instancePolicies)).toContain(
+    workerRuntimeTargetParameterLogicalId,
   );
   expect(JSON.stringify(instancePolicies)).toContain(
     "OfflineScormCloudFrontOriginKey",

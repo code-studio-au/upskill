@@ -219,6 +219,7 @@ export class ApplicationStack extends Stack {
     );
     const offlineScormCloudFrontOriginDomainParameterName = `/upskill/${props.config.name}/offline-scorm/cloudfront-origin-domain`;
     const offlineScormCloudFrontAllocatorFunctionParameterName = `/upskill/${props.config.name}/offline-scorm/cloudfront-allocator-function-name`;
+    const offlineScormCloudFrontWorkerRuntimeTargetParameterName = `/upskill/${props.config.name}/offline-scorm/cloudfront-worker-runtime-target`;
     if (props.config.offlineScormCloudFrontQualification)
       new StringParameter(this, "OfflineScormCloudFrontOriginDomainParameter", {
         parameterName: offlineScormCloudFrontOriginDomainParameterName,
@@ -736,6 +737,23 @@ UPSKILL_ENV`,
         },
       );
       instance.node.addDependency(allocatorFunctionNameParameter);
+      const workerRuntimeTargetParameter = new StringParameter(
+        this,
+        "OfflineScormCloudFrontWorkerRuntimeTargetParameter",
+        {
+          parameterName: offlineScormCloudFrontWorkerRuntimeTargetParameterName,
+          description:
+            "Allocator version confirmed by the restarted staging worker runtime",
+          stringValue: `pending:${allocatorQualifiedFunctionName}`,
+        },
+      );
+      role.addToPolicy(
+        new PolicyStatement({
+          actions: ["ssm:PutParameter"],
+          resources: [workerRuntimeTargetParameter.parameterArn],
+        }),
+      );
+      instance.node.addDependency(workerRuntimeTargetParameter);
       allocator.addToRolePolicy(
         new PolicyStatement({
           actions: ["s3:GetBucketAcl", "s3:PutBucketAcl"],

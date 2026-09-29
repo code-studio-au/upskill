@@ -15,6 +15,7 @@ import {
   hasExpectedAllocatorConfiguration,
   hasExpectedAllocatorRoleBoundary,
   hasExpectedWorkerAllocatorPolicyBoundary,
+  hasExpectedWorkerRuntimeTarget,
   hasExpectedEdgeAlarmKmsBoundary,
   hasExpectedCloudFrontLogDeliveryAcl,
   hasExpectedLogBucketLifecycle,
@@ -22,6 +23,7 @@ import {
   hasExpectedLogBucketPublicAccessBoundary,
   hasExpectedWorkerInstanceProfile,
   hasNoAllocatorInvocationPolicy,
+  hasNoOriginKeyResourcePolicy,
   haveExpectedAlarmConfigurations,
   haveExpectedDistributionLogging,
   haveExpectedDistributionOwnership,
@@ -1162,7 +1164,15 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         ]),
       ).toBe(false);
     }
-    for (const Action of ["lambda:*", "lambda:Invoke*", "*"]) {
+    for (const Action of [
+      "lambda:*",
+      "lambda:Invoke*",
+      "*",
+      "cloudfront:UpdateDistribution",
+      "cloudfront:*",
+      "wafv2:UpdateWebACL",
+      "waf*:GetWebACL",
+    ]) {
       expect(
         evaluate([
           {
@@ -1205,6 +1215,80 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         responses.policies,
         workerRoleArn,
         allocatorQualifiedFunctionName,
+      ),
+    ).toBe(false);
+  });
+
+  it("requires a post-restart worker attestation for the configured target", () => {
+    const configuredName =
+      "/upskill/staging/offline-scorm/cloudfront-allocator-function-name";
+    const runtimeName =
+      "/upskill/staging/offline-scorm/cloudfront-worker-runtime-target";
+    const configured = {
+      Parameter: {
+        Name: configuredName,
+        Value: allocatorQualifiedFunctionName,
+      },
+    };
+    const runtime = {
+      Parameter: { Name: runtimeName, Value: allocatorQualifiedFunctionName },
+    };
+    expect(
+      hasExpectedWorkerRuntimeTarget(
+        configured,
+        runtime,
+        configuredName,
+        runtimeName,
+        allocatorQualifiedFunctionName,
+      ),
+    ).toBe(true);
+    for (const Value of [
+      `pending:${allocatorQualifiedFunctionName}`,
+      allocatorQualifiedFunctionName.replace(":12", ":11"),
+      allocatorQualifiedFunctionName.replace(":12", ""),
+    ]) {
+      expect(
+        hasExpectedWorkerRuntimeTarget(
+          configured,
+          { Parameter: { ...runtime.Parameter, Value } },
+          configuredName,
+          runtimeName,
+          allocatorQualifiedFunctionName,
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it("requires the origin-key secret to have no resource policy", () => {
+    expect(
+      hasNoOriginKeyResourcePolicy(
+        { ARN: originKeySecretArn },
+        originKeySecretArn,
+      ),
+    ).toBe(true);
+    expect(
+      hasNoOriginKeyResourcePolicy(
+        {
+          ARN: originKeySecretArn,
+          ResourcePolicy: JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [
+              {
+                Action: "secretsmanager:GetSecretValue",
+                Effect: "Allow",
+                Principal: { AWS: "arn:aws:iam::123456789012:role/unapproved" },
+                Resource: "*",
+              },
+            ],
+          }),
+        },
+        originKeySecretArn,
+      ),
+    ).toBe(false);
+    expect(
+      hasNoOriginKeyResourcePolicy(
+        { ARN: originKeySecretArn.replace("123456789012", "999999999999") },
+        originKeySecretArn,
       ),
     ).toBe(false);
   });
@@ -2188,14 +2272,19 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         const parameterName = args[args.indexOf("--name") + 1];
         return {
           Parameter: {
-            Value: parameterName.endsWith("allocator-function-name")
-              ? allocatorQualifiedFunctionName
-              : options.expectedOriginDomain,
+            Name: parameterName,
+            Value:
+              parameterName.endsWith("allocator-function-name") ||
+              parameterName.endsWith("worker-runtime-target")
+                ? allocatorQualifiedFunctionName
+                : options.expectedOriginDomain,
           },
         };
       }
       if (command === "secretsmanager get-secret-value")
         return { SecretString: originKey };
+      if (command === "secretsmanager get-resource-policy")
+        return { ARN: originKeySecretArn };
       if (command === "cloudfront list-distributions")
         return {
           DistributionList: {
@@ -2400,6 +2489,9 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     ).toMatchObject({ status: "pass" });
     expect(
       report.checks.find((check) => check.id === "allocator-target"),
+    ).toMatchObject({ status: "pass" });
+    expect(
+      report.checks.find((check) => check.id === "origin-key-resource-policy"),
     ).toMatchObject({ status: "pass" });
     expect(
       report.checks.find((check) => check.id === "allocator-role-boundary"),
@@ -2689,6 +2781,21 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       [
         "secretsmanager",
         "get-secret-value",
+        "--secret-id",
+        originKeySecretArn,
+        "--region",
+        options.applicationRegion,
+      ],
+    ]);
+    expect(
+      calls.filter(
+        (args) =>
+          args.slice(0, 2).join(" ") === "secretsmanager get-resource-policy",
+      ),
+    ).toEqual([
+      [
+        "secretsmanager",
+        "get-resource-policy",
         "--secret-id",
         originKeySecretArn,
         "--region",

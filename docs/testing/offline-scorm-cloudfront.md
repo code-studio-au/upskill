@@ -8,15 +8,17 @@ distribution, invoke the allocator, alter a WAF rule, or write to AWS.
 
 - AWS CLI credentials for the staging account.
 - Read access to the staging CloudFront origin-key secret; its value is used
-  only in memory and is never included in the qualification report.
+  only in memory and is never included in the qualification report. Read its
+  resource policy as well so any resource-based access grant is rejected.
 - Read access to the allocator Lambda version configuration, resource policy
   and reserved concurrency, its IAM role/trust/managed and inline policies,
-  both Offline SCORM SSM parameters, the storage stack resources, and the
+  all three Offline SCORM SSM parameters, the storage stack resources, and the
   CloudFront access-log bucket ACL, public-access block, policy status, policy
   document and lifecycle. The operator must also be able to inspect the
   application instance's current IAM instance profile, inspect all managed and
   inline policies on that deployed worker role, and simulate its permission to
-  invoke the exact allocator version.
+  invoke the exact allocator version. Read the post-restart worker runtime
+  target parameter written only after the deployed worker passes readiness.
 - Read access to the edge SNS topic attributes and deployment-owned KMS key
   metadata and policy so the key's enabled state and CloudWatch alarm
   publication path can be qualified. The shared operational topic attributes
@@ -58,7 +60,9 @@ dedicated Web ACL binding,
 entitlement-bound protected origin headers, HTTPS-only TLS 1.2 origin
 transport, the live instance-profile binding to the worker role, the worker's
 exact SSM allocator target and effective permission to invoke that immutable
-version, the live allocator version and code digest, lack of executable Lambda
+version, the post-restart worker runtime attestation for that same target, the
+absence of direct CloudFront or WAF permissions on the worker, the live
+allocator version and code digest, lack of executable Lambda
 layers, exact execution role, runtime, environment and reserved concurrency,
 the allocator role's Lambda-only trust policy and least-privilege
 managed/inline permission boundary, the worker role's exact managed-policy
@@ -97,9 +101,13 @@ therefore remains visible through its deployment-owned WAF binding and fails
 the ownership/configuration checks instead of escaping the inventory.
 
 The application stack publishes an immutable Lambda version, grants the worker
-invoke permission only for that version through its identity policy, and writes
-its qualified ARN to SSM. The harness requires the stack output, worker SSM
-target and exact live version to agree, compares the live package digest with
+invoke permission only for that version through its identity policy, writes
+its qualified ARN to SSM, and resets a separate runtime-attestation parameter
+to a non-qualifying pending value. After refreshing the worker environment and
+successfully restarting the service, the release installer writes the ARN it
+actually loaded to that narrowly scoped attestation parameter. The harness
+requires the stack output, configured target, post-restart runtime target and
+exact live version to agree, compares the live package digest with
 the digest captured by the deployment, and requires that version to have no
 resource-based invocation policy. Updating mutable `$LATEST` cannot change the
 code the worker invokes; deleting and recreating the named function or version
@@ -116,6 +124,7 @@ these additional read-only actions: `cloudformation:ListStackResources`,
 `iam:GetInstanceProfile`, `iam:GetRole`, `iam:ListAttachedRolePolicies`,
 `iam:ListRolePolicies`, `iam:GetRolePolicy`, `iam:SimulatePrincipalPolicy`,
 `kms:DescribeKey`, `kms:GetKeyPolicy`, `lambda:GetPolicy`,
+`secretsmanager:GetResourcePolicy`,
 `sns:GetSubscriptionAttributes`,
 `sns:GetTopicAttributes`, `s3:GetBucketLifecycleConfiguration`,
 `s3:GetBucketPolicy`, `s3:GetBucketPublicAccessBlock`, and

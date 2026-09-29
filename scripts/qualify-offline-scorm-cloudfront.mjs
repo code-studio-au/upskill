@@ -681,6 +681,14 @@ function actionPatternMatches(actionPattern, action) {
   return new RegExp(`^${escaped}$`, "u").test(action.toLowerCase());
 }
 
+function actionPatternMayTargetService(actionPattern, service) {
+  if (typeof actionPattern !== "string") return false;
+  if (actionPattern === "*") return true;
+  const separator = actionPattern.indexOf(":");
+  if (separator < 1) return false;
+  return actionPatternMatches(actionPattern.slice(0, separator), service);
+}
+
 function isExactAllocatorInvokeStatement(statement, qualifiedFunctionName) {
   const actions = Array.isArray(statement?.Action)
     ? statement.Action
@@ -745,6 +753,14 @@ export function hasExpectedWorkerAllocatorPolicyBoundary(
         : [statement.Action];
       if (actions.some((action) => typeof action !== "string")) return false;
       if (
+        actions.some(
+          (action) =>
+            actionPatternMayTargetService(action, "cloudfront") ||
+            actionPatternMayTargetService(action, "wafv2"),
+        )
+      )
+        return false;
+      if (
         actions.some((action) =>
           actionPatternMatches(action, "lambda:InvokeFunction"),
         )
@@ -756,6 +772,31 @@ export function hasExpectedWorkerAllocatorPolicyBoundary(
     }
   }
   return expectedPolicyNames.size === 0 && allocatorInvokeStatements === 1;
+}
+
+export function hasNoOriginKeyResourcePolicy(policyResponse, secretArn) {
+  return (
+    policyResponse?.ARN === secretArn &&
+    (policyResponse.ResourcePolicy === undefined ||
+      policyResponse.ResourcePolicy === null ||
+      policyResponse.ResourcePolicy === "")
+  );
+}
+
+export function hasExpectedWorkerRuntimeTarget(
+  configuredParameter,
+  runtimeParameter,
+  configuredParameterName,
+  runtimeParameterName,
+  qualifiedFunctionName,
+) {
+  return (
+    LAMBDA_VERSION_ARN.test(qualifiedFunctionName ?? "") &&
+    configuredParameter?.Parameter?.Name === configuredParameterName &&
+    configuredParameter.Parameter.Value === qualifiedFunctionName &&
+    runtimeParameter?.Parameter?.Name === runtimeParameterName &&
+    runtimeParameter.Parameter.Value === qualifiedFunctionName
+  );
 }
 
 function workerInstanceProfileBinding(instancesResponse, expectedInstanceId) {
@@ -1437,6 +1478,7 @@ export async function collectCloudFrontQualificationReport(
     storageStackResources,
     originParameter,
     allocatorTargetParameter,
+    workerRuntimeTargetParameter,
     distributions,
     quota,
   ] = await Promise.all([
@@ -1477,6 +1519,14 @@ export async function collectCloudFrontQualificationReport(
       "get-parameter",
       "--name",
       `/upskill/${options.environment}/offline-scorm/cloudfront-allocator-function-name`,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "ssm",
+      "get-parameter",
+      "--name",
+      `/upskill/${options.environment}/offline-scorm/cloudfront-worker-runtime-target`,
       "--region",
       options.applicationRegion,
     ]),
@@ -1609,13 +1659,23 @@ export async function collectCloudFrontQualificationReport(
     originParameter.Parameter?.Value,
     "CloudFront origin domain parameter is unavailable",
   );
-  const originKeySecret = await runAws([
-    "secretsmanager",
-    "get-secret-value",
-    "--secret-id",
-    originKeySecretArn,
-    "--region",
-    options.applicationRegion,
+  const [originKeySecret, originKeySecretPolicy] = await Promise.all([
+    runAws([
+      "secretsmanager",
+      "get-secret-value",
+      "--secret-id",
+      originKeySecretArn,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "secretsmanager",
+      "get-resource-policy",
+      "--secret-id",
+      originKeySecretArn,
+      "--region",
+      options.applicationRegion,
+    ]),
   ]);
   const originKey = requiredValue(
     originKeySecret.SecretString,
@@ -2109,9 +2169,20 @@ export async function collectCloudFrontQualificationReport(
   addCheck(
     checks,
     "allocator-target",
-    allocatorTargetParameter.Parameter?.Value ===
+    hasExpectedWorkerRuntimeTarget(
+      allocatorTargetParameter,
+      workerRuntimeTargetParameter,
+      `/upskill/${options.environment}/offline-scorm/cloudfront-allocator-function-name`,
+      `/upskill/${options.environment}/offline-scorm/cloudfront-worker-runtime-target`,
       allocatorQualifiedFunctionName,
-    "Worker configuration targets the deployment-owned immutable allocator version",
+    ),
+    "Worker configuration and post-restart runtime attestation target the deployment-owned immutable allocator version",
+  );
+  addCheck(
+    checks,
+    "origin-key-resource-policy",
+    hasNoOriginKeyResourcePolicy(originKeySecretPolicy, originKeySecretArn),
+    "CloudFront origin-key secret has no resource-based access policy",
   );
   addCheck(
     checks,

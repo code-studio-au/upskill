@@ -59,7 +59,8 @@ restore_environment_backup() {
 restore_active_environment() {
   restore_environment_backup
   if systemctl restart upskill-web upskill-worker && \
-    active_release_is_ready; then
+    active_release_is_ready && \
+    record_worker_allocator_target; then
     echo "Restored previous configuration after active-release refresh failure" >&2
     return 0
   fi
@@ -83,6 +84,51 @@ active_release_is_ready() {
     --retry-connrefused \
     "http://127.0.0.1:3000/api/ready?deploymentId=${release_sha}" \
     >/dev/null && systemctl is-active --quiet upskill-worker
+}
+
+record_worker_allocator_target() {
+  local application_environment
+  local aws_region
+  local runtime_target
+  runtime_target=$(
+    set -a
+    source /opt/upskill/shared/upskill-worker.env
+    set +a
+    printf '%s' "${OFFLINE_SCORM_CLOUDFRONT_ALLOCATOR_FUNCTION_NAME:-}"
+  )
+  if [[ -z "$runtime_target" ]]; then
+    return 0
+  fi
+  if [[ ! "$runtime_target" =~ ^arn:(aws|aws-cn|aws-us-gov):lambda:[a-z0-9-]+:[0-9]{12}:function:[A-Za-z0-9_-]{1,64}:[1-9][0-9]*$ ]]; then
+    echo "Worker allocator runtime target is invalid" >&2
+    return 1
+  fi
+  application_environment=$(
+    source /opt/upskill/shared/upskill-deploy.env
+    printf '%s' "${APP_ENV:-}"
+  )
+  aws_region=$(
+    source /opt/upskill/shared/upskill-deploy.env
+    printf '%s' "${AWS_REGION:-}"
+  )
+  case "$application_environment" in
+    staging | production) ;;
+    *)
+      echo "Worker allocator runtime environment is invalid" >&2
+      return 1
+      ;;
+  esac
+  if [[ ! "$aws_region" =~ ^[a-z0-9-]+$ ]]; then
+    echo "Worker allocator runtime region is invalid" >&2
+    return 1
+  fi
+  aws ssm put-parameter \
+    --region "$aws_region" \
+    --name "/upskill/${application_environment}/offline-scorm/cloudfront-worker-runtime-target" \
+    --type String \
+    --value "$runtime_target" \
+    --overwrite \
+    >/dev/null
 }
 
 if [[ ! "$release_sha" =~ ^[a-f0-9]{40}$ ]]; then
@@ -155,7 +201,8 @@ if [[ -e "$release_path" || -L "$release_path" ]]; then
       exit 1
     fi
     if ! systemctl restart upskill-web upskill-worker || \
-      ! active_release_is_ready; then
+      ! active_release_is_ready || \
+      ! record_worker_allocator_target; then
       restore_active_environment || true
       echo "Active-release configuration refresh failed readiness" >&2
       exit 1
@@ -237,7 +284,7 @@ systemctl start upskill-monitor.timer
 systemctl restart upskill-web upskill-worker
 systemctl reload nginx
 
-if ! curl --fail --silent --show-error --retry 20 --retry-delay 2 --retry-connrefused "http://127.0.0.1:3000/api/ready?deploymentId=${release_sha}" >/dev/null || ! systemctl is-active --quiet upskill-worker; then
+if ! curl --fail --silent --show-error --retry 20 --retry-delay 2 --retry-connrefused "http://127.0.0.1:3000/api/ready?deploymentId=${release_sha}" >/dev/null || ! systemctl is-active --quiet upskill-worker || ! record_worker_allocator_target; then
   if [[ -n "$previous_release" && -n "$previous_sha" ]]; then
     if /usr/local/bin/upskill-refresh-env && write_deployment_id "$previous_sha"; then
       previous_release_supports_package_host=false
@@ -251,7 +298,7 @@ if ! curl --fail --silent --show-error --retry 20 --retry-delay 2 --retry-connre
       )
       "$reconcile_package_site_vhost" "$package_host_suffix" "$previous_release_supports_package_host"
       ln -sfn "$previous_release" /opt/upskill/current
-      if systemctl restart upskill-web upskill-worker && curl --fail --silent --show-error --retry 20 --retry-delay 2 --retry-connrefused "http://127.0.0.1:3000/api/ready?deploymentId=${previous_sha}" >/dev/null && systemctl is-active --quiet upskill-worker; then
+      if systemctl restart upskill-web upskill-worker && curl --fail --silent --show-error --retry 20 --retry-delay 2 --retry-connrefused "http://127.0.0.1:3000/api/ready?deploymentId=${previous_sha}" >/dev/null && systemctl is-active --quiet upskill-worker && record_worker_allocator_target; then
         echo "Restored previous release $previous_sha" >&2
       else
         echo "Previous release rollback failed readiness checks" >&2
