@@ -411,6 +411,7 @@ function expectedWorkerInstances() {
           {
             IamInstanceProfile: { Arn: workerInstanceProfileArn },
             InstanceId: applicationInstanceId,
+            State: { Name: "running" },
           },
         ],
       },
@@ -1348,6 +1349,25 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         workerRoleArn,
       ),
     ).toBe(true);
+    expect(
+      hasExpectedWorkerInstanceProfile(
+        {
+          Reservations: [
+            {
+              Instances: [
+                {
+                  ...instances.Reservations[0].Instances[0],
+                  State: { Name: "stopped" },
+                },
+              ],
+            },
+          ],
+        },
+        profile,
+        applicationInstanceId,
+        workerRoleArn,
+      ),
+    ).toBe(false);
     expect(
       hasExpectedWorkerInstanceProfile(
         instances,

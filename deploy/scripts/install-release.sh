@@ -270,7 +270,6 @@ package_host_suffix=$(
 )
 "$reconcile_package_site_vhost" "$package_host_suffix" "$release_supports_package_host"
 
-ln -sfn "$release_path" /opt/upskill/current
 if [[ -n "$previous_release" && -d "$previous_release" ]]; then
   ln -sfn "$previous_release" /opt/upskill/previous
 fi
@@ -294,11 +293,14 @@ fi
 nginx -t
 systemctl daemon-reload
 systemctl enable upskill-web upskill-worker upskill-monitor.timer nginx
-systemctl start upskill-monitor.timer
-systemctl restart upskill-web upskill-worker
-systemctl reload nginx
 
-if ! curl --fail --silent --show-error --retry 20 --retry-delay 2 --retry-connrefused "http://127.0.0.1:3000/api/ready?deploymentId=${release_sha}" >/dev/null || ! systemctl is-active --quiet upskill-worker || ! record_worker_allocator_target; then
+if ! ln -sfn "$release_path" /opt/upskill/current || \
+  ! systemctl start upskill-monitor.timer || \
+  ! systemctl restart upskill-web upskill-worker || \
+  ! systemctl reload nginx || \
+  ! curl --fail --silent --show-error --retry 20 --retry-delay 2 --retry-connrefused "http://127.0.0.1:3000/api/ready?deploymentId=${release_sha}" >/dev/null || \
+  ! systemctl is-active --quiet upskill-worker || \
+  ! record_worker_allocator_target; then
   if [[ -n "$previous_release" && -n "$previous_sha" ]]; then
     if [[ -n "$environment_backup" ]] && restore_environment_backup; then
       previous_release_supports_package_host=false

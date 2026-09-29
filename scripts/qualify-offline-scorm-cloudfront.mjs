@@ -823,7 +823,7 @@ function workerInstanceProfileBinding(instancesResponse, expectedInstanceId) {
   const profileArn = instances[0]?.IamInstanceProfile?.Arn;
   const profileMatch = IAM_INSTANCE_PROFILE_ARN.exec(profileArn ?? "");
   const profileName = profileMatch?.[3].split("/").at(-1);
-  if (!profileName) return null;
+  if (!profileName || instances[0]?.State?.Name !== "running") return null;
   return {
     accountId: profileMatch[2],
     partition: profileMatch[1],

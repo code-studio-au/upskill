@@ -2182,6 +2182,7 @@ for (const invariant of [
   "upskill-deploy.env",
   'write_deployment_id "$release_sha"',
   '[[ -n "$environment_backup" ]] && restore_environment_backup',
+  'if ! ln -sfn "$release_path" /opt/upskill/current ||',
   "scripts/validate-runtime-environment.ts",
   "http://127.0.0.1:3000/api/ready?deploymentId=${previous_sha}",
   "http://127.0.0.1:3000/api/ready?deploymentId=",
@@ -2202,6 +2203,19 @@ for (const invariant of [
 ])
   if (!installRelease.includes(invariant))
     failures.push(`Release installation safety is missing: ${invariant}`);
+const guardedReleaseActivation =
+  'if ! ln -sfn "$release_path" /opt/upskill/current ||';
+const releaseSymlinkSwitches = installRelease.match(
+  /ln -sfn "\$release_path" \/opt\/upskill\/current/gu,
+);
+if (
+  releaseSymlinkSwitches?.length !== 1 ||
+  installRelease.indexOf(guardedReleaseActivation) <
+    installRelease.indexOf("systemctl enable upskill-web")
+)
+  failures.push(
+    "Release activation must defer its sole current symlink switch until the guarded restart and rollback boundary",
+  );
 for (const invariant of [
   "I_UNDERSTAND_THIS_DELETES_ALL_STAGING_DATA",
   "APP_ENV=staging",
