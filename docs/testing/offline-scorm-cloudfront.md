@@ -24,7 +24,8 @@ distribution, invoke the allocator, alter a WAF rule, or write to AWS.
 - Read access to the edge SNS topic attributes and deployment-owned KMS key
   metadata and policy so the key's enabled state and CloudWatch alarm
   publication path can be qualified. The shared operational topic attributes
-  are also read to qualify its same-account CloudWatch publication boundary.
+  are also read to qualify its same-account CloudWatch publication boundary
+  and require the deployment baseline of no KMS encryption key.
 - The application, storage and edge stacks deployed with the CloudFront
   qualification context.
 - The shared `ap-southeast-2` operational SNS email subscription and the
@@ -59,8 +60,8 @@ public-access blocks, a non-public bucket-policy status, the exact TLS-only
 bucket-policy deny plus the deployment-owned staging cleanup grant with no
 other access grant, the cleanup role's exact Lambda-only trust boundary, and
 the exact 30-day retention lifecycle, fully deployed
-edge status, lifecycle ownership discovery across the comment, exact tags and
-dedicated Web ACL binding,
+edge status, lifecycle ownership discovery across the immutable caller
+reference, comment, exact tags and dedicated Web ACL binding,
 entitlement-bound protected origin headers, HTTPS-only TLS 1.2 origin
 transport, the running instance's live profile binding to the worker role, the
 worker's exact EC2-only trust policy, default session duration and lack of a
@@ -99,13 +100,12 @@ entitlement-bound capability, evaluates the configuration and tag responses
 only in memory, and never serializes the secret, configuration, tags or header
 values into the report.
 
-The harness reads tags for every distribution in the account so a qualification
-distribution whose mutable comment has drifted cannot disappear from the
-ownership, cap or configuration checks. Configuration reads remain limited to
-qualification distributions identified by comment, exact tags, or the
-dedicated Web ACL binding. A distribution whose comment and tags both drift
-therefore remains visible through its deployment-owned WAF binding and fails
-the ownership/configuration checks instead of escaping the inventory.
+The harness reads tags and configuration for every distribution in the account.
+Its allocator-derived `CallerReference` cannot be changed by a CloudFront
+distribution update, so a qualification distribution remains in the ownership,
+cap and configuration checks even if its mutable comment, exact tags and Web
+ACL binding all drift together. The drifted distribution then fails the
+canonical ownership/configuration checks instead of escaping the inventory.
 
 The application stack publishes an immutable Lambda version, grants the worker
 invoke permission only for that version through its identity policy, writes

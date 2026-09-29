@@ -764,12 +764,20 @@ describe("Offline SCORM CloudFront qualification harness", () => {
           tags: [],
           webAclId: webAclArn,
         },
+        {
+          configuration: {
+            CallerReference: "upskill:staging:offline-scorm:immutable",
+          },
+          inventoryComment: "all-markers-drifted",
+          tags: [],
+          webAclId: "",
+        },
         { Comment: "unrelated" },
       ],
       "staging",
       webAclArn,
     );
-    expect(inventory.owned).toHaveLength(4);
+    expect(inventory.owned).toHaveLength(5);
     expect(inventory.owned).toContainEqual(
       expect.objectContaining({ inventoryComment: "changed-comment" }),
     );
@@ -1619,6 +1627,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     const edgeExpected = {
       accountId: options.expectedAccount,
       alarmName: edgeAlarmName,
+      kmsMasterKeyId: edgeAlarmKeyArn,
       region: "us-east-1",
       topicArn: edgeAlarmTopicArn,
     };
@@ -1635,11 +1644,33 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         {
           accountId: options.expectedAccount,
           alarmName: "*",
+          kmsMasterKeyId: undefined,
           region: options.applicationRegion,
           topicArn: allocatorAlarmTopicArn,
         },
       ),
     ).toBe(true);
+    expect(
+      hasExpectedAlarmTopicPolicy(
+        {
+          Attributes: {
+            ...expectedAlarmTopicAttributes(
+              allocatorAlarmTopicArn,
+              options.applicationRegion,
+              "*",
+            ).Attributes,
+            KmsMasterKeyId: "alias/aws/sns",
+          },
+        },
+        {
+          accountId: options.expectedAccount,
+          alarmName: "*",
+          kmsMasterKeyId: undefined,
+          region: options.applicationRegion,
+          topicArn: allocatorAlarmTopicArn,
+        },
+      ),
+    ).toBe(false);
 
     const policy = JSON.parse(edgeAttributes.Attributes.Policy);
     expect(
@@ -2427,8 +2458,19 @@ describe("Offline SCORM CloudFront qualification harness", () => {
             Quantity: 1,
           },
         };
-      if (command === "cloudfront get-distribution-config")
-        return { DistributionConfig: expectedDistributionConfiguration() };
+      if (command === "cloudfront get-distribution-config") {
+        const distributionIdArgument = args[args.indexOf("--id") + 1];
+        return {
+          DistributionConfig:
+            distributionIdArgument === distributionId
+              ? expectedDistributionConfiguration()
+              : {
+                  CallerReference: "unrelated",
+                  Comment: "unrelated",
+                  WebACLId: "",
+                },
+        };
+      }
       if (command === "cloudfront list-tags-for-resource")
         return {
           Tags: {
@@ -2689,6 +2731,12 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       ),
     ).toEqual([
       ["cloudfront", "get-distribution-config", "--id", distributionId],
+      [
+        "cloudfront",
+        "get-distribution-config",
+        "--id",
+        unrelatedDistributionId,
+      ],
     ]);
     expect(
       calls.filter(

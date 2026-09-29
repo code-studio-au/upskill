@@ -279,7 +279,9 @@ export function classifyQualificationDistributions(
   const prefix = `upskill:${environment}:offline-scorm:`;
   const owned = distributions.filter((distribution) => {
     const comment = distribution.inventoryComment ?? distribution.Comment;
+    const callerReference = distribution.configuration?.CallerReference;
     return (
+      callerReference?.startsWith(prefix) ||
       comment?.startsWith(prefix) ||
       hasQualificationOwnershipTags(distribution.tags, environment) ||
       distribution.webAclId === expectedWebAclArn
@@ -396,6 +398,7 @@ export function haveExpectedDistributionOwnership(
       tags?.get("Environment") === environment &&
       tags?.get("Purpose") === "offline-scorm-qualification" &&
       expectedMarker !== null &&
+      distribution?.configuration?.CallerReference === expectedMarker &&
       distribution?.inventoryComment === expectedMarker &&
       distribution?.configuration?.Comment === expectedMarker
     );
@@ -976,6 +979,7 @@ export function hasExpectedAlarmTopicPolicy(topicAttributesResponse, expected) {
     topicMatch?.[3] !== expected.accountId ||
     attributes?.Owner !== expected.accountId ||
     attributes?.TopicArn !== expected.topicArn ||
+    attributes?.KmsMasterKeyId !== expected.kmsMasterKeyId ||
     policy?.Version !== "2012-10-17" ||
     statements.length !== 1
   )
@@ -1762,13 +1766,22 @@ export async function collectCloudFrontQualificationReport(
       const arnMatch = CLOUDFRONT_DISTRIBUTION_ARN.exec(distribution.ARN ?? "");
       if (arnMatch?.[1] !== accountId || arnMatch?.[2] !== distribution.Id)
         throw new Error("CloudFront distribution ARN is invalid");
-      const tagResponse = await runAws([
-        "cloudfront",
-        "list-tags-for-resource",
-        "--resource",
-        distribution.ARN,
+      const [tagResponse, configurationResponse] = await Promise.all([
+        runAws([
+          "cloudfront",
+          "list-tags-for-resource",
+          "--resource",
+          distribution.ARN,
+        ]),
+        runAws([
+          "cloudfront",
+          "get-distribution-config",
+          "--id",
+          distribution.Id,
+        ]),
       ]);
       return {
+        configuration: configurationResponse.DistributionConfig,
         deploymentStatus: distribution.Status,
         distributionArn: distribution.ARN,
         distributionId: distribution.Id,
@@ -1789,20 +1802,7 @@ export async function collectCloudFrontQualificationReport(
     qualificationCap,
     totalDistributionCount,
   });
-  const ownedDistributionConfigurations = await Promise.all(
-    owned.map(async (distribution) => {
-      const configurationResponse = await runAws([
-        "cloudfront",
-        "get-distribution-config",
-        "--id",
-        distribution.distributionId,
-      ]);
-      return {
-        ...distribution,
-        configuration: configurationResponse.DistributionConfig,
-      };
-    }),
-  );
+  const ownedDistributionConfigurations = owned;
   const currentOwnedConfigurations = ownedDistributionConfigurations.map(
     ({ configuration }) => configuration,
   );
@@ -2428,6 +2428,7 @@ export async function collectCloudFrontQualificationReport(
     hasExpectedAlarmTopicPolicy(edgeAlarmTopicAttributes, {
       accountId,
       alarmName: edgeAlarmName,
+      kmsMasterKeyId: edgeAlarmKeyArn,
       region: CLOUDFRONT_CONTROL_PLANE_REGION,
       topicArn: edgeAlarmTopicArn,
     }),
@@ -2463,6 +2464,7 @@ export async function collectCloudFrontQualificationReport(
     hasExpectedAlarmTopicPolicy(allocatorAlarmTopicAttributes, {
       accountId,
       alarmName: "*",
+      kmsMasterKeyId: undefined,
       region: options.applicationRegion,
       topicArn: allocatorAlarmTopicArn,
     }),
