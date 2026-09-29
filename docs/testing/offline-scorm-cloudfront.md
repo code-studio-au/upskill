@@ -64,7 +64,8 @@ metrics/units/evaluation/actions, per-distribution entitlement-specific access
 logging, the bucket's exact owner and S3 LogDelivery ACL grants, all four S3
 public-access blocks, a non-public bucket-policy status, the exact TLS-only
 bucket-policy deny plus the deployment-owned staging cleanup grant with no
-other access grant, the cleanup role's exact Lambda-only trust boundary, and
+other access grant, its exact SSE-S3 encryption baseline, the cleanup role's
+exact Lambda-only trust boundary, and
 the exact 30-day retention lifecycle, fully deployed
 edge status, lifecycle ownership discovery across the immutable caller
 reference, comment, exact tags and dedicated Web ACL binding,
@@ -151,7 +152,8 @@ these additional read-only actions: `cloudformation:ListStackResources`,
 `secretsmanager:GetResourcePolicy`,
 `sns:GetSubscriptionAttributes`,
 `sns:GetTopicAttributes`, `s3:GetBucketLifecycleConfiguration`,
-`s3:GetBucketPolicy`, `s3:GetBucketPublicAccessBlock`, and
+`s3:GetEncryptionConfiguration`, `s3:GetBucketPolicy`,
+`s3:GetBucketPublicAccessBlock`, and
 `s3:GetBucketPolicyStatus`.
 
 ## Interpreting results

@@ -20,6 +20,7 @@ import {
   hasExpectedEdgeAlarmKmsBoundary,
   hasExpectedCloudFrontLogDeliveryAcl,
   hasExpectedLogBucketLifecycle,
+  hasExpectedLogBucketEncryption,
   hasExpectedLogCleanupRoleBoundary,
   hasExpectedLogBucketPolicy,
   hasExpectedLogBucketPublicAccessBoundary,
@@ -608,6 +609,19 @@ function expectedLogBucketLifecycle() {
         Status: "Enabled",
       },
     ],
+  };
+}
+
+function expectedLogBucketEncryption() {
+  return {
+    ServerSideEncryptionConfiguration: {
+      Rules: [
+        {
+          ApplyServerSideEncryptionByDefault: { SSEAlgorithm: "AES256" },
+          BucketKeyEnabled: false,
+        },
+      ],
+    },
   };
 }
 
@@ -1962,6 +1976,24 @@ describe("Offline SCORM CloudFront qualification harness", () => {
 
   it("requires the complete access-log retention lifecycle", () => {
     const lifecycle = expectedLogBucketLifecycle();
+    const encryption = expectedLogBucketEncryption();
+    expect(hasExpectedLogBucketEncryption(encryption)).toBe(true);
+    expect(
+      hasExpectedLogBucketEncryption({
+        ServerSideEncryptionConfiguration: {
+          Rules: [
+            {
+              ApplyServerSideEncryptionByDefault: {
+                KMSMasterKeyID:
+                  "arn:aws:kms:ap-southeast-2:123456789012:key/11111111-2222-3333-4444-555555555555",
+                SSEAlgorithm: "aws:kms",
+              },
+              BucketKeyEnabled: true,
+            },
+          ],
+        },
+      }),
+    ).toBe(false);
     expect(hasExpectedLogBucketLifecycle(lifecycle)).toBe(true);
     expect(
       hasExpectedLogBucketLifecycle({
@@ -2492,6 +2524,30 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     const expectedPolicy = JSON.parse(
       logPolicies.resourcePolicies[0].policyDocument,
     );
+    expect(
+      hasExpectedWafLogDeliveryPolicy(
+        { resourcePolicies: [] },
+        {
+          resourcePolicies: logPolicies.resourcePolicies.map((policy) => ({
+            ...policy,
+            policyDocument: JSON.stringify({
+              ...expectedPolicy,
+              Statement: [
+                ...expectedPolicy.Statement,
+                {
+                  Effect: "Allow",
+                  Principal: { Service: "firehose.amazonaws.com" },
+                  Action: "logs:PutLogEvents",
+                  Resource: `${wafLogGroupArn}:log-stream:*`,
+                },
+              ],
+            }),
+          })),
+        },
+        wafLogGroupArn,
+        options.expectedAccount,
+      ),
+    ).toBe(false);
     const overridingDeny = {
       Effect: "Deny",
       Principal: { Service: "delivery.logs.amazonaws.com" },
@@ -2916,6 +2972,8 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         return expectedLogBucketPolicy();
       if (command === "s3api get-bucket-lifecycle-configuration")
         return expectedLogBucketLifecycle();
+      if (command === "s3api get-bucket-encryption")
+        return expectedLogBucketEncryption();
       if (command === "cloudtrail lookup-events") return { Events: [] };
       if (command === "s3api list-objects-v2") return { Contents: [] };
       throw new Error(`Unexpected AWS command ${command}`);
@@ -2996,6 +3054,11 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     ).toMatchObject({ status: "pass" });
     expect(
       report.checks.find((check) => check.id === "access-log-bucket-lifecycle"),
+    ).toMatchObject({ status: "pass" });
+    expect(
+      report.checks.find(
+        (check) => check.id === "access-log-bucket-encryption",
+      ),
     ).toMatchObject({ status: "pass" });
     expect(
       report.checks.find((check) => check.id === "distribution-access-logging"),

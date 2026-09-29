@@ -1169,6 +1169,26 @@ export function hasExpectedLogBucketLifecycle(lifecycle) {
   );
 }
 
+export function hasExpectedLogBucketEncryption(configuration) {
+  const serverConfiguration = configuration?.ServerSideEncryptionConfiguration;
+  const rules = serverConfiguration?.Rules;
+  if (!Array.isArray(rules) || rules.length !== 1) return false;
+  const [rule] = rules;
+  return (
+    isDeepStrictEqual(Object.keys(serverConfiguration), ["Rules"]) &&
+    isDeepStrictEqual(
+      Object.keys(rule ?? {}).sort(),
+      rule?.BucketKeyEnabled === undefined
+        ? ["ApplyServerSideEncryptionByDefault"]
+        : ["ApplyServerSideEncryptionByDefault", "BucketKeyEnabled"],
+    ) &&
+    (rule?.BucketKeyEnabled === undefined || rule.BucketKeyEnabled === false) &&
+    isDeepStrictEqual(rule?.ApplyServerSideEncryptionByDefault, {
+      SSEAlgorithm: "AES256",
+    })
+  );
+}
+
 function haveExpectedDimensions(actual, expected) {
   if (
     !Array.isArray(actual) ||
@@ -1452,7 +1472,7 @@ export function hasExpectedWafLogDeliveryPolicy(
       return [];
     return policy.Statement;
   });
-  const hasExpectedAllow = statements.some((statement) => {
+  const isExpectedAllow = (statement) => {
     const actions = Array.isArray(statement?.Action)
       ? statement.Action
       : [statement?.Action];
@@ -1496,7 +1516,8 @@ export function hasExpectedWafLogDeliveryPolicy(
       statement?.NotPrincipal === undefined &&
       statement?.NotResource === undefined
     );
-  });
+  };
+  const hasExpectedAllow = statements.some(isExpectedAllow);
   const requiredActions = ["logs:CreateLogStream", "logs:PutLogEvents"];
   const expectedService = "delivery.logs.amazonaws.com";
   const list = (value) => (Array.isArray(value) ? value : [value]);
@@ -1553,7 +1574,16 @@ export function hasExpectedWafLogDeliveryPolicy(
       actionApplies(statement) &&
       resourceApplies(statement),
   );
-  return hasExpectedAllow && !hasApplicableDeny;
+  const hasUnexpectedApplicableAllow = statements.some(
+    (statement) =>
+      statement?.Effect === "Allow" &&
+      actionApplies(statement) &&
+      resourceApplies(statement) &&
+      !isExpectedAllow(statement),
+  );
+  return (
+    hasExpectedAllow && !hasApplicableDeny && !hasUnexpectedApplicableAllow
+  );
 }
 
 function confirmedSubscriptions(response) {
@@ -2020,6 +2050,7 @@ export async function collectCloudFrontQualificationReport(
     logBucketPolicyStatus,
     logBucketPolicy,
     logBucketLifecycle,
+    logBucketEncryption,
     cloudTrail,
     logObjects,
   ] = await Promise.all([
@@ -2325,6 +2356,16 @@ export async function collectCloudFrontQualificationReport(
       options.applicationRegion,
     ]),
     runAws([
+      "s3api",
+      "get-bucket-encryption",
+      "--bucket",
+      logBucket,
+      "--expected-bucket-owner",
+      accountId,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
       "cloudtrail",
       "lookup-events",
       "--lookup-attributes",
@@ -2604,6 +2645,12 @@ export async function collectCloudFrontQualificationReport(
     "access-log-bucket-lifecycle",
     hasExpectedLogBucketLifecycle(logBucketLifecycle),
     "CloudFront access-log bucket retains objects for 30 days and aborts incomplete multipart uploads after one day",
+  );
+  addCheck(
+    checks,
+    "access-log-bucket-encryption",
+    hasExpectedLogBucketEncryption(logBucketEncryption),
+    "CloudFront access-log bucket retains its exact SSE-S3 encryption baseline",
   );
   addCheck(
     checks,
