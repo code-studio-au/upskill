@@ -2182,6 +2182,7 @@ for (const invariant of [
   "upskill-deploy.env",
   'write_deployment_id "$release_sha"',
   '[[ -n "$environment_backup" ]] && restore_environment_backup',
+  "restore_package_site_vhost",
   'if ! ln -sfn "$release_path" /opt/upskill/current ||',
   "scripts/validate-runtime-environment.ts",
   "http://127.0.0.1:3000/api/ready?deploymentId=${previous_sha}",
@@ -2617,7 +2618,9 @@ for (const invariant of [
 if (
   !installRelease.includes("upskill.package-site.https.conf.template") ||
   !installRelease.includes("upskill-reconcile-package-site-vhost") ||
-  !installRelease.includes("previous_release_supports_package_host") ||
+  !installRelease.includes("package_site_state_path") ||
+  !installRelease.includes("create_environment_backup") ||
+  !installRelease.includes("restore_package_site_vhost") ||
   !environmentRefresh.includes("OFFLINE_SCORM_PACKAGE_HOST_SUFFIX") ||
   !environmentRefresh.includes("upskill-reconcile-package-site-vhost")
 )

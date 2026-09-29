@@ -118,7 +118,9 @@ requires a deployment that publishes, records and selects a new version.
 Before refresh, the installer snapshots the previous release's environment
 files and defers the current-release symlink switch until every fallible host
 installation and validation step has passed. Activation failures restore the
-previous symlink and snapshot together. A failed first rollout from the legacy
+previous symlink, environment snapshot and package-site vhost together. The
+same vhost restoration applies when an active-release configuration refresh or
+a pre-activation validation fails. A failed first rollout from the legacy
 function-name target therefore does not ask older release code to parse the new
 qualified ARN; a successful release removes the temporary snapshot.
 
