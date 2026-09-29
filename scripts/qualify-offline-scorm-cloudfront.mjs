@@ -22,6 +22,13 @@ const LAMBDA_VERSION_ARN =
   /^arn:(aws|aws-cn|aws-us-gov):lambda:([a-z0-9-]+):([0-9]{12}):function:([A-Za-z0-9_-]{1,64}):([1-9][0-9]*)$/u;
 const IAM_ROLE_ARN =
   /^arn:(aws|aws-cn|aws-us-gov):iam::([0-9]{12}):role\/(.+)$/u;
+const IAM_INSTANCE_PROFILE_ARN =
+  /^arn:(aws|aws-cn|aws-us-gov):iam::([0-9]{12}):instance-profile\/(.+)$/u;
+const KMS_KEY_ARN =
+  /^arn:(aws|aws-cn|aws-us-gov):kms:([a-z0-9-]+):([0-9]{12}):key\/([a-f0-9-]{36})$/u;
+const SNS_TOPIC_ARN =
+  /^arn:(aws|aws-cn|aws-us-gov):sns:([a-z0-9-]+):([0-9]{12}):([A-Za-z0-9_-]{1,256})$/u;
+const EC2_INSTANCE_ID = /^i-(?:[0-9a-f]{8}|[0-9a-f]{17})$/u;
 const LAMBDA_CODE_SHA_256 = /^[A-Za-z0-9+/]{43}=$/u;
 const ENTITLEMENT_ID = /^[A-Za-z0-9_-]{1,255}$/u;
 const ORIGIN_CAPABILITY = /^[A-Za-z0-9_-]{43}$/u;
@@ -34,6 +41,7 @@ const ALLOCATOR_DESCRIPTION =
   "Dormant worker-owned allocator for exact-entitlement CloudFront qualification sites";
 const S3_LOG_DELIVERY_GROUP_URI =
   "http://acs.amazonaws.com/groups/s3/LogDelivery";
+const EDGE_LOG_RETENTION_DAYS = 30;
 const MUTATING_CLOUDFRONT_EVENTS = new Set([
   "CreateDistribution",
   "CreateDistributionWithTags",
@@ -591,6 +599,100 @@ export function canWorkerInvokePinnedAllocator(
   );
 }
 
+function workerInstanceProfileBinding(instancesResponse, expectedInstanceId) {
+  const instances = (instancesResponse?.Reservations ?? []).flatMap(
+    (reservation) => reservation?.Instances ?? [],
+  );
+  if (instances.length !== 1 || instances[0]?.InstanceId !== expectedInstanceId)
+    return null;
+  const profileArn = instances[0]?.IamInstanceProfile?.Arn;
+  const profileMatch = IAM_INSTANCE_PROFILE_ARN.exec(profileArn ?? "");
+  const profileName = profileMatch?.[3].split("/").at(-1);
+  if (!profileName) return null;
+  return {
+    accountId: profileMatch[2],
+    partition: profileMatch[1],
+    profileArn,
+    profileName,
+  };
+}
+
+export function hasExpectedWorkerInstanceProfile(
+  instancesResponse,
+  instanceProfileResponse,
+  expectedInstanceId,
+  expectedRoleArn,
+) {
+  if (!EC2_INSTANCE_ID.test(expectedInstanceId ?? "")) return false;
+  const roleMatch = IAM_ROLE_ARN.exec(expectedRoleArn ?? "");
+  const binding = workerInstanceProfileBinding(
+    instancesResponse,
+    expectedInstanceId,
+  );
+  const profile = instanceProfileResponse?.InstanceProfile;
+  return (
+    binding !== null &&
+    roleMatch?.[1] === binding.partition &&
+    roleMatch?.[2] === binding.accountId &&
+    profile?.Arn === binding.profileArn &&
+    profile?.InstanceProfileName === binding.profileName &&
+    Array.isArray(profile?.Roles) &&
+    profile.Roles.length === 1 &&
+    profile.Roles[0]?.Arn === expectedRoleArn
+  );
+}
+
+function parsePolicyDocument(policy) {
+  if (typeof policy !== "string") return null;
+  try {
+    const parsed = JSON.parse(policy);
+    return parsed !== null && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function hasExpectedEdgeAlarmKmsBoundary(
+  topicAttributesResponse,
+  keyPolicyResponse,
+  expected,
+) {
+  const keyMatch = KMS_KEY_ARN.exec(expected.keyArn ?? "");
+  const topicMatch = SNS_TOPIC_ARN.exec(expected.topicArn ?? "");
+  if (
+    keyMatch?.[1] !== topicMatch?.[1] ||
+    keyMatch?.[2] !== CLOUDFRONT_CONTROL_PLANE_REGION ||
+    topicMatch?.[2] !== CLOUDFRONT_CONTROL_PLANE_REGION ||
+    keyMatch?.[3] !== expected.accountId ||
+    topicMatch?.[3] !== expected.accountId ||
+    topicAttributesResponse?.Attributes?.KmsMasterKeyId !== expected.keyArn
+  )
+    return false;
+  const policy = parsePolicyDocument(keyPolicyResponse?.Policy);
+  const statements = Array.isArray(policy?.Statement) ? policy.Statement : [];
+  const expectedAlarmArn = `arn:${keyMatch[1]}:cloudwatch:${CLOUDFRONT_CONTROL_PLANE_REGION}:${expected.accountId}:alarm:${expected.alarmName}`;
+  return statements.some((statement) => {
+    const actions = Array.isArray(statement?.Action)
+      ? statement.Action
+      : [statement?.Action];
+    return (
+      statement?.Effect === "Allow" &&
+      isDeepStrictEqual(statement?.Principal, {
+        Service: "cloudwatch.amazonaws.com",
+      }) &&
+      isDeepStrictEqual([...actions].sort(), [
+        "kms:Decrypt",
+        "kms:GenerateDataKey*",
+      ]) &&
+      statement?.Resource === "*" &&
+      isDeepStrictEqual(statement?.Condition, {
+        ArnLike: { "aws:SourceArn": expectedAlarmArn },
+        StringEquals: { "aws:SourceAccount": expected.accountId },
+      })
+    );
+  });
+}
+
 export function hasExpectedCloudFrontLogDeliveryAcl(acl) {
   const ownerId = acl?.Owner?.ID;
   if (typeof ownerId !== "string" || ownerId.length === 0) return false;
@@ -623,6 +725,36 @@ export function hasExpectedLogBucketPublicAccessBoundary(
       IgnorePublicAcls: true,
       RestrictPublicBuckets: true,
     }) && policyStatus?.PolicyStatus?.IsPublic === false
+  );
+}
+
+export function hasExpectedLogBucketLifecycle(lifecycle) {
+  const rules = lifecycle?.Rules;
+  if (!Array.isArray(rules) || rules.length !== 1) return false;
+  const [rule] = rules;
+  const allowedKeys = new Set([
+    "AbortIncompleteMultipartUpload",
+    "Expiration",
+    "Filter",
+    "ID",
+    "Prefix",
+    "Status",
+  ]);
+  if (Object.keys(rule ?? {}).some((key) => !allowedKeys.has(key)))
+    return false;
+  const wholeBucketFilter =
+    (rule?.Filter === undefined &&
+      (rule?.Prefix === undefined || rule.Prefix === "")) ||
+    (rule?.Prefix === undefined &&
+      (isDeepStrictEqual(rule?.Filter, {}) ||
+        isDeepStrictEqual(rule?.Filter, { Prefix: "" })));
+  return (
+    wholeBucketFilter &&
+    rule?.Status === "Enabled" &&
+    isDeepStrictEqual(rule?.Expiration, { Days: EDGE_LOG_RETENTION_DAYS }) &&
+    isDeepStrictEqual(rule?.AbortIncompleteMultipartUpload, {
+      DaysAfterInitiation: 1,
+    })
   );
 }
 
@@ -1032,6 +1164,11 @@ export async function collectCloudFrontQualificationReport(
     "OfflineScormEdgeAlarmTopicArn",
     edgeStackName,
   );
+  const edgeAlarmKeyArn = requiredOutput(
+    edgeOutputs,
+    "OfflineScormEdgeAlarmKeyArn",
+    edgeStackName,
+  );
   const edgeAlarmEmail = requiredOutput(
     edgeOutputs,
     "OfflineScormEdgeAlarmEmail",
@@ -1082,6 +1219,11 @@ export async function collectCloudFrontQualificationReport(
     "OfflineScormCloudFrontWorkerRoleArn",
     appStackName,
   );
+  const applicationInstanceId = requiredOutput(
+    applicationOutputs,
+    "ApplicationInstanceId",
+    appStackName,
+  );
   const allocatorRoleMatch = IAM_ROLE_ARN.exec(allocatorRoleArn);
   const allocatorRoleName = allocatorRoleMatch?.[3].split("/").at(-1);
   if (
@@ -1092,6 +1234,8 @@ export async function collectCloudFrontQualificationReport(
     throw new Error("Offline SCORM allocator role output is invalid");
   if (IAM_ROLE_ARN.exec(workerRoleArn)?.[2] !== accountId)
     throw new Error("Offline SCORM worker role output is invalid");
+  if (!EC2_INSTANCE_ID.test(applicationInstanceId))
+    throw new Error("Application instance output is invalid");
   const originDomain = requiredValue(
     originParameter.Parameter?.Value,
     "CloudFront origin domain parameter is unavailable",
@@ -1183,12 +1327,15 @@ export async function collectCloudFrontQualificationReport(
   const startTime = new Date(
     Date.parse(generatedAt) - options.lookbackHours * 60 * 60 * 1_000,
   ).toISOString();
+  const edgeAlarmName = `upskill-${options.environment}-offline-scorm-waf-blocked-requests`;
   const [
     webAcl,
     webAclTags,
     wafLogging,
     wafLogGroups,
     edgeSubscriptions,
+    edgeAlarmTopicAttributes,
+    edgeAlarmKeyPolicy,
     allocatorSubscriptions,
     edgeAlarms,
     allocatorAlarms,
@@ -1196,11 +1343,13 @@ export async function collectCloudFrontQualificationReport(
     allocatorRole,
     allocatorAttachedPolicies,
     allocatorInlinePolicyNames,
+    workerInstances,
     workerInvocationSimulation,
     allocatorConcurrency,
     logBucketAcl,
     logBucketPublicAccessBlock,
     logBucketPolicyStatus,
+    logBucketLifecycle,
     cloudTrail,
     logObjects,
   ] = await Promise.all([
@@ -1250,6 +1399,24 @@ export async function collectCloudFrontQualificationReport(
     ]),
     runAws([
       "sns",
+      "get-topic-attributes",
+      "--topic-arn",
+      edgeAlarmTopicArn,
+      "--region",
+      CLOUDFRONT_CONTROL_PLANE_REGION,
+    ]),
+    runAws([
+      "kms",
+      "get-key-policy",
+      "--key-id",
+      edgeAlarmKeyArn,
+      "--policy-name",
+      "default",
+      "--region",
+      CLOUDFRONT_CONTROL_PLANE_REGION,
+    ]),
+    runAws([
+      "sns",
       "list-subscriptions-by-topic",
       "--topic-arn",
       allocatorAlarmTopicArn,
@@ -1260,7 +1427,7 @@ export async function collectCloudFrontQualificationReport(
       "cloudwatch",
       "describe-alarms",
       "--alarm-names",
-      `upskill-${options.environment}-offline-scorm-waf-blocked-requests`,
+      edgeAlarmName,
       "--region",
       CLOUDFRONT_CONTROL_PLANE_REGION,
     ]),
@@ -1302,6 +1469,14 @@ export async function collectCloudFrontQualificationReport(
       "list-role-policies",
       "--role-name",
       allocatorRoleName,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "ec2",
+      "describe-instances",
+      "--instance-ids",
+      applicationInstanceId,
       "--region",
       options.applicationRegion,
     ]),
@@ -1357,6 +1532,16 @@ export async function collectCloudFrontQualificationReport(
       options.applicationRegion,
     ]),
     runAws([
+      "s3api",
+      "get-bucket-lifecycle-configuration",
+      "--bucket",
+      logBucket,
+      "--expected-bucket-owner",
+      accountId,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
       "cloudtrail",
       "lookup-events",
       "--lookup-attributes",
@@ -1385,20 +1570,36 @@ export async function collectCloudFrontQualificationReport(
       options.applicationRegion,
     ]),
   ]);
-  const allocatorInlinePolicies = await Promise.all(
-    (allocatorInlinePolicyNames.PolicyNames ?? []).map((policyName) =>
-      runAws([
-        "iam",
-        "get-role-policy",
-        "--role-name",
-        allocatorRoleName,
-        "--policy-name",
-        policyName,
-        "--region",
-        options.applicationRegion,
-      ]),
-    ),
+  const workerProfileBinding = workerInstanceProfileBinding(
+    workerInstances,
+    applicationInstanceId,
   );
+  const [allocatorInlinePolicies, workerInstanceProfile] = await Promise.all([
+    Promise.all(
+      (allocatorInlinePolicyNames.PolicyNames ?? []).map((policyName) =>
+        runAws([
+          "iam",
+          "get-role-policy",
+          "--role-name",
+          allocatorRoleName,
+          "--policy-name",
+          policyName,
+          "--region",
+          options.applicationRegion,
+        ]),
+      ),
+    ),
+    workerProfileBinding === null
+      ? Promise.resolve({})
+      : runAws([
+          "iam",
+          "get-instance-profile",
+          "--instance-profile-name",
+          workerProfileBinding.profileName,
+          "--region",
+          options.applicationRegion,
+        ]),
+  ]);
 
   const checks = [];
   addCheck(
@@ -1463,6 +1664,17 @@ export async function collectCloudFrontQualificationReport(
   );
   addCheck(
     checks,
+    "worker-instance-profile",
+    hasExpectedWorkerInstanceProfile(
+      workerInstances,
+      workerInstanceProfile,
+      applicationInstanceId,
+      workerRoleArn,
+    ),
+    "Live application instance profile contains exactly the deployment-owned worker role",
+  );
+  addCheck(
+    checks,
     "worker-allocator-permission",
     canWorkerInvokePinnedAllocator(
       workerInvocationSimulation,
@@ -1484,6 +1696,12 @@ export async function collectCloudFrontQualificationReport(
       logBucketPolicyStatus,
     ),
     "CloudFront access-log bucket blocks every public-access path and has no public policy",
+  );
+  addCheck(
+    checks,
+    "access-log-bucket-lifecycle",
+    hasExpectedLogBucketLifecycle(logBucketLifecycle),
+    "CloudFront access-log bucket retains objects for 30 days and aborts incomplete multipart uploads after one day",
   );
   addCheck(
     checks,
@@ -1527,6 +1745,21 @@ export async function collectCloudFrontQualificationReport(
   );
   addCheck(
     checks,
+    "edge-alert-kms",
+    hasExpectedEdgeAlarmKmsBoundary(
+      edgeAlarmTopicAttributes,
+      edgeAlarmKeyPolicy,
+      {
+        accountId,
+        alarmName: edgeAlarmName,
+        keyArn: edgeAlarmKeyArn,
+        topicArn: edgeAlarmTopicArn,
+      },
+    ),
+    "Edge alarm topic uses the deployment-owned KMS key with the exact CloudWatch publish grant",
+  );
+  addCheck(
+    checks,
     "edge-alert-subscription",
     hasConfirmedEmailSubscription(
       edgeSubscriptions,
@@ -1555,7 +1788,7 @@ export async function collectCloudFrontQualificationReport(
   const expectedAlarmConfigurations = [
     {
       ...alarmDefaults,
-      alarmName: `upskill-${options.environment}-offline-scorm-waf-blocked-requests`,
+      alarmName: edgeAlarmName,
       actionArn: edgeAlarmTopicArn,
       dimensions: [
         { Name: "Region", Value: "Global" },

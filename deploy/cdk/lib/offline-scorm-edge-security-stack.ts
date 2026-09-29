@@ -220,6 +220,11 @@ export class OfflineScormEdgeSecurityStack extends Stack {
       description:
         "Encrypted notification topic whose email subscription must be confirmed before qualification",
     });
+    new CfnOutput(this, "OfflineScormEdgeAlarmKeyArn", {
+      value: alarmKey.keyArn,
+      description:
+        "Deployment-owned KMS key whose CloudWatch publish grant must remain intact",
+    });
     new CfnOutput(this, "OfflineScormEdgeAlarmEmail", {
       value: props.config.alarmEmail,
       description:

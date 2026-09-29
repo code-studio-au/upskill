@@ -11,8 +11,11 @@ import {
   hasConfirmedEmailSubscription,
   hasExpectedAllocatorConfiguration,
   hasExpectedAllocatorRoleBoundary,
+  hasExpectedEdgeAlarmKmsBoundary,
   hasExpectedCloudFrontLogDeliveryAcl,
+  hasExpectedLogBucketLifecycle,
   hasExpectedLogBucketPublicAccessBoundary,
+  hasExpectedWorkerInstanceProfile,
   haveExpectedAlarmConfigurations,
   haveExpectedDistributionLogging,
   haveExpectedDistributionOwnership,
@@ -34,6 +37,9 @@ const options = {
 const webAclArn =
   "arn:aws:wafv2:us-east-1:123456789012:global/webacl/upskill-staging-offline-scorm-cloudfront/11111111-2222-3333-4444-555555555555";
 const edgeAlarmTopicArn = "arn:aws:sns:us-east-1:123456789012:edge-alarms";
+const edgeAlarmKeyArn =
+  "arn:aws:kms:us-east-1:123456789012:key/11111111-2222-3333-4444-555555555555";
+const edgeAlarmName = "upskill-staging-offline-scorm-waf-blocked-requests";
 const allocatorAlarmTopicArn =
   "arn:aws:sns:ap-southeast-2:123456789012:operational-alarms";
 const alarmEmail = "ops@codestudio.au";
@@ -52,6 +58,9 @@ const allocatorRoleName = "upskill-staging-allocator-role";
 const allocatorRoleArn = `arn:aws:iam::${options.expectedAccount}:role/${allocatorRoleName}`;
 const workerRoleName = "upskill-staging-worker-role";
 const workerRoleArn = `arn:aws:iam::${options.expectedAccount}:role/${workerRoleName}`;
+const applicationInstanceId = "i-0123456789abcdef0";
+const workerInstanceProfileName = "upskill-staging-worker-profile";
+const workerInstanceProfileArn = `arn:aws:iam::${options.expectedAccount}:instance-profile/${workerInstanceProfileName}`;
 const entitlementId = "entitlement-123";
 const originKey = "qualification-origin-key-".repeat(3);
 const entitlementDigest = createHash("sha256")
@@ -327,6 +336,63 @@ function expectedWorkerInvocationSimulation() {
   };
 }
 
+function expectedWorkerInstances() {
+  return {
+    Reservations: [
+      {
+        Instances: [
+          {
+            IamInstanceProfile: { Arn: workerInstanceProfileArn },
+            InstanceId: applicationInstanceId,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function expectedWorkerInstanceProfile() {
+  return {
+    InstanceProfile: {
+      Arn: workerInstanceProfileArn,
+      InstanceProfileName: workerInstanceProfileName,
+      Roles: [{ Arn: workerRoleArn, RoleName: workerRoleName }],
+    },
+  };
+}
+
+function expectedEdgeAlarmTopicAttributes() {
+  return { Attributes: { KmsMasterKeyId: edgeAlarmKeyArn } };
+}
+
+function expectedEdgeAlarmKeyPolicy() {
+  return {
+    Policy: JSON.stringify({
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Action: "kms:*",
+          Effect: "Allow",
+          Principal: { AWS: `arn:aws:iam::${options.expectedAccount}:root` },
+          Resource: "*",
+        },
+        {
+          Action: ["kms:GenerateDataKey*", "kms:Decrypt"],
+          Condition: {
+            ArnLike: {
+              "aws:SourceArn": `arn:aws:cloudwatch:us-east-1:${options.expectedAccount}:alarm:${edgeAlarmName}`,
+            },
+            StringEquals: { "aws:SourceAccount": options.expectedAccount },
+          },
+          Effect: "Allow",
+          Principal: { Service: "cloudwatch.amazonaws.com" },
+          Resource: "*",
+        },
+      ],
+    }),
+  };
+}
+
 function expectedLogBucketPublicAccessBlock() {
   return {
     PublicAccessBlockConfiguration: {
@@ -340,6 +406,20 @@ function expectedLogBucketPublicAccessBlock() {
 
 function expectedLogBucketPolicyStatus() {
   return { PolicyStatus: { IsPublic: false } };
+}
+
+function expectedLogBucketLifecycle() {
+  return {
+    Rules: [
+      {
+        AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 },
+        Expiration: { Days: 30 },
+        ID: "generated-rule-id",
+        Prefix: "",
+        Status: "Enabled",
+      },
+    ],
+  };
 }
 
 function expectedAlarmConfigurations() {
@@ -820,6 +900,137 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     ).toBe(false);
   });
 
+  it("requires the live application instance to use the simulated worker role", () => {
+    const instances = expectedWorkerInstances();
+    const profile = expectedWorkerInstanceProfile();
+    expect(
+      hasExpectedWorkerInstanceProfile(
+        instances,
+        profile,
+        applicationInstanceId,
+        workerRoleArn,
+      ),
+    ).toBe(true);
+    expect(
+      hasExpectedWorkerInstanceProfile(
+        instances,
+        {
+          InstanceProfile: {
+            ...profile.InstanceProfile,
+            Roles: [
+              {
+                Arn: `arn:aws:iam::${options.expectedAccount}:role/unrelated`,
+              },
+            ],
+          },
+        },
+        applicationInstanceId,
+        workerRoleArn,
+      ),
+    ).toBe(false);
+    expect(
+      hasExpectedWorkerInstanceProfile(
+        instances,
+        {
+          InstanceProfile: {
+            ...profile.InstanceProfile,
+            Roles: [
+              ...profile.InstanceProfile.Roles,
+              { Arn: workerRoleArn, RoleName: workerRoleName },
+            ],
+          },
+        },
+        applicationInstanceId,
+        workerRoleArn,
+      ),
+    ).toBe(false);
+    expect(
+      hasExpectedWorkerInstanceProfile(
+        {
+          Reservations: [
+            {
+              Instances: [
+                {
+                  IamInstanceProfile: {
+                    Arn: workerInstanceProfileArn.replace(
+                      workerInstanceProfileName,
+                      "unrelated-profile",
+                    ),
+                  },
+                  InstanceId: applicationInstanceId,
+                },
+              ],
+            },
+          ],
+        },
+        profile,
+        applicationInstanceId,
+        workerRoleArn,
+      ),
+    ).toBe(false);
+  });
+
+  it("requires the edge topic KMS key and CloudWatch publish grant", () => {
+    const topic = expectedEdgeAlarmTopicAttributes();
+    const policy = expectedEdgeAlarmKeyPolicy();
+    const expected = {
+      accountId: options.expectedAccount,
+      alarmName: edgeAlarmName,
+      keyArn: edgeAlarmKeyArn,
+      topicArn: edgeAlarmTopicArn,
+    };
+    expect(hasExpectedEdgeAlarmKmsBoundary(topic, policy, expected)).toBe(true);
+    expect(
+      hasExpectedEdgeAlarmKmsBoundary(
+        { Attributes: { KmsMasterKeyId: "alias/aws/sns" } },
+        policy,
+        expected,
+      ),
+    ).toBe(false);
+    const policyDocument = JSON.parse(policy.Policy);
+    expect(
+      hasExpectedEdgeAlarmKmsBoundary(
+        topic,
+        {
+          Policy: JSON.stringify({
+            ...policyDocument,
+            Statement: policyDocument.Statement.map((statement) =>
+              statement.Principal?.Service === "cloudwatch.amazonaws.com"
+                ? { ...statement, Action: ["kms:Decrypt"] }
+                : statement,
+            ),
+          }),
+        },
+        expected,
+      ),
+    ).toBe(false);
+    expect(
+      hasExpectedEdgeAlarmKmsBoundary(
+        topic,
+        {
+          Policy: JSON.stringify({
+            ...policyDocument,
+            Statement: policyDocument.Statement.map((statement) =>
+              statement.Principal?.Service === "cloudwatch.amazonaws.com"
+                ? {
+                    ...statement,
+                    Condition: {
+                      ...statement.Condition,
+                      ArnLike: {
+                        "aws:SourceArn":
+                          "arn:aws:cloudwatch:us-east-1:123456789012:alarm:unrelated",
+                      },
+                    },
+                  }
+                : statement,
+            ),
+          }),
+        },
+        expected,
+      ),
+    ).toBe(false);
+  });
+
   it("requires every bucket public-access block and a non-public policy", () => {
     const publicAccessBlock = expectedLogBucketPublicAccessBlock();
     const policyStatus = expectedLogBucketPolicyStatus();
@@ -844,6 +1055,41 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     expect(
       hasExpectedLogBucketPublicAccessBoundary(publicAccessBlock, {
         PolicyStatus: { IsPublic: true },
+      }),
+    ).toBe(false);
+  });
+
+  it("requires the complete access-log retention lifecycle", () => {
+    const lifecycle = expectedLogBucketLifecycle();
+    expect(hasExpectedLogBucketLifecycle(lifecycle)).toBe(true);
+    expect(
+      hasExpectedLogBucketLifecycle({
+        Rules: [
+          {
+            ...lifecycle.Rules[0],
+            Expiration: { Days: 1 },
+          },
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      hasExpectedLogBucketLifecycle({
+        Rules: [{ ...lifecycle.Rules[0], Status: "Disabled" }],
+      }),
+    ).toBe(false);
+    expect(
+      hasExpectedLogBucketLifecycle({
+        Rules: [
+          {
+            ...lifecycle.Rules[0],
+            Transitions: [{ Days: 1, StorageClass: "GLACIER" }],
+          },
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      hasExpectedLogBucketLifecycle({
+        Rules: [...lifecycle.Rules, lifecycle.Rules[0]],
       }),
     ).toBe(false);
   });
@@ -1218,6 +1464,10 @@ describe("Offline SCORM CloudFront qualification harness", () => {
                 OutputValue: workerRoleArn,
               },
               {
+                OutputKey: "ApplicationInstanceId",
+                OutputValue: applicationInstanceId,
+              },
+              {
                 OutputKey: "OfflineScormCloudFrontAllocatorAlarmTopicArn",
                 OutputValue: allocatorAlarmTopicArn,
               },
@@ -1254,6 +1504,10 @@ describe("Offline SCORM CloudFront qualification harness", () => {
               {
                 OutputKey: "OfflineScormEdgeAlarmTopicArn",
                 OutputValue: edgeAlarmTopicArn,
+              },
+              {
+                OutputKey: "OfflineScormEdgeAlarmKeyArn",
+                OutputValue: edgeAlarmKeyArn,
               },
               {
                 OutputKey: "OfflineScormEdgeAlarmEmail",
@@ -1348,6 +1602,9 @@ describe("Offline SCORM CloudFront qualification harness", () => {
           ],
         };
       }
+      if (command === "sns get-topic-attributes")
+        return expectedEdgeAlarmTopicAttributes();
+      if (command === "kms get-key-policy") return expectedEdgeAlarmKeyPolicy();
       if (command === "cloudwatch describe-alarms") {
         const region = args[args.indexOf("--region") + 1];
         const actionArn =
@@ -1401,11 +1658,17 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         return expectedWorkerInvocationSimulation();
       if (command === "iam get-role-policy")
         return expectedAllocatorRoleResponses().policies[0];
+      if (command === "iam get-instance-profile")
+        return expectedWorkerInstanceProfile();
+      if (command === "ec2 describe-instances")
+        return expectedWorkerInstances();
       if (command === "s3api get-bucket-acl") return expectedLogBucketAcl();
       if (command === "s3api get-public-access-block")
         return expectedLogBucketPublicAccessBlock();
       if (command === "s3api get-bucket-policy-status")
         return expectedLogBucketPolicyStatus();
+      if (command === "s3api get-bucket-lifecycle-configuration")
+        return expectedLogBucketLifecycle();
       if (command === "cloudtrail lookup-events") return { Events: [] };
       if (command === "s3api list-objects-v2") return { Contents: [] };
       throw new Error(`Unexpected AWS command ${command}`);
@@ -1452,6 +1715,15 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     ).toMatchObject({ status: "pass" });
     expect(
       report.checks.find((check) => check.id === "worker-allocator-permission"),
+    ).toMatchObject({ status: "pass" });
+    expect(
+      report.checks.find((check) => check.id === "worker-instance-profile"),
+    ).toMatchObject({ status: "pass" });
+    expect(
+      report.checks.find((check) => check.id === "edge-alert-kms"),
+    ).toMatchObject({ status: "pass" });
+    expect(
+      report.checks.find((check) => check.id === "access-log-bucket-lifecycle"),
     ).toMatchObject({ status: "pass" });
     expect(
       report.checks.find((check) => check.id === "distribution-access-logging"),
@@ -1533,6 +1805,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       "list-role-policies",
       "simulate-principal-policy",
       "get-role-policy",
+      "get-instance-profile",
     ]);
     expect(
       calls.find(
@@ -1556,6 +1829,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       "get-bucket-acl",
       "get-public-access-block",
       "get-bucket-policy-status",
+      "get-bucket-lifecycle-configuration",
       "list-objects-v2",
     ]) {
       expect(
@@ -1567,6 +1841,54 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         ]),
       );
     }
+    expect(
+      calls.find(
+        (args) => args.slice(0, 2).join(" ") === "ec2 describe-instances",
+      ),
+    ).toEqual([
+      "ec2",
+      "describe-instances",
+      "--instance-ids",
+      applicationInstanceId,
+      "--region",
+      options.applicationRegion,
+    ]);
+    expect(
+      calls.find(
+        (args) => args.slice(0, 2).join(" ") === "iam get-instance-profile",
+      ),
+    ).toEqual([
+      "iam",
+      "get-instance-profile",
+      "--instance-profile-name",
+      workerInstanceProfileName,
+      "--region",
+      options.applicationRegion,
+    ]);
+    expect(
+      calls.find(
+        (args) => args.slice(0, 2).join(" ") === "sns get-topic-attributes",
+      ),
+    ).toEqual([
+      "sns",
+      "get-topic-attributes",
+      "--topic-arn",
+      edgeAlarmTopicArn,
+      "--region",
+      "us-east-1",
+    ]);
+    expect(
+      calls.find((args) => args.slice(0, 2).join(" ") === "kms get-key-policy"),
+    ).toEqual([
+      "kms",
+      "get-key-policy",
+      "--key-id",
+      edgeAlarmKeyArn,
+      "--policy-name",
+      "default",
+      "--region",
+      "us-east-1",
+    ]);
     expect(
       calls.filter(
         (args) =>

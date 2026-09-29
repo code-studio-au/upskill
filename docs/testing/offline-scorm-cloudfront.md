@@ -12,8 +12,11 @@ distribution, invoke the allocator, alter a WAF rule, or write to AWS.
 - Read access to the allocator Lambda version configuration and reserved
   concurrency, its IAM role/trust/managed and inline policies, both Offline
   SCORM SSM parameters, and the CloudFront access-log bucket ACL, public-access
-  block and policy status. The operator must also be able to simulate the
+  block, policy status and lifecycle. The operator must also be able to inspect
+  the application instance's current IAM instance profile and simulate that
   deployed worker role's permission to invoke the exact allocator version.
+- Read access to the edge SNS topic attributes and deployment-owned KMS key
+  policy so the CloudWatch alarm publication path can be qualified.
 - The application and edge stacks deployed with the CloudFront qualification
   context.
 - The shared `ap-southeast-2` operational SNS email subscription and the
@@ -43,16 +46,18 @@ redaction, ACL-level and per-rule WAF metric publication/sampling, 30-day WAF
 retention, exact confirmed alarm-subscription endpoints, exact alarm
 metrics/units/evaluation/actions, per-distribution entitlement-specific access
 logging, the bucket's exact owner and S3 LogDelivery ACL grants, all four S3
-public-access blocks and a non-public bucket-policy status, fully deployed edge
-status, lifecycle ownership discovery across the comment, exact tags and
-dedicated Web ACL binding, entitlement-bound protected origin headers,
-HTTPS-only TLS 1.2 origin transport, the worker's exact SSM allocator target
-and effective permission to invoke that immutable version, the live allocator
-version and code digest, exact execution role, runtime, environment and
-reserved concurrency, the role's Lambda-only trust policy and least-privilege
-managed/inline permission boundary, the canonical distribution configuration,
-distribution-cap markers, service-quota headroom and a globally bounded sample
-of recent CloudFront control-plane mutations.
+public-access blocks, a non-public bucket-policy status and the exact 30-day
+retention lifecycle, fully deployed edge status, lifecycle ownership discovery
+across the comment, exact tags and dedicated Web ACL binding,
+entitlement-bound protected origin headers, HTTPS-only TLS 1.2 origin
+transport, the live instance-profile binding to the worker role, the worker's
+exact SSM allocator target and effective permission to invoke that immutable
+version, the live allocator version and code digest, exact execution role,
+runtime, environment and reserved concurrency, the role's Lambda-only trust
+policy and least-privilege managed/inline permission boundary, the edge topic's
+deployment-owned KMS key and exact CloudWatch publish grant, the canonical
+distribution configuration, distribution-cap markers, service-quota headroom
+and a globally bounded sample of recent CloudFront control-plane mutations.
 
 The deployed cap output must remain the repository qualification baseline of
 25, and quota headroom is calculated from every distribution item aggregated
@@ -84,13 +89,16 @@ The harness requires the stack output, worker SSM target and exact live version
 to agree. Updating mutable `$LATEST` cannot change the code the worker invokes;
 a code change requires a deployment that publishes and selects a new version.
 
-The live allocator, IAM role/policy, worker permission simulation, bucket ACL,
-public-access block and bucket-policy status responses are evaluated only in
-memory. They are not copied into the report; only the pass/fail checks are
-retained. The operator identity therefore needs these additional read-only
-actions: `iam:GetRole`, `iam:ListAttachedRolePolicies`,
-`iam:ListRolePolicies`, `iam:GetRolePolicy`, `iam:SimulatePrincipalPolicy`,
-`s3:GetBucketPublicAccessBlock`, and `s3:GetBucketPolicyStatus`.
+The live allocator, IAM role/policy and instance-profile responses, worker
+permission simulation, topic attributes, KMS key policy, bucket ACL,
+public-access block, bucket-policy status and lifecycle responses are evaluated
+only in memory. They are not copied into the report; only the pass/fail checks
+are retained. The operator identity therefore needs these additional read-only
+actions: `ec2:DescribeInstances`, `iam:GetInstanceProfile`, `iam:GetRole`,
+`iam:ListAttachedRolePolicies`, `iam:ListRolePolicies`, `iam:GetRolePolicy`,
+`iam:SimulatePrincipalPolicy`, `kms:GetKeyPolicy`, `sns:GetTopicAttributes`,
+`s3:GetBucketLifecycleConfiguration`, `s3:GetBucketPublicAccessBlock`, and
+`s3:GetBucketPolicyStatus`.
 
 ## Interpreting results
 

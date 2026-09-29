@@ -925,6 +925,9 @@ test("CloudFront entitlement qualification has a global WAF baseline", () => {
   template.hasOutput("OfflineScormEdgeAlarmTopicArn", {
     Description: Match.stringLikeRegexp("must be confirmed"),
   });
+  template.hasOutput("OfflineScormEdgeAlarmKeyArn", {
+    Description: Match.stringLikeRegexp("CloudWatch publish grant"),
+  });
   template.hasOutput("OfflineScormEdgeAlarmEmail", {
     Value: "ops@codestudio.au",
   });
