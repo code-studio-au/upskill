@@ -1386,6 +1386,65 @@ export function hasExpectedWafLoggingBaseline(
   );
 }
 
+export function hasExpectedWafLogDeliveryPolicy(
+  accountPoliciesResponse,
+  resourcePoliciesResponse,
+  logGroupArn,
+  expectedAccount,
+) {
+  const expectedSourceArn = `arn:aws:logs:${CLOUDFRONT_CONTROL_PLANE_REGION}:${expectedAccount}:*`;
+  const expectedLogStreamArn = `${logGroupArn}:log-stream:*`;
+  const policies = [
+    ...(accountPoliciesResponse?.resourcePolicies ?? []),
+    ...(resourcePoliciesResponse?.resourcePolicies ?? []),
+  ];
+  return policies.some((resourcePolicy) => {
+    if (
+      resourcePolicy?.policyScope === "RESOURCE" &&
+      resourcePolicy?.resourceArn !== logGroupArn
+    )
+      return false;
+    const policy = parsePolicyDocument(resourcePolicy?.policyDocument);
+    if (policy?.Version !== "2012-10-17" || !Array.isArray(policy.Statement))
+      return false;
+    return policy.Statement.some((statement) => {
+      const actions = Array.isArray(statement?.Action)
+        ? statement.Action
+        : [statement?.Action];
+      const resources = Array.isArray(statement?.Resource)
+        ? statement.Resource
+        : [statement?.Resource];
+      const services = Array.isArray(statement?.Principal?.Service)
+        ? statement.Principal.Service
+        : [statement?.Principal?.Service];
+      const sourceAccounts = Array.isArray(
+        statement?.Condition?.StringEquals?.["aws:SourceAccount"],
+      )
+        ? statement.Condition.StringEquals["aws:SourceAccount"]
+        : [statement?.Condition?.StringEquals?.["aws:SourceAccount"]];
+      const sourceArns = Array.isArray(
+        statement?.Condition?.ArnLike?.["aws:SourceArn"],
+      )
+        ? statement.Condition.ArnLike["aws:SourceArn"]
+        : [statement?.Condition?.ArnLike?.["aws:SourceArn"]];
+      return (
+        statement?.Effect === "Allow" &&
+        isDeepStrictEqual(services, ["delivery.logs.amazonaws.com"]) &&
+        isDeepStrictEqual([...actions].sort(), [
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+        ]) &&
+        isDeepStrictEqual(resources, [expectedLogStreamArn]) &&
+        isDeepStrictEqual(sourceAccounts, [expectedAccount]) &&
+        isDeepStrictEqual(sourceArns, [expectedSourceArn]) &&
+        statement?.NotAction === undefined &&
+        statement?.NotPrincipal === undefined &&
+        statement?.NotResource === undefined
+      );
+    });
+  });
+}
+
 function confirmedSubscriptions(response) {
   return (response.Subscriptions ?? []).filter(
     (subscription) =>
@@ -1811,11 +1870,14 @@ export async function collectCloudFrontQualificationReport(
     Date.parse(generatedAt) - options.lookbackHours * 60 * 60 * 1_000,
   ).toISOString();
   const edgeAlarmName = `upskill-${options.environment}-offline-scorm-waf-blocked-requests`;
+  const wafLogGroupArn = `arn:aws:logs:${CLOUDFRONT_CONTROL_PLANE_REGION}:${accountId}:log-group:${wafLogGroupName}`;
   const [
     webAcl,
     webAclTags,
     wafLogging,
     wafLogGroups,
+    wafAccountLogPolicies,
+    wafResourceLogPolicies,
     edgeSubscriptions,
     edgeAlarmTopicAttributes,
     edgeAlarmKeyDescription,
@@ -1877,6 +1939,26 @@ export async function collectCloudFrontQualificationReport(
       "describe-log-groups",
       "--log-group-name-prefix",
       wafLogGroupName,
+      "--region",
+      CLOUDFRONT_CONTROL_PLANE_REGION,
+    ]),
+    runAws([
+      "logs",
+      "describe-resource-policies",
+      "--policy-scope",
+      "ACCOUNT",
+      "--no-paginate",
+      "--region",
+      CLOUDFRONT_CONTROL_PLANE_REGION,
+    ]),
+    runAws([
+      "logs",
+      "describe-resource-policies",
+      "--resource-arn",
+      wafLogGroupArn,
+      "--policy-scope",
+      "RESOURCE",
+      "--no-paginate",
       "--region",
       CLOUDFRONT_CONTROL_PLANE_REGION,
     ]),
@@ -2405,6 +2487,17 @@ export async function collectCloudFrontQualificationReport(
     "waf-log-retention",
     logGroup?.retentionInDays === 30,
     "Staging WAF log retention is 30 days",
+  );
+  addCheck(
+    checks,
+    "waf-log-delivery-policy",
+    hasExpectedWafLogDeliveryPolicy(
+      wafAccountLogPolicies,
+      wafResourceLogPolicies,
+      wafLogGroupArn,
+      accountId,
+    ),
+    "CloudWatch Logs policy grants the delivery service exact write access to the WAF log group",
   );
   addCheck(
     checks,

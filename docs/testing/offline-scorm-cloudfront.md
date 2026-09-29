@@ -26,6 +26,8 @@ distribution, invoke the allocator, alter a WAF rule, or write to AWS.
   publication path can be qualified. The shared operational topic attributes
   are also read to qualify its same-account CloudWatch publication boundary
   and require the deployment baseline of no KMS encryption key.
+- Read access to account- and resource-scoped CloudWatch Logs resource policies
+  so the WAF log group's exact delivery-service write path can be qualified.
 - The application, storage and edge stacks deployed with the CloudFront
   qualification context.
 - The shared `ap-southeast-2` operational SNS email subscription and the
@@ -52,7 +54,7 @@ pnpm run qualify:offline-scorm:cloudfront -- \
 Store the JSON output with the qualification record. It verifies the direct
 origin parameter and deployed-distribution binding, staging risk
 acknowledgement, WAF ownership/binding, mandatory rules, safe log filtering and
-redaction, ACL-level and per-rule WAF metric publication/sampling, 30-day WAF
+redaction, exact CloudWatch Logs delivery policy, ACL-level and per-rule WAF metric publication/sampling, 30-day WAF
 retention, exact unfiltered confirmed alarm-subscription endpoints, exact alarm
 metrics/units/evaluation/actions, per-distribution entitlement-specific access
 logging, the bucket's exact owner and S3 LogDelivery ACL grants, all four S3
@@ -139,6 +141,7 @@ these additional read-only actions: `cloudformation:ListStackResources`,
 `iam:GetInstanceProfile`, `iam:GetRole`, `iam:ListAttachedRolePolicies`,
 `iam:ListRolePolicies`, `iam:GetRolePolicy`, `iam:SimulatePrincipalPolicy`,
 `kms:DescribeKey`, `kms:GetKeyPolicy`, `lambda:GetPolicy`,
+`logs:DescribeResourcePolicies`,
 `secretsmanager:GetResourcePolicy`,
 `sns:GetSubscriptionAttributes`,
 `sns:GetTopicAttributes`, `s3:GetBucketLifecycleConfiguration`,

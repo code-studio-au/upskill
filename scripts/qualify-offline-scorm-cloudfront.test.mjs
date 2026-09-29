@@ -30,6 +30,7 @@ import {
   haveExpectedDistributionOwnership,
   haveExpectedDistributionOrigins,
   hasExpectedWafLoggingBaseline,
+  hasExpectedWafLogDeliveryPolicy,
   hasExpectedWebAclBaseline,
   parseQualificationArguments,
   requireQualificationDistributionCap,
@@ -55,6 +56,7 @@ const alarmEmail = "ops@codestudio.au";
 const originKeySecretArn =
   "arn:aws:secretsmanager:ap-southeast-2:123456789012:secret:upskill/staging/offline-scorm/cloudfront-origin-key-example";
 const wafLogGroupName = "aws-waf-logs-upskill-staging-offline-scorm-cloudfront";
+const wafLogGroupArn = `arn:aws:logs:us-east-1:${options.expectedAccount}:log-group:${wafLogGroupName}`;
 const logBucketDomain = "upskill-edge-logs.s3.amazonaws.com";
 const distributionId = "E1234567890ABC";
 const distributionArn = `arn:aws:cloudfront::${options.expectedAccount}:distribution/${distributionId}`;
@@ -702,6 +704,40 @@ function expectedWafLoggingConfiguration() {
         },
       ],
     },
+  };
+}
+
+function expectedWafLogDeliveryPolicies() {
+  return {
+    resourcePolicies: [
+      {
+        policyDocument: JSON.stringify({
+          Version: "2012-10-17",
+          Statement: [
+            {
+              Sid: "AWSLogDeliveryWrite20150319",
+              Effect: "Allow",
+              Principal: { Service: ["delivery.logs.amazonaws.com"] },
+              Action: ["logs:CreateLogStream", "logs:PutLogEvents"],
+              Resource: [`${wafLogGroupArn}:log-stream:*`],
+              Condition: {
+                StringEquals: {
+                  "aws:SourceAccount": [options.expectedAccount],
+                },
+                ArnLike: {
+                  "aws:SourceArn": [
+                    `arn:aws:logs:us-east-1:${options.expectedAccount}:*`,
+                  ],
+                },
+              },
+            },
+          ],
+        }),
+        policyName: "waf-log-delivery",
+        policyScope: "RESOURCE",
+        resourceArn: wafLogGroupArn,
+      },
+    ],
   };
 }
 
@@ -2299,6 +2335,50 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         wafLogGroupName,
       ),
     ).toBe(false);
+    const logPolicies = expectedWafLogDeliveryPolicies();
+    expect(
+      hasExpectedWafLogDeliveryPolicy(
+        { resourcePolicies: [] },
+        logPolicies,
+        wafLogGroupArn,
+        options.expectedAccount,
+      ),
+    ).toBe(true);
+    expect(
+      hasExpectedWafLogDeliveryPolicy(
+        {
+          resourcePolicies: logPolicies.resourcePolicies.map((policy) => ({
+            policyDocument: policy.policyDocument,
+            policyName: policy.policyName,
+            policyScope: "ACCOUNT",
+          })),
+        },
+        { resourcePolicies: [] },
+        wafLogGroupArn,
+        options.expectedAccount,
+      ),
+    ).toBe(true);
+    expect(
+      hasExpectedWafLogDeliveryPolicy(
+        { resourcePolicies: [] },
+        {
+          resourcePolicies: logPolicies.resourcePolicies.map((policy) => ({
+            ...policy,
+            policyDocument: JSON.stringify({
+              ...JSON.parse(policy.policyDocument),
+              Statement: JSON.parse(policy.policyDocument).Statement.map(
+                (statement) => ({
+                  ...statement,
+                  Action: ["logs:CreateLogStream"],
+                }),
+              ),
+            }),
+          })),
+        },
+        wafLogGroupArn,
+        options.expectedAccount,
+      ),
+    ).toBe(false);
     expect(
       hasExpectedWafLoggingBaseline(
         {
@@ -2508,6 +2588,10 @@ describe("Offline SCORM CloudFront qualification harness", () => {
             },
           ],
         };
+      if (command === "logs describe-resource-policies")
+        return args.includes("RESOURCE")
+          ? expectedWafLogDeliveryPolicies()
+          : { resourcePolicies: [] };
       if (command === "sns list-subscriptions-by-topic") {
         const topicArn = args[args.indexOf("--topic-arn") + 1];
         return {
