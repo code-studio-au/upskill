@@ -20,7 +20,8 @@ distribution, invoke the allocator, alter a WAF rule, or write to AWS.
   deployed worker role's EC2-only trust policy plus all managed and inline
   policies, and simulate its permission to invoke the exact allocator version.
   Read the post-restart worker runtime target parameter written only after the
-  deployed worker passes readiness.
+  deployed worker passes readiness. Read the worker heartbeat alarm and recent
+  `WorkerActive` datapoints so current process health can also be qualified.
 - Read access to the edge SNS topic attributes and deployment-owned KMS key
   metadata and policy so the key's enabled state and CloudWatch alarm
   publication path can be qualified. The shared operational topic attributes
@@ -69,9 +70,10 @@ entitlement-bound protected origin headers, HTTPS-only TLS 1.2 origin
 transport, the running instance's live profile binding to the worker role, the
 worker's exact EC2-only trust policy, default session duration and lack of a
 permissions boundary, its exact SSM allocator target and effective permission
-to invoke that immutable version, the post-restart worker runtime attestation
-for that same target, the absence of direct CloudFront or WAF permissions on
-the worker, the live allocator version and code digest, lack of executable
+to invoke that immutable version, a current healthy `WorkerActive` datapoint
+with the heartbeat alarm in `OK`, the post-restart worker runtime attestation
+for that same target, the absence of direct CloudFront or WAF permissions on the
+worker, the live allocator version and code digest, lack of executable
 Lambda layers, exact execution role, runtime, environment and reserved
 concurrency,
 the allocator role's Lambda-only trust policy and least-privilege
@@ -138,6 +140,7 @@ policy, bucket ACL, public-access block, bucket-policy status and lifecycle
 responses are evaluated only in memory. They are not copied into the report;
 only the pass/fail checks are retained. The operator identity therefore needs
 these additional read-only actions: `cloudformation:ListStackResources`,
+`cloudwatch:DescribeAlarms`, `cloudwatch:GetMetricStatistics`,
 `ec2:DescribeInstances`,
 `iam:GetInstanceProfile`, `iam:GetRole`, `iam:ListAttachedRolePolicies`,
 `iam:ListRolePolicies`, `iam:GetRolePolicy`, `iam:SimulatePrincipalPolicy`,

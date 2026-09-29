@@ -10,6 +10,7 @@ import {
   deploymentOwnedAutoDeleteRoleArn,
   evaluateQuotaHeadroom,
   hasConfirmedEmailSubscription,
+  hasCurrentHealthyWorkerSignal,
   hasExpectedAlarmTopicPolicy,
   hasExpectedAlarmSubscription,
   hasExpectedAllocatorConfiguration,
@@ -50,6 +51,7 @@ const edgeAlarmTopicArn = "arn:aws:sns:us-east-1:123456789012:edge-alarms";
 const edgeAlarmKeyArn =
   "arn:aws:kms:us-east-1:123456789012:key/11111111-2222-3333-4444-555555555555";
 const edgeAlarmName = "upskill-staging-offline-scorm-waf-blocked-requests";
+const workerAlarmName = "upskill-staging-worker-heartbeat";
 const allocatorAlarmTopicArn =
   "arn:aws:sns:ap-southeast-2:123456789012:operational-alarms";
 const alarmEmail = "ops@codestudio.au";
@@ -911,6 +913,72 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         ),
       ).toBe(false);
     }
+    const generatedAt = "2026-09-28T00:00:00.000Z";
+    const healthyMetric = {
+      Datapoints: [
+        {
+          Maximum: 1,
+          Minimum: 1,
+          Timestamp: "2026-09-27T23:55:00.000Z",
+          Unit: "Count",
+        },
+      ],
+    };
+    const healthyAlarm = {
+      MetricAlarms: [{ AlarmName: workerAlarmName, StateValue: "OK" }],
+    };
+    expect(
+      hasCurrentHealthyWorkerSignal(
+        healthyMetric,
+        healthyAlarm,
+        generatedAt,
+        workerAlarmName,
+      ),
+    ).toBe(true);
+    expect(
+      hasCurrentHealthyWorkerSignal(
+        {
+          Datapoints: [
+            {
+              Maximum: 1,
+              Minimum: 1,
+              Timestamp: "2026-09-27T23:49:59.000Z",
+              Unit: "Count",
+            },
+          ],
+        },
+        healthyAlarm,
+        generatedAt,
+        workerAlarmName,
+      ),
+    ).toBe(false);
+    expect(
+      hasCurrentHealthyWorkerSignal(
+        {
+          Datapoints: [
+            {
+              Maximum: 1,
+              Minimum: 0,
+              Timestamp: "2026-09-27T23:59:00.000Z",
+              Unit: "Count",
+            },
+          ],
+        },
+        healthyAlarm,
+        generatedAt,
+        workerAlarmName,
+      ),
+    ).toBe(false);
+    expect(
+      hasCurrentHealthyWorkerSignal(
+        healthyMetric,
+        {
+          MetricAlarms: [{ AlarmName: workerAlarmName, StateValue: "ALARM" }],
+        },
+        generatedAt,
+        workerAlarmName,
+      ),
+    ).toBe(false);
   });
 
   it("requires the live allocator runtime, environment and concurrency baseline", () => {
@@ -2709,38 +2777,61 @@ describe("Offline SCORM CloudFront qualification harness", () => {
             .slice(args.indexOf("--alarm-names") + 1, args.indexOf("--region"))
             .map((AlarmName) => {
               const isEdge = region === "us-east-1";
+              const isWorker = AlarmName === workerAlarmName;
               return {
                 ActionsEnabled: true,
                 AlarmActions: [actionArn],
                 InsufficientDataActions: [],
                 OKActions: [],
                 AlarmName,
-                ComparisonOperator: "GreaterThanOrEqualToThreshold",
-                Dimensions: isEdge
-                  ? [
-                      { Name: "Region", Value: "Global" },
-                      { Name: "Rule", Value: "ALL" },
-                      {
-                        Name: "WebACL",
-                        Value: "upskill-staging-offline-scorm-cloudfront",
-                      },
-                    ]
-                  : [{ Name: "FunctionName", Value: "allocator" }],
-                EvaluationPeriods: 1,
-                MetricName: isEdge
-                  ? "BlockedRequests"
-                  : AlarmName.endsWith("-errors")
-                    ? "Errors"
-                    : "Throttles",
-                Namespace: isEdge ? "AWS/WAFV2" : "AWS/Lambda",
+                ComparisonOperator: isWorker
+                  ? "LessThanThreshold"
+                  : "GreaterThanOrEqualToThreshold",
+                Dimensions: isWorker
+                  ? [{ Name: "Environment", Value: options.environment }]
+                  : isEdge
+                    ? [
+                        { Name: "Region", Value: "Global" },
+                        { Name: "Rule", Value: "ALL" },
+                        {
+                          Name: "WebACL",
+                          Value: "upskill-staging-offline-scorm-cloudfront",
+                        },
+                      ]
+                    : [{ Name: "FunctionName", Value: "allocator" }],
+                EvaluationPeriods: isWorker ? 2 : 1,
+                MetricName: isWorker
+                  ? "WorkerActive"
+                  : isEdge
+                    ? "BlockedRequests"
+                    : AlarmName.endsWith("-errors")
+                      ? "Errors"
+                      : "Throttles",
+                Namespace: isWorker
+                  ? "Upskill"
+                  : isEdge
+                    ? "AWS/WAFV2"
+                    : "AWS/Lambda",
                 Period: 300,
-                Statistic: "Sum",
+                StateValue: isWorker ? "OK" : undefined,
+                Statistic: isWorker ? "Maximum" : "Sum",
                 Threshold: isEdge ? 100 : 1,
-                TreatMissingData: "notBreaching",
+                TreatMissingData: isWorker ? "breaching" : "notBreaching",
               };
             }),
         };
       }
+      if (command === "cloudwatch get-metric-statistics")
+        return {
+          Datapoints: [
+            {
+              Maximum: 1,
+              Minimum: 1,
+              Timestamp: "2026-09-27T23:55:00.000Z",
+              Unit: "Count",
+            },
+          ],
+        };
       if (command === "lambda get-function-configuration")
         return expectedAllocatorConfiguration();
       if (command === "lambda get-policy")
@@ -2848,6 +2939,9 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       report.checks.find((check) => check.id === "worker-instance-profile"),
     ).toMatchObject({ status: "pass" });
     expect(
+      report.checks.find((check) => check.id === "worker-heartbeat"),
+    ).toMatchObject({ status: "pass" });
+    expect(
       report.checks.find((check) => check.id === "edge-alert-kms"),
     ).toMatchObject({ status: "pass" });
     expect(
@@ -2882,7 +2976,11 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         (args) => args.slice(0, 2).join(" ") === "cloudwatch describe-alarms",
       )
       .map((args) => args[args.indexOf("--region") + 1]);
-    expect(alarmRegions).toEqual(["us-east-1", options.applicationRegion]);
+    expect(alarmRegions).toEqual([
+      "us-east-1",
+      options.applicationRegion,
+      options.applicationRegion,
+    ]);
     expect(
       calls.filter(
         (args) =>

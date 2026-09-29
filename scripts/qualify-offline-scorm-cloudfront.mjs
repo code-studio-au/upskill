@@ -496,6 +496,41 @@ export function haveExpectedAlarmConfigurations(alarms, expectedAlarms) {
   });
 }
 
+export function hasCurrentHealthyWorkerSignal(
+  metricResponse,
+  alarmResponse,
+  generatedAt,
+  expectedAlarmName,
+) {
+  const observedAt = Date.parse(generatedAt);
+  const alarms = alarmResponse?.MetricAlarms;
+  const datapoints = metricResponse?.Datapoints;
+  if (
+    !Number.isFinite(observedAt) ||
+    !Array.isArray(alarms) ||
+    alarms.length !== 1 ||
+    alarms[0]?.AlarmName !== expectedAlarmName ||
+    alarms[0]?.StateValue !== "OK" ||
+    !Array.isArray(datapoints) ||
+    datapoints.length === 0
+  )
+    return false;
+  const latest = datapoints
+    .map((datapoint) => ({
+      ...datapoint,
+      observedAt: Date.parse(datapoint?.Timestamp ?? ""),
+    }))
+    .filter((datapoint) => Number.isFinite(datapoint.observedAt))
+    .sort((left, right) => right.observedAt - left.observedAt)[0];
+  return (
+    latest?.Maximum === 1 &&
+    latest?.Minimum === 1 &&
+    latest?.Unit === "Count" &&
+    latest.observedAt <= observedAt + 60_000 &&
+    latest.observedAt >= observedAt - 10 * 60_000
+  );
+}
+
 export function hasExpectedAllocatorConfiguration(
   configuration,
   concurrency,
@@ -1928,6 +1963,10 @@ export async function collectCloudFrontQualificationReport(
     Date.parse(generatedAt) - options.lookbackHours * 60 * 60 * 1_000,
   ).toISOString();
   const edgeAlarmName = `upskill-${options.environment}-offline-scorm-waf-blocked-requests`;
+  const workerAlarmName = `upskill-${options.environment}-worker-heartbeat`;
+  const workerSignalStartTime = new Date(
+    Date.parse(generatedAt) - 15 * 60_000,
+  ).toISOString();
   const wafLogGroupArn = `arn:aws:logs:${CLOUDFRONT_CONTROL_PLANE_REGION}:${accountId}:log-group:${wafLogGroupName}`;
   const [
     webAcl,
@@ -1944,6 +1983,8 @@ export async function collectCloudFrontQualificationReport(
     allocatorAlarmTopicAttributes,
     edgeAlarms,
     allocatorAlarms,
+    workerAlarms,
+    workerMetrics,
     allocatorConfiguration,
     allocatorInvocationPolicy,
     allocatorRole,
@@ -2084,6 +2125,35 @@ export async function collectCloudFrontQualificationReport(
       "--alarm-names",
       `upskill-${options.environment}-offline-scorm-cloudfront-allocator-errors`,
       `upskill-${options.environment}-offline-scorm-cloudfront-allocator-throttles`,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "cloudwatch",
+      "describe-alarms",
+      "--alarm-names",
+      workerAlarmName,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "cloudwatch",
+      "get-metric-statistics",
+      "--namespace",
+      "Upskill",
+      "--metric-name",
+      "WorkerActive",
+      "--dimensions",
+      `Name=Environment,Value=${options.environment}`,
+      "--start-time",
+      workerSignalStartTime,
+      "--end-time",
+      generatedAt,
+      "--period",
+      "300",
+      "--statistics",
+      "Maximum",
+      "Minimum",
       "--region",
       options.applicationRegion,
     ]),
@@ -2446,6 +2516,17 @@ export async function collectCloudFrontQualificationReport(
   );
   addCheck(
     checks,
+    "worker-heartbeat",
+    hasCurrentHealthyWorkerSignal(
+      workerMetrics,
+      workerAlarms,
+      generatedAt,
+      workerAlarmName,
+    ),
+    "Application worker has a current healthy WorkerActive signal and its heartbeat alarm is OK",
+  );
+  addCheck(
+    checks,
     "worker-allocator-policy-boundary",
     hasExpectedWorkerAllocatorPolicyBoundary(
       workerRole,
@@ -2660,6 +2741,20 @@ export async function collectCloudFrontQualificationReport(
       namespace: "AWS/Lambda",
       threshold: 1,
     },
+    {
+      alarmName: workerAlarmName,
+      actionArn: allocatorAlarmTopicArn,
+      comparisonOperator: "LessThanThreshold",
+      dimensions: [{ Name: "Environment", Value: options.environment }],
+      evaluationPeriods: 2,
+      metricName: "WorkerActive",
+      namespace: "Upskill",
+      period: 300,
+      statistic: "Maximum",
+      threshold: 1,
+      treatMissingData: "breaching",
+      unit: undefined,
+    },
   ];
   addCheck(
     checks,
@@ -2668,10 +2763,11 @@ export async function collectCloudFrontQualificationReport(
       [
         ...(edgeAlarms.MetricAlarms ?? []),
         ...(allocatorAlarms.MetricAlarms ?? []),
+        ...(workerAlarms.MetricAlarms ?? []),
       ],
       expectedAlarmConfigurations,
     ),
-    "WAF and allocator alarms match their expected metrics, thresholds, evaluation and notification configuration",
+    "WAF, allocator and worker alarms match their expected metrics, thresholds, evaluation and notification configuration",
   );
   addCheck(
     checks,
