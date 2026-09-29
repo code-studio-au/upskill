@@ -1478,6 +1478,42 @@ export function hasExpectedWafLogDeliveryPolicy(
 ) {
   const expectedSourceArn = `arn:aws:logs:${CLOUDFRONT_CONTROL_PLANE_REGION}:${expectedAccount}:*`;
   const expectedLogStreamArn = `${logGroupArn}:log-stream:*`;
+  const requiredActions = ["logs:CreateLogStream", "logs:PutLogEvents"];
+  const list = (value) => (Array.isArray(value) ? value : [value]);
+  const patternMatches = (pattern, value) =>
+    typeof pattern === "string" && actionPatternMatches(pattern, value);
+  const actionApplies = (statement) => {
+    if (statement?.NotAction !== undefined)
+      return requiredActions.some(
+        (action) =>
+          !list(statement.NotAction).some((pattern) =>
+            patternMatches(pattern, action),
+          ),
+      );
+    return requiredActions.some((action) =>
+      list(statement?.Action).some((pattern) =>
+        patternMatches(pattern, action),
+      ),
+    );
+  };
+  const resourceApplies = (statement) => {
+    const matchesLogStream = (pattern) =>
+      pattern === "*" ||
+      (typeof pattern === "string" &&
+        (pattern.startsWith(`${logGroupArn}:log-stream:`) ||
+          patternMatches(
+            pattern,
+            `${logGroupArn}:log-stream:qualification-probe`,
+          )));
+    if (statement?.NotResource !== undefined)
+      return !list(statement.NotResource).some(
+        (pattern) =>
+          pattern === expectedLogStreamArn ||
+          pattern === "*" ||
+          patternMatches(pattern, expectedLogStreamArn),
+      );
+    return list(statement?.Resource).some(matchesLogStream);
+  };
   const policies = [
     ...(accountPoliciesResponse?.resourcePolicies ?? []),
     ...(resourcePoliciesResponse?.resourcePolicies ?? []),
@@ -1491,7 +1527,16 @@ export function hasExpectedWafLogDeliveryPolicy(
       return [];
     const policy = parsePolicyDocument(resourcePolicy?.policyDocument);
     if (policy?.Version !== "2012-10-17" || !Array.isArray(policy.Statement)) {
-      hasUnevaluablePolicy = true;
+      const inspectableStatements = Array.isArray(policy?.Statement)
+        ? policy.Statement
+        : policy?.Statement !== null && typeof policy?.Statement === "object"
+          ? [policy.Statement]
+          : null;
+      hasUnevaluablePolicy ||=
+        inspectableStatements === null ||
+        inspectableStatements.some(
+          (statement) => actionApplies(statement) && resourceApplies(statement),
+        );
       return [];
     }
     return policy.Statement;
@@ -1542,11 +1587,7 @@ export function hasExpectedWafLogDeliveryPolicy(
     );
   };
   const hasExpectedAllow = statements.some(isExpectedAllow);
-  const requiredActions = ["logs:CreateLogStream", "logs:PutLogEvents"];
   const expectedService = "delivery.logs.amazonaws.com";
-  const list = (value) => (Array.isArray(value) ? value : [value]);
-  const patternMatches = (pattern, value) =>
-    typeof pattern === "string" && actionPatternMatches(pattern, value);
   const principalApplies = (statement) => {
     const principal = statement?.Principal;
     const notPrincipal = statement?.NotPrincipal;
@@ -1558,38 +1599,6 @@ export function hasExpectedWafLogDeliveryPolicy(
       list(candidate?.AWS).some((pattern) => pattern === "*");
     if (notPrincipal !== undefined) return !matches(notPrincipal);
     return matches(principal);
-  };
-  const actionApplies = (statement) => {
-    if (statement?.NotAction !== undefined)
-      return requiredActions.some(
-        (action) =>
-          !list(statement.NotAction).some((pattern) =>
-            patternMatches(pattern, action),
-          ),
-      );
-    return requiredActions.some((action) =>
-      list(statement?.Action).some((pattern) =>
-        patternMatches(pattern, action),
-      ),
-    );
-  };
-  const resourceApplies = (statement) => {
-    const matchesLogStream = (pattern) =>
-      pattern === "*" ||
-      (typeof pattern === "string" &&
-        (pattern.startsWith(`${logGroupArn}:log-stream:`) ||
-          patternMatches(
-            pattern,
-            `${logGroupArn}:log-stream:qualification-probe`,
-          )));
-    if (statement?.NotResource !== undefined)
-      return !list(statement.NotResource).some(
-        (pattern) =>
-          pattern === expectedLogStreamArn ||
-          pattern === "*" ||
-          patternMatches(pattern, expectedLogStreamArn),
-      );
-    return list(statement?.Resource).some(matchesLogStream);
   };
   const hasApplicableDeny = statements.some(
     (statement) =>

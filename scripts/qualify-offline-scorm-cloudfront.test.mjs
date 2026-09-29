@@ -2554,6 +2554,44 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         options.expectedAccount,
       ),
     ).toBe(false);
+    for (const unrelatedLegacyStatement of [
+      [
+        {
+          Effect: "Deny",
+          Principal: { Service: "delivery.logs.amazonaws.com" },
+          Action: "logs:PutLogEvents",
+          Resource:
+            "arn:aws:logs:us-east-1:123456789012:log-group:unrelated:log-stream:*",
+        },
+      ],
+      {
+        Effect: "Deny",
+        Principal: { Service: "delivery.logs.amazonaws.com" },
+        Action: "logs:PutLogEvents",
+        Resource:
+          "arn:aws:logs:us-east-1:123456789012:log-group:unrelated:log-stream:*",
+      },
+    ]) {
+      expect(
+        hasExpectedWafLogDeliveryPolicy(
+          {
+            resourcePolicies: [
+              {
+                policyDocument: JSON.stringify({
+                  Version: "2008-10-17",
+                  Statement: unrelatedLegacyStatement,
+                }),
+                policyName: "unrelated-legacy-account-policy",
+                policyScope: "ACCOUNT",
+              },
+            ],
+          },
+          logPolicies,
+          wafLogGroupArn,
+          options.expectedAccount,
+        ),
+      ).toBe(true);
+    }
     const expectedPolicy = JSON.parse(
       logPolicies.resourcePolicies[0].policyDocument,
     );

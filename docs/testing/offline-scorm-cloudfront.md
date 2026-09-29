@@ -93,9 +93,11 @@ an allocator-version resource policy, distribution-cap markers, service-quota
 headroom and a globally bounded sample of recent CloudFront control-plane
 mutations.
 
-Applicable account- and resource-scoped CloudWatch Logs policies must use the
-supported `2012-10-17` policy language. Qualification fails closed rather than
-discarding a policy whose statements cannot be evaluated.
+Account- and resource-scoped CloudWatch Logs policies capable of applying to
+the qualification log group must use the supported `2012-10-17` policy
+language. Qualification ignores inspectable legacy statements that target only
+unrelated resources, but fails closed when a potentially applicable policy
+cannot be evaluated.
 
 The deployed cap output must remain the repository qualification baseline of
 25, and quota headroom is calculated from every distribution item aggregated
