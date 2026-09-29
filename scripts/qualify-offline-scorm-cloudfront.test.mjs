@@ -19,6 +19,7 @@ import {
   hasExpectedEdgeAlarmKmsBoundary,
   hasExpectedCloudFrontLogDeliveryAcl,
   hasExpectedLogBucketLifecycle,
+  hasExpectedLogCleanupRoleBoundary,
   hasExpectedLogBucketPolicy,
   hasExpectedLogBucketPublicAccessBoundary,
   hasExpectedWorkerInstanceProfile,
@@ -523,6 +524,26 @@ function expectedSubscriptionAttributes(topicArn) {
       RawMessageDelivery: "false",
       SubscriptionArn: `${topicArn}:subscription`,
       TopicArn: topicArn,
+    },
+  };
+}
+
+function expectedLogCleanupRole() {
+  return {
+    Role: {
+      Arn: autoDeleteRoleArn,
+      AssumeRolePolicyDocument: {
+        Version: "2012-10-17",
+        Statement: [
+          {
+            Action: "sts:AssumeRole",
+            Effect: "Allow",
+            Principal: { Service: "lambda.amazonaws.com" },
+          },
+        ],
+      },
+      MaxSessionDuration: 3_600,
+      RoleName: autoDeleteRoleName,
     },
   };
 }
@@ -1057,6 +1078,36 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         "aws",
       ),
     ).toBeNull();
+  });
+
+  it("requires the log-cleanup role to retain its Lambda-only trust", () => {
+    const role = expectedLogCleanupRole();
+    expect(hasExpectedLogCleanupRoleBoundary(role, autoDeleteRoleArn)).toBe(
+      true,
+    );
+    expect(
+      hasExpectedLogCleanupRoleBoundary(
+        {
+          Role: {
+            ...role.Role,
+            AssumeRolePolicyDocument: {
+              ...role.Role.AssumeRolePolicyDocument,
+              Statement: [
+                ...role.Role.AssumeRolePolicyDocument.Statement,
+                {
+                  Action: "sts:AssumeRole",
+                  Effect: "Allow",
+                  Principal: {
+                    AWS: `arn:aws:iam::${options.expectedAccount}:root`,
+                  },
+                },
+              ],
+            },
+          },
+        },
+        autoDeleteRoleArn,
+      ),
+    ).toBe(false);
   });
 
   it("requires the exact CloudFront log-delivery bucket ACL", () => {
@@ -1836,6 +1887,12 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     for (const filteredAttributes of [
       { ...attributes.Attributes, FilterPolicy: "{}" },
       { ...attributes.Attributes, FilterPolicyScope: "MessageBody" },
+      {
+        ...attributes.Attributes,
+        RedrivePolicy: JSON.stringify({
+          deadLetterTargetArn: `arn:aws:sqs:us-east-1:${options.expectedAccount}:undeclared`,
+        }),
+      },
     ]) {
       expect(
         hasExpectedAlarmSubscription(
@@ -2495,7 +2552,9 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       if (command === "iam get-role")
         return args.includes(workerRoleName)
           ? expectedWorkerRoleResponses().role
-          : expectedAllocatorRoleResponses().role;
+          : args.includes(autoDeleteRoleName)
+            ? expectedLogCleanupRole()
+            : expectedAllocatorRoleResponses().role;
       if (command === "iam list-attached-role-policies")
         return args.includes(workerRoleName)
           ? expectedWorkerRoleResponses().attached
@@ -2709,6 +2768,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       "list-attached-role-policies",
       "list-role-policies",
       "simulate-principal-policy",
+      "get-role",
       "get-role-policy",
       "get-role-policy",
       "get-instance-profile",

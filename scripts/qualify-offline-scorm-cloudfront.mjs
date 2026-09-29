@@ -145,6 +145,29 @@ export function deploymentOwnedAutoDeleteRoleArn(
   return `arn:${expectedPartition}:iam::${expectedAccount}:role/${matches[0].PhysicalResourceId}`;
 }
 
+export function hasExpectedLogCleanupRoleBoundary(roleResponse, roleArn) {
+  const roleMatch = IAM_ROLE_ARN.exec(roleArn ?? "");
+  const roleName = roleMatch?.[3];
+  return (
+    typeof roleName === "string" &&
+    !roleName.includes("/") &&
+    roleResponse?.Role?.Arn === roleArn &&
+    roleResponse?.Role?.RoleName === roleName &&
+    roleResponse?.Role?.MaxSessionDuration === 3_600 &&
+    roleResponse?.Role?.PermissionsBoundary === undefined &&
+    isDeepStrictEqual(roleResponse?.Role?.AssumeRolePolicyDocument, {
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Action: "sts:AssumeRole",
+          Effect: "Allow",
+          Principal: { Service: "lambda.amazonaws.com" },
+        },
+      ],
+    })
+  );
+}
+
 function requiredValue(value, message) {
   if (typeof value !== "string" || value.length === 0) throw new Error(message);
   return value;
@@ -1415,7 +1438,8 @@ export function hasExpectedAlarmSubscription(
     (attributes?.PendingConfirmation === undefined ||
       attributes.PendingConfirmation === "false") &&
     attributes?.FilterPolicy === undefined &&
-    attributes?.FilterPolicyScope === undefined
+    attributes?.FilterPolicyScope === undefined &&
+    attributes?.RedrivePolicy === undefined
   );
 }
 
@@ -1714,6 +1738,11 @@ export async function collectCloudFrontQualificationReport(
     throw new Error(
       "CloudFront access-log bucket cleanup role is not deployment-owned",
     );
+  const logBucketAutoDeleteRoleName = IAM_ROLE_ARN.exec(
+    logBucketAutoDeleteRoleArn,
+  )?.[3];
+  if (typeof logBucketAutoDeleteRoleName !== "string")
+    throw new Error("CloudFront access-log bucket cleanup role is invalid");
   const distributionItems = distributions.DistributionList?.Items ?? [];
   if (!Array.isArray(distributionItems))
     throw new Error("CloudFront distribution inventory is invalid");
@@ -1806,6 +1835,7 @@ export async function collectCloudFrontQualificationReport(
     workerInlinePolicyNames,
     workerInvocationSimulation,
     allocatorConcurrency,
+    logBucketAutoDeleteRole,
     logBucketAcl,
     logBucketPublicAccessBlock,
     logBucketPolicyStatus,
@@ -2005,6 +2035,14 @@ export async function collectCloudFrontQualificationReport(
       "get-function-concurrency",
       "--function-name",
       allocatorFunctionName,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "iam",
+      "get-role",
+      "--role-name",
+      logBucketAutoDeleteRoleName,
       "--region",
       options.applicationRegion,
     ]),
@@ -2287,6 +2325,15 @@ export async function collectCloudFrontQualificationReport(
       allocatorQualifiedFunctionName,
     ),
     "Application worker role is authorized to invoke the deployment-owned allocator version",
+  );
+  addCheck(
+    checks,
+    "access-log-cleanup-role-boundary",
+    hasExpectedLogCleanupRoleBoundary(
+      logBucketAutoDeleteRole,
+      logBucketAutoDeleteRoleArn,
+    ),
+    "CloudFront access-log cleanup role retains its deployment-owned Lambda-only trust boundary",
   );
   addCheck(
     checks,
