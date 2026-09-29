@@ -1421,6 +1421,14 @@ export function hasExpectedWafLoggingBaseline(
   );
 }
 
+export function hasExpectedWafLogGroupBaseline(logGroup, wafLogGroupName) {
+  return (
+    logGroup?.logGroupName === wafLogGroupName &&
+    logGroup?.retentionInDays === 30 &&
+    logGroup?.kmsKeyId === undefined
+  );
+}
+
 export function hasExpectedWafLogDeliveryPolicy(
   accountPoliciesResponse,
   resourcePoliciesResponse,
@@ -2624,8 +2632,8 @@ export async function collectCloudFrontQualificationReport(
   addCheck(
     checks,
     "waf-log-retention",
-    logGroup?.retentionInDays === 30,
-    "Staging WAF log retention is 30 days",
+    hasExpectedWafLogGroupBaseline(logGroup, wafLogGroupName),
+    "Staging WAF log group has 30-day retention and no unexpected KMS association",
   );
   addCheck(
     checks,

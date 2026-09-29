@@ -31,6 +31,7 @@ import {
   haveExpectedDistributionOwnership,
   haveExpectedDistributionOrigins,
   hasExpectedWafLoggingBaseline,
+  hasExpectedWafLogGroupBaseline,
   hasExpectedWafLogDeliveryPolicy,
   hasExpectedWebAclBaseline,
   parseQualificationArguments,
@@ -2388,6 +2389,23 @@ describe("Offline SCORM CloudFront qualification harness", () => {
 
   it("requires WAF credential redaction and restrictive log filtering", () => {
     const logging = expectedWafLoggingConfiguration();
+    const logGroup = {
+      logGroupName: wafLogGroupName,
+      retentionInDays: 30,
+    };
+    expect(hasExpectedWafLogGroupBaseline(logGroup, wafLogGroupName)).toBe(
+      true,
+    );
+    expect(
+      hasExpectedWafLogGroupBaseline(
+        {
+          ...logGroup,
+          kmsKeyId:
+            "arn:aws:kms:us-east-1:123456789012:key/11111111-2222-3333-4444-555555555555",
+        },
+        wafLogGroupName,
+      ),
+    ).toBe(false);
     expect(
       hasExpectedWafLoggingBaseline(logging, webAclArn, wafLogGroupName),
     ).toBe(true);

@@ -57,7 +57,8 @@ origin parameter and deployed-distribution binding, staging risk
 acknowledgement, WAF ownership/binding, mandatory rules, safe log filtering and
 redaction, the exact CloudWatch Logs delivery grant with no applicable explicit
 deny, ACL-level and per-rule WAF metric publication/sampling, 30-day WAF
-retention, exact unfiltered confirmed alarm-subscription endpoints, exact alarm
+retention with no unexpected KMS association, exact unfiltered confirmed
+alarm-subscription endpoints, exact alarm
 metrics/units/evaluation/actions, per-distribution entitlement-specific access
 logging, the bucket's exact owner and S3 LogDelivery ACL grants, all four S3
 public-access blocks, a non-public bucket-policy status, the exact TLS-only
