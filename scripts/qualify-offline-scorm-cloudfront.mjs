@@ -709,6 +709,7 @@ function isExactAllocatorInvokeStatement(statement, qualifiedFunctionName) {
 }
 
 export function hasExpectedWorkerAllocatorPolicyBoundary(
+  roleResponse,
   attachedPoliciesResponse,
   inlinePolicyNamesResponse,
   inlinePolicies,
@@ -720,6 +721,20 @@ export function hasExpectedWorkerAllocatorPolicyBoundary(
   if (
     !roleName ||
     !LAMBDA_VERSION_ARN.test(qualifiedFunctionName ?? "") ||
+    roleResponse?.Role?.Arn !== workerRoleArn ||
+    roleResponse?.Role?.RoleName !== roleName ||
+    roleResponse?.Role?.MaxSessionDuration !== 3_600 ||
+    roleResponse?.Role?.PermissionsBoundary !== undefined ||
+    !isDeepStrictEqual(roleResponse?.Role?.AssumeRolePolicyDocument, {
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Action: "sts:AssumeRole",
+          Effect: "Allow",
+          Principal: { Service: "ec2.amazonaws.com" },
+        },
+      ],
+    }) ||
     !isDeepStrictEqual(attachedPoliciesResponse?.AttachedPolicies, [
       {
         PolicyArn: `arn:${roleMatch[1]}:iam::aws:policy/AmazonSSMManagedInstanceCore`,
@@ -1786,6 +1801,7 @@ export async function collectCloudFrontQualificationReport(
     allocatorAttachedPolicies,
     allocatorInlinePolicyNames,
     workerInstances,
+    workerRole,
     workerAttachedPolicies,
     workerInlinePolicyNames,
     workerInvocationSimulation,
@@ -1944,6 +1960,14 @@ export async function collectCloudFrontQualificationReport(
       "describe-instances",
       "--instance-ids",
       applicationInstanceId,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "iam",
+      "get-role",
+      "--role-name",
+      workerRoleName,
       "--region",
       options.applicationRegion,
     ]),
@@ -2246,6 +2270,7 @@ export async function collectCloudFrontQualificationReport(
     checks,
     "worker-allocator-policy-boundary",
     hasExpectedWorkerAllocatorPolicyBoundary(
+      workerRole,
       workerAttachedPolicies,
       workerInlinePolicyNames,
       workerInlinePolicies,

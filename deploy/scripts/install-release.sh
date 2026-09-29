@@ -37,6 +37,9 @@ cleanup() {
   if [[ -n "$environment_backup" && -d "$environment_backup" ]]; then
     case "$environment_backup" in
       /opt/upskill/shared/.environment-backup.*)
+        if ! restore_environment_backup; then
+          echo "Unable to restore the pre-release environment backup" >&2
+        fi
         rm -rf -- "$environment_backup"
         ;;
       *)
@@ -217,6 +220,33 @@ fi
 mv "$staging_path" "$release_path"
 staging_path=""
 
+if [[ -L /opt/upskill/current ]]; then
+  previous_release=$(readlink -f /opt/upskill/current || true)
+  previous_sha=${previous_release#"$release_root"/}
+  if [[ ! "$previous_sha" =~ ^[a-f0-9]{40}$ || "$previous_release" != "$release_root/$previous_sha" || ! -d "$previous_release" ]]; then
+    echo "The current release does not have a verifiable rollback identity" >&2
+    previous_release=""
+    previous_sha=""
+  elif [[ -f "$previous_release/.upskill-release.json" ]]; then
+    previous_manifest_sha=$(jq -er '.gitSha' "$previous_release/.upskill-release.json" 2>/dev/null || true)
+    if [[ "$previous_manifest_sha" != "$previous_sha" ]]; then
+      echo "The current release manifest does not match its rollback identity" >&2
+      previous_release=""
+      previous_sha=""
+    fi
+  fi
+fi
+if [[ -n "$previous_release" ]]; then
+  environment_backup=$(mktemp -d \
+    /opt/upskill/shared/.environment-backup.XXXXXX)
+  chmod 0700 "$environment_backup"
+  for environment_file in \
+    upskill-web.env upskill-worker.env upskill-deploy.env; do
+    cp -p "/opt/upskill/shared/$environment_file" \
+      "$environment_backup/$environment_file"
+  done
+fi
+
 /usr/local/bin/upskill-refresh-env
 write_deployment_id "$release_sha"
 (
@@ -240,22 +270,6 @@ package_host_suffix=$(
 )
 "$reconcile_package_site_vhost" "$package_host_suffix" "$release_supports_package_host"
 
-if [[ -L /opt/upskill/current ]]; then
-  previous_release=$(readlink -f /opt/upskill/current || true)
-  previous_sha=${previous_release#"$release_root"/}
-  if [[ ! "$previous_sha" =~ ^[a-f0-9]{40}$ || "$previous_release" != "$release_root/$previous_sha" || ! -d "$previous_release" ]]; then
-    echo "The current release does not have a verifiable rollback identity" >&2
-    previous_release=""
-    previous_sha=""
-  elif [[ -f "$previous_release/.upskill-release.json" ]]; then
-    previous_manifest_sha=$(jq -er '.gitSha' "$previous_release/.upskill-release.json" 2>/dev/null || true)
-    if [[ "$previous_manifest_sha" != "$previous_sha" ]]; then
-      echo "The current release manifest does not match its rollback identity" >&2
-      previous_release=""
-      previous_sha=""
-    fi
-  fi
-fi
 ln -sfn "$release_path" /opt/upskill/current
 if [[ -n "$previous_release" && -d "$previous_release" ]]; then
   ln -sfn "$previous_release" /opt/upskill/previous
@@ -286,7 +300,7 @@ systemctl reload nginx
 
 if ! curl --fail --silent --show-error --retry 20 --retry-delay 2 --retry-connrefused "http://127.0.0.1:3000/api/ready?deploymentId=${release_sha}" >/dev/null || ! systemctl is-active --quiet upskill-worker || ! record_worker_allocator_target; then
   if [[ -n "$previous_release" && -n "$previous_sha" ]]; then
-    if /usr/local/bin/upskill-refresh-env && write_deployment_id "$previous_sha"; then
+    if [[ -n "$environment_backup" ]] && restore_environment_backup; then
       previous_release_supports_package_host=false
       if [[ -f "$previous_release/deploy/nginx/upskill.package-site.https.conf.template" ]]; then
         previous_release_supports_package_host=true
@@ -309,6 +323,11 @@ if ! curl --fail --silent --show-error --retry 20 --retry-delay 2 --retry-connre
   fi
   echo "Release failed readiness checks and was rolled back" >&2
   exit 1
+fi
+
+if [[ -n "$environment_backup" ]]; then
+  rm -rf -- "$environment_backup"
+  environment_backup=""
 fi
 
 find "$release_root" -mindepth 1 -maxdepth 1 -type d -not -path "$release_path" -not -path "$previous_release" -mtime +14 -exec rm -rf -- {} +

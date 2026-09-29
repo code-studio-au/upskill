@@ -352,6 +352,23 @@ function expectedWorkerInvocationSimulation() {
 
 function expectedWorkerRoleResponses() {
   return {
+    role: {
+      Role: {
+        Arn: workerRoleArn,
+        AssumeRolePolicyDocument: {
+          Version: "2012-10-17",
+          Statement: [
+            {
+              Action: "sts:AssumeRole",
+              Effect: "Allow",
+              Principal: { Service: "ec2.amazonaws.com" },
+            },
+          ],
+        },
+        MaxSessionDuration: 3_600,
+        RoleName: workerRoleName,
+      },
+    },
     attached: {
       AttachedPolicies: [
         {
@@ -1134,6 +1151,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     const responses = expectedWorkerRoleResponses();
     const evaluate = (policies = responses.policies) =>
       hasExpectedWorkerAllocatorPolicyBoundary(
+        responses.role,
         responses.attached,
         responses.names,
         policies,
@@ -1210,7 +1228,33 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     ).toBe(false);
     expect(
       hasExpectedWorkerAllocatorPolicyBoundary(
+        responses.role,
         { AttachedPolicies: [] },
+        responses.names,
+        responses.policies,
+        workerRoleArn,
+        allocatorQualifiedFunctionName,
+      ),
+    ).toBe(false);
+    expect(
+      hasExpectedWorkerAllocatorPolicyBoundary(
+        {
+          Role: {
+            ...responses.role.Role,
+            AssumeRolePolicyDocument: {
+              Version: "2012-10-17",
+              Statement: [
+                ...responses.role.Role.AssumeRolePolicyDocument.Statement,
+                {
+                  Action: "sts:AssumeRole",
+                  Effect: "Allow",
+                  Principal: { AWS: "arn:aws:iam::123456789012:root" },
+                },
+              ],
+            },
+          },
+        },
+        responses.attached,
         responses.names,
         responses.policies,
         workerRoleArn,
@@ -2429,7 +2473,9 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       if (command === "lambda get-function-concurrency")
         return { ReservedConcurrentExecutions: 1 };
       if (command === "iam get-role")
-        return expectedAllocatorRoleResponses().role;
+        return args.includes(workerRoleName)
+          ? expectedWorkerRoleResponses().role
+          : expectedAllocatorRoleResponses().role;
       if (command === "iam list-attached-role-policies")
         return args.includes(workerRoleName)
           ? expectedWorkerRoleResponses().attached
@@ -2639,6 +2685,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       "get-role",
       "list-attached-role-policies",
       "list-role-policies",
+      "get-role",
       "list-attached-role-policies",
       "list-role-policies",
       "simulate-principal-policy",

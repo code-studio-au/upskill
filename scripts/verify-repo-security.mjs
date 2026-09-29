@@ -2181,7 +2181,7 @@ for (const invariant of [
   "src/server/db/provision-runtime-roles.ts",
   "upskill-deploy.env",
   'write_deployment_id "$release_sha"',
-  'write_deployment_id "$previous_sha"',
+  '[[ -n "$environment_backup" ]] && restore_environment_backup',
   "scripts/validate-runtime-environment.ts",
   "http://127.0.0.1:3000/api/ready?deploymentId=${previous_sha}",
   "http://127.0.0.1:3000/api/ready?deploymentId=",

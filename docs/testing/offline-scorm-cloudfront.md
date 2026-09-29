@@ -15,10 +15,11 @@ distribution, invoke the allocator, alter a WAF rule, or write to AWS.
   all three Offline SCORM SSM parameters, the storage stack resources, and the
   CloudFront access-log bucket ACL, public-access block, policy status, policy
   document and lifecycle. The operator must also be able to inspect the
-  application instance's current IAM instance profile, inspect all managed and
-  inline policies on that deployed worker role, and simulate its permission to
-  invoke the exact allocator version. Read the post-restart worker runtime
-  target parameter written only after the deployed worker passes readiness.
+  application instance's current IAM instance profile, inspect the deployed
+  worker role's EC2-only trust policy plus all managed and inline policies, and
+  simulate its permission to invoke the exact allocator version. Read the
+  post-restart worker runtime target parameter written only after the deployed
+  worker passes readiness.
 - Read access to the edge SNS topic attributes and deployment-owned KMS key
   metadata and policy so the key's enabled state and CloudWatch alarm
   publication path can be qualified. The shared operational topic attributes
@@ -59,10 +60,11 @@ edge status, lifecycle ownership discovery across the comment, exact tags and
 dedicated Web ACL binding,
 entitlement-bound protected origin headers, HTTPS-only TLS 1.2 origin
 transport, the live instance-profile binding to the worker role, the worker's
-exact SSM allocator target and effective permission to invoke that immutable
-version, the post-restart worker runtime attestation for that same target, the
-absence of direct CloudFront or WAF permissions on the worker, the live
-allocator version and code digest, lack of executable Lambda
+exact EC2-only trust policy, default session duration and lack of a permissions
+boundary, its exact SSM allocator target and effective permission to invoke
+that immutable version, the post-restart worker runtime attestation for that
+same target, the absence of direct CloudFront or WAF permissions on the worker,
+the live allocator version and code digest, lack of executable Lambda
 layers, exact execution role, runtime, environment and reserved concurrency,
 the allocator role's Lambda-only trust policy and least-privilege
 managed/inline permission boundary, the worker role's exact managed-policy
@@ -113,6 +115,10 @@ resource-based invocation policy. Updating mutable `$LATEST` cannot change the
 code the worker invokes; deleting and recreating the named function or version
 cannot pass qualification with different code; a legitimate code change
 requires a deployment that publishes, records and selects a new version.
+Before refresh, the installer snapshots the previous release's environment
+files. A failed first rollout from the legacy function-name target therefore
+restores those files directly instead of asking older release code to parse the
+new qualified ARN; a successful release removes the temporary snapshot.
 
 The live allocator, IAM role/policy and instance-profile responses, worker
 permission simulation, topic and subscription attributes, KMS key metadata and
