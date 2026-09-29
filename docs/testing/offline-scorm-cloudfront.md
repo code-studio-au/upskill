@@ -14,8 +14,8 @@ distribution, invoke the allocator, alter a WAF rule, or write to AWS.
   and reserved concurrency, its IAM role/trust/managed and inline policies,
   all three Offline SCORM SSM parameters, the storage stack resources, and the
   CloudFront access-log bucket ACL, public-access block, policy status, policy
-  document and lifecycle, plus the deployment-owned cleanup role's trust
-  policy. The operator must also be able to inspect the
+  document, lifecycle and replication configuration, plus the deployment-owned
+  cleanup role's trust policy. The operator must also be able to inspect the
   running application instance's current IAM instance profile, inspect the
   deployed worker role's EC2-only trust policy plus all managed and inline
   policies, and simulate its permission to invoke the exact allocator version.
@@ -65,8 +65,8 @@ metrics/units/evaluation/actions, per-distribution entitlement-specific access
 logging, the bucket's exact owner and S3 LogDelivery ACL grants, all four S3
 public-access blocks, a non-public bucket-policy status, the exact TLS-only
 bucket-policy deny plus the deployment-owned staging cleanup grant with no
-other access grant, its exact SSE-S3 encryption baseline, the cleanup role's
-exact Lambda-only trust boundary, and
+other access grant, its exact SSE-S3 encryption baseline, absence of
+replication, the cleanup role's exact Lambda-only trust boundary, and
 the exact 30-day retention lifecycle, fully deployed
 edge status, lifecycle ownership discovery across the immutable caller
 reference, comment, exact tags and dedicated Web ACL binding,
@@ -80,8 +80,8 @@ than ten minutes old for that same target, the absence of direct CloudFront,
 WAF, IAM, KMS, Logs, SNS, S3-control or infrastructure mutation permissions on
 the worker, read-only Secrets Manager access, object-data-only S3 access, and
 only the exact metric-publication and runtime-attestation writes, the
-live allocator version and code digest, lack of executable
-Lambda layers, exact execution role, runtime, environment and reserved
+live allocator version and code digest, lack of executable Lambda layers or a
+VPC attachment, exact execution role, runtime, environment and reserved
 concurrency,
 the allocator role's Lambda-only trust policy and least-privilege
 managed/inline permission boundary, the worker role's exact managed-policy
@@ -164,6 +164,7 @@ these additional read-only actions: `cloudformation:ListStackResources`,
 `sns:GetSubscriptionAttributes`,
 `sns:GetTopicAttributes`, `s3:GetBucketLifecycleConfiguration`,
 `s3:GetEncryptionConfiguration`, `s3:GetBucketPolicy`,
+`s3:GetReplicationConfiguration`,
 `s3:GetBucketPublicAccessBlock`, and
 `s3:GetBucketPolicyStatus`.
 

@@ -27,6 +27,7 @@ import {
   hasExpectedLogBucketPublicAccessBoundary,
   hasExpectedWorkerInstanceProfile,
   hasNoAllocatorInvocationPolicy,
+  hasNoLogBucketReplication,
   hasNoOriginKeyResourcePolicy,
   haveExpectedAlarmConfigurations,
   haveExpectedDistributionLogging,
@@ -228,6 +229,12 @@ function expectedAllocatorConfiguration() {
     Runtime: "nodejs22.x",
     State: "Active",
     Timeout: 120,
+    VpcConfig: {
+      Ipv6AllowedForDualStack: false,
+      SecurityGroupIds: [],
+      SubnetIds: [],
+      VpcId: "",
+    },
     Version: "12",
   };
 }
@@ -1045,6 +1052,21 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       { Handler: "other.handler" },
       { Timeout: 30 },
       { Description: "drifted" },
+      { VpcConfig: undefined },
+      {
+        VpcConfig: {
+          Ipv6AllowedForDualStack: false,
+          SecurityGroupIds: ["sg-0123456789abcdef0"],
+          SubnetIds: ["subnet-0123456789abcdef0"],
+          VpcId: "vpc-0123456789abcdef0",
+        },
+      },
+      {
+        VpcConfig: {
+          ...configuration.VpcConfig,
+          Ipv6AllowedForDualStack: true,
+        },
+      },
       {
         Layers: [
           {
@@ -2118,6 +2140,18 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         },
       }),
     ).toBe(false);
+    expect(hasNoLogBucketReplication({ absent: true })).toBe(true);
+    expect(
+      hasNoLogBucketReplication({
+        absent: false,
+        response: {
+          ReplicationConfiguration: {
+            Role: "arn:aws:iam::123456789012:role/replication",
+            Rules: [],
+          },
+        },
+      }),
+    ).toBe(false);
     expect(hasExpectedLogBucketLifecycle(lifecycle)).toBe(true);
     expect(
       hasExpectedLogBucketLifecycle({
@@ -3163,6 +3197,11 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         return expectedLogBucketLifecycle();
       if (command === "s3api get-bucket-encryption")
         return expectedLogBucketEncryption();
+      if (command === "s3api get-bucket-replication")
+        throw new AwsCliError(
+          "ReplicationConfigurationNotFoundError",
+          "ReplicationConfigurationNotFoundError",
+        );
       if (command === "cloudtrail lookup-events") return { Events: [] };
       if (command === "s3api list-objects-v2") return { Contents: [] };
       throw new Error(`Unexpected AWS command ${command}`);
@@ -3396,6 +3435,8 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       "get-bucket-policy-status",
       "get-bucket-policy",
       "get-bucket-lifecycle-configuration",
+      "get-bucket-encryption",
+      "get-bucket-replication",
       "list-objects-v2",
     ]) {
       expect(

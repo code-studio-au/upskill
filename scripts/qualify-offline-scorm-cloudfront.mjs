@@ -585,6 +585,12 @@ export function hasExpectedAllocatorConfiguration(
     configuration?.Handler === "index.handler" &&
     configuration?.Timeout === 120 &&
     configuration?.Description === ALLOCATOR_DESCRIPTION &&
+    isDeepStrictEqual(configuration?.VpcConfig, {
+      Ipv6AllowedForDualStack: false,
+      SecurityGroupIds: [],
+      SubnetIds: [],
+      VpcId: "",
+    }) &&
     (configuration?.Layers === undefined ||
       (Array.isArray(configuration.Layers) &&
         configuration.Layers.length === 0)) &&
@@ -1351,6 +1357,27 @@ export function hasExpectedLogBucketEncryption(configuration) {
     isDeepStrictEqual(rule?.ApplyServerSideEncryptionByDefault, {
       SSEAlgorithm: "AES256",
     })
+  );
+}
+
+async function readBucketReplication(runAws, args) {
+  try {
+    return { absent: false, response: await runAws(args) };
+  } catch (error) {
+    if (
+      error instanceof AwsCliError &&
+      error.hasCode("ReplicationConfigurationNotFoundError")
+    )
+      return { absent: true };
+    throw error;
+  }
+}
+
+export function hasNoLogBucketReplication(replicationRead) {
+  return (
+    replicationRead?.absent === true &&
+    replicationRead?.response === undefined &&
+    Object.keys(replicationRead).length === 1
   );
 }
 
@@ -2233,6 +2260,7 @@ export async function collectCloudFrontQualificationReport(
     logBucketPolicy,
     logBucketLifecycle,
     logBucketEncryption,
+    logBucketReplication,
     cloudTrail,
     logObjects,
   ] = await Promise.all([
@@ -2547,6 +2575,16 @@ export async function collectCloudFrontQualificationReport(
       "--region",
       options.applicationRegion,
     ]),
+    readBucketReplication(runAws, [
+      "s3api",
+      "get-bucket-replication",
+      "--bucket",
+      logBucket,
+      "--expected-bucket-owner",
+      accountId,
+      "--region",
+      options.applicationRegion,
+    ]),
     runAws([
       "cloudtrail",
       "lookup-events",
@@ -2837,6 +2875,12 @@ export async function collectCloudFrontQualificationReport(
     "access-log-bucket-encryption",
     hasExpectedLogBucketEncryption(logBucketEncryption),
     "CloudFront access-log bucket retains its exact SSE-S3 encryption baseline",
+  );
+  addCheck(
+    checks,
+    "access-log-bucket-replication",
+    hasNoLogBucketReplication(logBucketReplication),
+    "CloudFront access-log bucket has no replication configuration",
   );
   addCheck(
     checks,
