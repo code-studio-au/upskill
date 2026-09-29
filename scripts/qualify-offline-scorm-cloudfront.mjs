@@ -1482,6 +1482,16 @@ export function hasExpectedWafLogDeliveryPolicy(
       isDeepStrictEqual(resources, [expectedLogStreamArn]) &&
       isDeepStrictEqual(sourceAccounts, [expectedAccount]) &&
       isDeepStrictEqual(sourceArns, [expectedSourceArn]) &&
+      isDeepStrictEqual(Object.keys(statement?.Condition ?? {}).sort(), [
+        "ArnLike",
+        "StringEquals",
+      ]) &&
+      isDeepStrictEqual(Object.keys(statement.Condition.StringEquals ?? {}), [
+        "aws:SourceAccount",
+      ]) &&
+      isDeepStrictEqual(Object.keys(statement.Condition.ArnLike ?? {}), [
+        "aws:SourceArn",
+      ]) &&
       statement?.NotAction === undefined &&
       statement?.NotPrincipal === undefined &&
       statement?.NotResource === undefined

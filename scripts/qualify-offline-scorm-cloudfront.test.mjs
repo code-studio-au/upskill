@@ -2465,6 +2465,30 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         options.expectedAccount,
       ),
     ).toBe(false);
+    expect(
+      hasExpectedWafLogDeliveryPolicy(
+        { resourcePolicies: [] },
+        {
+          resourcePolicies: logPolicies.resourcePolicies.map((policy) => ({
+            ...policy,
+            policyDocument: JSON.stringify({
+              ...JSON.parse(policy.policyDocument),
+              Statement: JSON.parse(policy.policyDocument).Statement.map(
+                (statement) => ({
+                  ...statement,
+                  Condition: {
+                    ...statement.Condition,
+                    Null: { "aws:SourceAccount": "true" },
+                  },
+                }),
+              ),
+            }),
+          })),
+        },
+        wafLogGroupArn,
+        options.expectedAccount,
+      ),
+    ).toBe(false);
     const expectedPolicy = JSON.parse(
       logPolicies.resourcePolicies[0].policyDocument,
     );
