@@ -9,6 +9,7 @@ import {
   collectCloudFrontQualificationReport,
   evaluateQuotaHeadroom,
   hasConfirmedEmailSubscription,
+  hasExpectedAlarmSubscription,
   hasExpectedAllocatorConfiguration,
   hasExpectedAllocatorRoleBoundary,
   hasExpectedEdgeAlarmKmsBoundary,
@@ -365,6 +366,20 @@ function expectedEdgeAlarmTopicAttributes() {
   return { Attributes: { KmsMasterKeyId: edgeAlarmKeyArn } };
 }
 
+function expectedEdgeAlarmKeyDescription() {
+  return {
+    KeyMetadata: {
+      AWSAccountId: options.expectedAccount,
+      Arn: edgeAlarmKeyArn,
+      Enabled: true,
+      KeyManager: "CUSTOMER",
+      KeySpec: "SYMMETRIC_DEFAULT",
+      KeyState: "Enabled",
+      KeyUsage: "ENCRYPT_DECRYPT",
+    },
+  };
+}
+
 function expectedEdgeAlarmKeyPolicy() {
   return {
     Policy: JSON.stringify({
@@ -390,6 +405,19 @@ function expectedEdgeAlarmKeyPolicy() {
         },
       ],
     }),
+  };
+}
+
+function expectedSubscriptionAttributes(topicArn) {
+  return {
+    Attributes: {
+      Endpoint: alarmEmail,
+      Owner: options.expectedAccount,
+      Protocol: "email",
+      RawMessageDelivery: "false",
+      SubscriptionArn: `${topicArn}:subscription`,
+      TopicArn: topicArn,
+    },
   };
 }
 
@@ -972,6 +1000,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
 
   it("requires the edge topic KMS key and CloudWatch publish grant", () => {
     const topic = expectedEdgeAlarmTopicAttributes();
+    const description = expectedEdgeAlarmKeyDescription();
     const policy = expectedEdgeAlarmKeyPolicy();
     const expected = {
       accountId: options.expectedAccount,
@@ -979,10 +1008,40 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       keyArn: edgeAlarmKeyArn,
       topicArn: edgeAlarmTopicArn,
     };
-    expect(hasExpectedEdgeAlarmKmsBoundary(topic, policy, expected)).toBe(true);
+    expect(
+      hasExpectedEdgeAlarmKmsBoundary(topic, description, policy, expected),
+    ).toBe(true);
     expect(
       hasExpectedEdgeAlarmKmsBoundary(
         { Attributes: { KmsMasterKeyId: "alias/aws/sns" } },
+        description,
+        policy,
+        expected,
+      ),
+    ).toBe(false);
+    expect(
+      hasExpectedEdgeAlarmKmsBoundary(
+        topic,
+        {
+          KeyMetadata: {
+            ...description.KeyMetadata,
+            Enabled: false,
+            KeyState: "Disabled",
+          },
+        },
+        policy,
+        expected,
+      ),
+    ).toBe(false);
+    expect(
+      hasExpectedEdgeAlarmKmsBoundary(
+        topic,
+        {
+          KeyMetadata: {
+            ...description.KeyMetadata,
+            KeyState: "PendingDeletion",
+          },
+        },
         policy,
         expected,
       ),
@@ -991,6 +1050,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     expect(
       hasExpectedEdgeAlarmKmsBoundary(
         topic,
+        description,
         {
           Policy: JSON.stringify({
             ...policyDocument,
@@ -1007,6 +1067,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     expect(
       hasExpectedEdgeAlarmKmsBoundary(
         topic,
+        description,
         {
           Policy: JSON.stringify({
             ...policyDocument,
@@ -1094,20 +1155,66 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     ).toBe(false);
   });
 
-  it("requires the configured operations endpoint to be confirmed", () => {
+  it("requires exactly one unfiltered confirmed operations subscription", () => {
     const expectedEndpoint = "ops@codestudio.au";
     const subscription = {
       Endpoint: expectedEndpoint,
       Protocol: "email",
       SubscriptionArn: `${edgeAlarmTopicArn}:subscription`,
     };
+    const subscriptions = { Subscriptions: [subscription] };
+    const attributes = expectedSubscriptionAttributes(edgeAlarmTopicArn);
     expect(
       hasConfirmedEmailSubscription(
-        { Subscriptions: [subscription] },
+        subscriptions,
         edgeAlarmTopicArn,
         expectedEndpoint,
       ),
     ).toBe(true);
+    expect(
+      hasExpectedAlarmSubscription(
+        subscriptions,
+        attributes,
+        edgeAlarmTopicArn,
+        expectedEndpoint,
+        options.expectedAccount,
+      ),
+    ).toBe(true);
+    for (const filteredAttributes of [
+      { ...attributes.Attributes, FilterPolicy: "{}" },
+      { ...attributes.Attributes, FilterPolicyScope: "MessageBody" },
+    ]) {
+      expect(
+        hasExpectedAlarmSubscription(
+          subscriptions,
+          { Attributes: filteredAttributes },
+          edgeAlarmTopicArn,
+          expectedEndpoint,
+          options.expectedAccount,
+        ),
+      ).toBe(false);
+    }
+    expect(
+      hasExpectedAlarmSubscription(
+        subscriptions,
+        {
+          Attributes: {
+            ...attributes.Attributes,
+            SubscriptionArn: `${edgeAlarmTopicArn}:unrelated`,
+          },
+        },
+        edgeAlarmTopicArn,
+        expectedEndpoint,
+        options.expectedAccount,
+      ),
+    ).toBe(false);
+    expect(
+      hasConfirmedEmailSubscription(
+        { Subscriptions: [subscription, { ...subscription }] },
+        edgeAlarmTopicArn,
+        expectedEndpoint,
+      ),
+    ).toBe(false);
     expect(
       hasConfirmedEmailSubscription(
         {
@@ -1602,8 +1709,18 @@ describe("Offline SCORM CloudFront qualification harness", () => {
           ],
         };
       }
+      if (command === "sns get-subscription-attributes") {
+        const subscriptionArn = args[args.indexOf("--subscription-arn") + 1];
+        const topicArn = subscriptionArn.slice(
+          0,
+          subscriptionArn.lastIndexOf(":"),
+        );
+        return expectedSubscriptionAttributes(topicArn);
+      }
       if (command === "sns get-topic-attributes")
         return expectedEdgeAlarmTopicAttributes();
+      if (command === "kms describe-key")
+        return expectedEdgeAlarmKeyDescription();
       if (command === "kms get-key-policy") return expectedEdgeAlarmKeyPolicy();
       if (command === "cloudwatch describe-alarms") {
         const region = args[args.indexOf("--region") + 1];
@@ -1874,6 +1991,39 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       "get-topic-attributes",
       "--topic-arn",
       edgeAlarmTopicArn,
+      "--region",
+      "us-east-1",
+    ]);
+    expect(
+      calls.filter(
+        (args) =>
+          args.slice(0, 2).join(" ") === "sns get-subscription-attributes",
+      ),
+    ).toEqual([
+      [
+        "sns",
+        "get-subscription-attributes",
+        "--subscription-arn",
+        `${edgeAlarmTopicArn}:subscription`,
+        "--region",
+        "us-east-1",
+      ],
+      [
+        "sns",
+        "get-subscription-attributes",
+        "--subscription-arn",
+        `${allocatorAlarmTopicArn}:subscription`,
+        "--region",
+        options.applicationRegion,
+      ],
+    ]);
+    expect(
+      calls.find((args) => args.slice(0, 2).join(" ") === "kms describe-key"),
+    ).toEqual([
+      "kms",
+      "describe-key",
+      "--key-id",
+      edgeAlarmKeyArn,
       "--region",
       "us-east-1",
     ]);

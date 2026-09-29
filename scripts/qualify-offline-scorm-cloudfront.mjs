@@ -654,18 +654,27 @@ function parsePolicyDocument(policy) {
 
 export function hasExpectedEdgeAlarmKmsBoundary(
   topicAttributesResponse,
+  keyDescriptionResponse,
   keyPolicyResponse,
   expected,
 ) {
   const keyMatch = KMS_KEY_ARN.exec(expected.keyArn ?? "");
   const topicMatch = SNS_TOPIC_ARN.exec(expected.topicArn ?? "");
+  const keyMetadata = keyDescriptionResponse?.KeyMetadata;
   if (
     keyMatch?.[1] !== topicMatch?.[1] ||
     keyMatch?.[2] !== CLOUDFRONT_CONTROL_PLANE_REGION ||
     topicMatch?.[2] !== CLOUDFRONT_CONTROL_PLANE_REGION ||
     keyMatch?.[3] !== expected.accountId ||
     topicMatch?.[3] !== expected.accountId ||
-    topicAttributesResponse?.Attributes?.KmsMasterKeyId !== expected.keyArn
+    topicAttributesResponse?.Attributes?.KmsMasterKeyId !== expected.keyArn ||
+    keyMetadata?.Arn !== expected.keyArn ||
+    keyMetadata?.AWSAccountId !== expected.accountId ||
+    keyMetadata?.Enabled !== true ||
+    keyMetadata?.KeyState !== "Enabled" ||
+    keyMetadata?.KeyUsage !== "ENCRYPT_DECRYPT" ||
+    keyMetadata?.KeySpec !== "SYMMETRIC_DEFAULT" ||
+    keyMetadata?.KeyManager !== "CUSTOMER"
   )
     return false;
   const policy = parsePolicyDocument(keyPolicyResponse?.Policy);
@@ -1010,17 +1019,52 @@ export function hasExpectedWafLoggingBaseline(
   );
 }
 
-export function hasConfirmedEmailSubscription(
-  response,
-  topicArn,
-  expectedEndpoint,
-) {
-  return (response.Subscriptions ?? []).some(
+function confirmedEmailSubscriptions(response, topicArn, expectedEndpoint) {
+  return (response.Subscriptions ?? []).filter(
     (subscription) =>
       subscription.Protocol === "email" &&
       subscription.Endpoint === expectedEndpoint &&
       typeof subscription.SubscriptionArn === "string" &&
       subscription.SubscriptionArn.startsWith(`${topicArn}:`),
+  );
+}
+
+export function hasConfirmedEmailSubscription(
+  response,
+  topicArn,
+  expectedEndpoint,
+) {
+  return (
+    confirmedEmailSubscriptions(response, topicArn, expectedEndpoint).length ===
+    1
+  );
+}
+
+export function hasExpectedAlarmSubscription(
+  response,
+  attributesResponse,
+  topicArn,
+  expectedEndpoint,
+  expectedAccount,
+) {
+  const subscriptions = confirmedEmailSubscriptions(
+    response,
+    topicArn,
+    expectedEndpoint,
+  );
+  if (subscriptions.length !== 1) return false;
+  const [subscription] = subscriptions;
+  const attributes = attributesResponse?.Attributes;
+  return (
+    attributes?.SubscriptionArn === subscription.SubscriptionArn &&
+    attributes?.TopicArn === topicArn &&
+    attributes?.Protocol === "email" &&
+    attributes?.Endpoint === expectedEndpoint &&
+    attributes?.Owner === expectedAccount &&
+    (attributes?.PendingConfirmation === undefined ||
+      attributes.PendingConfirmation === "false") &&
+    attributes?.FilterPolicy === undefined &&
+    attributes?.FilterPolicyScope === undefined
   );
 }
 
@@ -1335,6 +1379,7 @@ export async function collectCloudFrontQualificationReport(
     wafLogGroups,
     edgeSubscriptions,
     edgeAlarmTopicAttributes,
+    edgeAlarmKeyDescription,
     edgeAlarmKeyPolicy,
     allocatorSubscriptions,
     edgeAlarms,
@@ -1402,6 +1447,14 @@ export async function collectCloudFrontQualificationReport(
       "get-topic-attributes",
       "--topic-arn",
       edgeAlarmTopicArn,
+      "--region",
+      CLOUDFRONT_CONTROL_PLANE_REGION,
+    ]),
+    runAws([
+      "kms",
+      "describe-key",
+      "--key-id",
+      edgeAlarmKeyArn,
       "--region",
       CLOUDFRONT_CONTROL_PLANE_REGION,
     ]),
@@ -1574,7 +1627,30 @@ export async function collectCloudFrontQualificationReport(
     workerInstances,
     applicationInstanceId,
   );
-  const [allocatorInlinePolicies, workerInstanceProfile] = await Promise.all([
+  const edgeConfirmedSubscriptions = confirmedEmailSubscriptions(
+    edgeSubscriptions,
+    edgeAlarmTopicArn,
+    edgeAlarmEmail,
+  );
+  const allocatorConfirmedSubscriptions = confirmedEmailSubscriptions(
+    allocatorSubscriptions,
+    allocatorAlarmTopicArn,
+    allocatorAlarmEmail,
+  );
+  const edgeSubscriptionArn =
+    edgeConfirmedSubscriptions.length === 1
+      ? edgeConfirmedSubscriptions[0].SubscriptionArn
+      : null;
+  const allocatorSubscriptionArn =
+    allocatorConfirmedSubscriptions.length === 1
+      ? allocatorConfirmedSubscriptions[0].SubscriptionArn
+      : null;
+  const [
+    allocatorInlinePolicies,
+    workerInstanceProfile,
+    edgeSubscriptionAttributes,
+    allocatorSubscriptionAttributes,
+  ] = await Promise.all([
     Promise.all(
       (allocatorInlinePolicyNames.PolicyNames ?? []).map((policyName) =>
         runAws([
@@ -1596,6 +1672,26 @@ export async function collectCloudFrontQualificationReport(
           "get-instance-profile",
           "--instance-profile-name",
           workerProfileBinding.profileName,
+          "--region",
+          options.applicationRegion,
+        ]),
+    edgeSubscriptionArn === null
+      ? Promise.resolve({})
+      : runAws([
+          "sns",
+          "get-subscription-attributes",
+          "--subscription-arn",
+          edgeSubscriptionArn,
+          "--region",
+          CLOUDFRONT_CONTROL_PLANE_REGION,
+        ]),
+    allocatorSubscriptionArn === null
+      ? Promise.resolve({})
+      : runAws([
+          "sns",
+          "get-subscription-attributes",
+          "--subscription-arn",
+          allocatorSubscriptionArn,
           "--region",
           options.applicationRegion,
         ]),
@@ -1748,6 +1844,7 @@ export async function collectCloudFrontQualificationReport(
     "edge-alert-kms",
     hasExpectedEdgeAlarmKmsBoundary(
       edgeAlarmTopicAttributes,
+      edgeAlarmKeyDescription,
       edgeAlarmKeyPolicy,
       {
         accountId,
@@ -1756,27 +1853,31 @@ export async function collectCloudFrontQualificationReport(
         topicArn: edgeAlarmTopicArn,
       },
     ),
-    "Edge alarm topic uses the deployment-owned KMS key with the exact CloudWatch publish grant",
+    "Edge alarm topic uses the enabled deployment-owned KMS key with the exact CloudWatch publish grant",
   );
   addCheck(
     checks,
     "edge-alert-subscription",
-    hasConfirmedEmailSubscription(
+    hasExpectedAlarmSubscription(
       edgeSubscriptions,
+      edgeSubscriptionAttributes,
       edgeAlarmTopicArn,
       edgeAlarmEmail,
+      accountId,
     ),
-    "Edge alarm topic has a confirmed subscription for the configured operations email",
+    "Edge alarm topic has exactly one confirmed, unfiltered subscription for the configured operations email",
   );
   addCheck(
     checks,
     "allocator-alert-subscription",
-    hasConfirmedEmailSubscription(
+    hasExpectedAlarmSubscription(
       allocatorSubscriptions,
+      allocatorSubscriptionAttributes,
       allocatorAlarmTopicArn,
       allocatorAlarmEmail,
+      accountId,
     ),
-    "Allocator alarm topic has a confirmed subscription for the configured operations email",
+    "Allocator alarm topic has exactly one confirmed, unfiltered subscription for the configured operations email",
   );
   const alarmDefaults = {
     comparisonOperator: "GreaterThanOrEqualToThreshold",

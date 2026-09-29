@@ -16,12 +16,13 @@ distribution, invoke the allocator, alter a WAF rule, or write to AWS.
   the application instance's current IAM instance profile and simulate that
   deployed worker role's permission to invoke the exact allocator version.
 - Read access to the edge SNS topic attributes and deployment-owned KMS key
-  policy so the CloudWatch alarm publication path can be qualified.
+  metadata and policy so the key's enabled state and CloudWatch alarm
+  publication path can be qualified.
 - The application and edge stacks deployed with the CloudFront qualification
   context.
 - The shared `ap-southeast-2` operational SNS email subscription and the
   separate `us-east-1` edge SNS email subscription confirmed for the exact
-  endpoint exported by each stack.
+  endpoint exported by each stack, with no subscription filter policy.
 
 The application, allocator and origin run in `ap-southeast-2`; the
 CloudFront-scope WAF, edge alarm and CloudTrail Event History lookup run in
@@ -43,7 +44,7 @@ Store the JSON output with the qualification record. It verifies the direct
 origin parameter and deployed-distribution binding, staging risk
 acknowledgement, WAF ownership/binding, mandatory rules, safe log filtering and
 redaction, ACL-level and per-rule WAF metric publication/sampling, 30-day WAF
-retention, exact confirmed alarm-subscription endpoints, exact alarm
+retention, exact unfiltered confirmed alarm-subscription endpoints, exact alarm
 metrics/units/evaluation/actions, per-distribution entitlement-specific access
 logging, the bucket's exact owner and S3 LogDelivery ACL grants, all four S3
 public-access blocks, a non-public bucket-policy status and the exact 30-day
@@ -55,7 +56,7 @@ exact SSM allocator target and effective permission to invoke that immutable
 version, the live allocator version and code digest, exact execution role,
 runtime, environment and reserved concurrency, the role's Lambda-only trust
 policy and least-privilege managed/inline permission boundary, the edge topic's
-deployment-owned KMS key and exact CloudWatch publish grant, the canonical
+enabled deployment-owned KMS key and exact CloudWatch publish grant, the canonical
 distribution configuration, distribution-cap markers, service-quota headroom
 and a globally bounded sample of recent CloudFront control-plane mutations.
 
@@ -90,15 +91,16 @@ to agree. Updating mutable `$LATEST` cannot change the code the worker invokes;
 a code change requires a deployment that publishes and selects a new version.
 
 The live allocator, IAM role/policy and instance-profile responses, worker
-permission simulation, topic attributes, KMS key policy, bucket ACL,
-public-access block, bucket-policy status and lifecycle responses are evaluated
-only in memory. They are not copied into the report; only the pass/fail checks
-are retained. The operator identity therefore needs these additional read-only
-actions: `ec2:DescribeInstances`, `iam:GetInstanceProfile`, `iam:GetRole`,
-`iam:ListAttachedRolePolicies`, `iam:ListRolePolicies`, `iam:GetRolePolicy`,
-`iam:SimulatePrincipalPolicy`, `kms:GetKeyPolicy`, `sns:GetTopicAttributes`,
-`s3:GetBucketLifecycleConfiguration`, `s3:GetBucketPublicAccessBlock`, and
-`s3:GetBucketPolicyStatus`.
+permission simulation, topic and subscription attributes, KMS key metadata and
+policy, bucket ACL, public-access block, bucket-policy status and lifecycle
+responses are evaluated only in memory. They are not copied into the report;
+only the pass/fail checks are retained. The operator identity therefore needs
+these additional read-only actions: `ec2:DescribeInstances`,
+`iam:GetInstanceProfile`, `iam:GetRole`, `iam:ListAttachedRolePolicies`,
+`iam:ListRolePolicies`, `iam:GetRolePolicy`, `iam:SimulatePrincipalPolicy`,
+`kms:DescribeKey`, `kms:GetKeyPolicy`, `sns:GetSubscriptionAttributes`,
+`sns:GetTopicAttributes`, `s3:GetBucketLifecycleConfiguration`,
+`s3:GetBucketPublicAccessBlock`, and `s3:GetBucketPolicyStatus`.
 
 ## Interpreting results
 
