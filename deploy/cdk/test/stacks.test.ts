@@ -1058,7 +1058,11 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
   const instanceRoleLogicalId = Object.keys(roles).find((logicalId) =>
     logicalId.startsWith("InstanceRole"),
   );
+  const recordingRoleLogicalId = Object.keys(roles).find((logicalId) =>
+    logicalId.startsWith("RecordingUploadRole"),
+  );
   expect(instanceRoleLogicalId).toBeDefined();
+  expect(recordingRoleLogicalId).toBeDefined();
   template.hasResourceProperties("AWS::SSM::Parameter", {
     Name: "/upskill/staging/offline-scorm/cloudfront-allocator-function-name",
     Type: "String",
@@ -1171,6 +1175,9 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
   });
   template.hasOutput("OfflineScormCloudFrontWorkerRoleArn", {
     Value: { "Fn::GetAtt": [instanceRoleLogicalId, "Arn"] },
+  });
+  template.hasOutput("OfflineScormCloudFrontRecordingUploadRoleArn", {
+    Value: { "Fn::GetAtt": [recordingRoleLogicalId, "Arn"] },
   });
   const serialized = JSON.stringify(template.toJSON());
   expect(serialized).toContain("OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN");

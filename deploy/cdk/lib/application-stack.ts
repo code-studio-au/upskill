@@ -864,6 +864,11 @@ UPSKILL_ENV`,
         description:
           "Application worker role that must invoke the pinned Offline SCORM allocator version",
       });
+      new CfnOutput(this, "OfflineScormCloudFrontRecordingUploadRoleArn", {
+        value: recordingUploadRole.roleArn,
+        description:
+          "Deployment-owned recording upload role that the application worker may assume",
+      });
       new CfnOutput(this, "OfflineScormCloudFrontAllocatorAlarmTopicArn", {
         value: props.alarmTopic.topicArn,
         description:

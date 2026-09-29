@@ -910,6 +910,17 @@ function workerSecretStatementNames(statement, actions, expected) {
   return names.includes(null) ? null : names;
 }
 
+function isExactRecordingRoleAssumeStatement(
+  statement,
+  recordingUploadRoleArn,
+) {
+  return isDeepStrictEqual(statement, {
+    Action: "sts:AssumeRole",
+    Effect: "Allow",
+    Resource: recordingUploadRoleArn,
+  });
+}
+
 export function hasExpectedWorkerAllocatorPolicyBoundary(
   roleResponse,
   attachedPoliciesResponse,
@@ -920,8 +931,10 @@ export function hasExpectedWorkerAllocatorPolicyBoundary(
   runtimeTargetParameterArn,
   protectedLogBucketArn,
   approvedSecretNames,
+  recordingUploadRoleArn,
 ) {
   const roleMatch = IAM_ROLE_ARN.exec(workerRoleArn ?? "");
+  const recordingRoleMatch = IAM_ROLE_ARN.exec(recordingUploadRoleArn ?? "");
   const functionMatch = LAMBDA_VERSION_ARN.exec(qualifiedFunctionName ?? "");
   const roleName = roleMatch?.[3].split("/").at(-1);
   const approvedSecretNameSet = new Set(
@@ -931,6 +944,9 @@ export function hasExpectedWorkerAllocatorPolicyBoundary(
     !roleName ||
     functionMatch?.[1] !== roleMatch?.[1] ||
     functionMatch?.[3] !== roleMatch?.[2] ||
+    recordingRoleMatch?.[1] !== roleMatch?.[1] ||
+    recordingRoleMatch?.[2] !== roleMatch?.[2] ||
+    recordingUploadRoleArn === workerRoleArn ||
     typeof runtimeTargetParameterArn !== "string" ||
     !S3_BUCKET_ARN.test(protectedLogBucketArn ?? "") ||
     !Array.isArray(approvedSecretNames) ||
@@ -973,6 +989,7 @@ export function hasExpectedWorkerAllocatorPolicyBoundary(
   const expectedPolicyNames = new Set(inlinePolicyNamesResponse.PolicyNames);
   let allocatorInvokeStatements = 0;
   let runtimeAttestationStatements = 0;
+  let recordingRoleAssumeStatements = 0;
   const observedSecretNames = new Set();
   for (const policy of inlinePolicies) {
     if (
@@ -1010,6 +1027,16 @@ export function hasExpectedWorkerAllocatorPolicyBoundary(
       const hasS3Action = actions.some((action) =>
         actionPatternMayTargetService(action, "s3"),
       );
+      const hasPrivilegeEscalationAction = actions.some((action) =>
+        PRIVILEGE_ESCALATION_ACTIONS.some((privilegedAction) =>
+          actionPatternMatches(action, privilegedAction),
+        ),
+      );
+      const isRecordingRoleAssume = isExactRecordingRoleAssumeStatement(
+        statement,
+        recordingUploadRoleArn,
+      );
+      if (isRecordingRoleAssume) recordingRoleAssumeStatements += 1;
       if (
         (hasS3Action &&
           statementMayTargetS3Bucket(statement, protectedLogBucketArn)) ||
@@ -1033,9 +1060,7 @@ export function hasExpectedWorkerAllocatorPolicyBoundary(
               !WORKER_ROUTE53_READ_ACTIONS.some((allowedAction) =>
                 actionPatternMatches(allowedAction, action),
               )) ||
-            PRIVILEGE_ESCALATION_ACTIONS.some((privilegedAction) =>
-              actionPatternMatches(action, privilegedAction),
-            ),
+            (hasPrivilegeEscalationAction && !isRecordingRoleAssume),
         )
       )
         return false;
@@ -1074,6 +1099,7 @@ export function hasExpectedWorkerAllocatorPolicyBoundary(
     expectedPolicyNames.size === 0 &&
     allocatorInvokeStatements === 1 &&
     runtimeAttestationStatements === 1 &&
+    recordingRoleAssumeStatements === 1 &&
     observedSecretNames.size === approvedSecretNameSet.size &&
     [...approvedSecretNameSet].every((name) => observedSecretNames.has(name))
   );
@@ -2229,6 +2255,11 @@ export async function collectCloudFrontQualificationReport(
     "OfflineScormCloudFrontWorkerRoleArn",
     appStackName,
   );
+  const recordingUploadRoleArn = requiredOutput(
+    applicationOutputs,
+    "OfflineScormCloudFrontRecordingUploadRoleArn",
+    appStackName,
+  );
   const applicationInstanceId = requiredOutput(
     applicationOutputs,
     "ApplicationInstanceId",
@@ -3008,8 +3039,9 @@ export async function collectCloudFrontQualificationReport(
       workerRuntimeTargetParameterArn,
       logBucketArn,
       workerSecretNames(options.environment),
+      recordingUploadRoleArn,
     ),
-    "Application worker has only qualified-boundary-safe actions and deployment-owned secret reads plus exact allocator invoke, runtime attestation and metric grants",
+    "Application worker has only qualified-boundary-safe actions and deployment-owned secret reads plus exact recording-role assumption, allocator invoke, runtime attestation and metric grants",
   );
   addCheck(
     checks,

@@ -79,7 +79,8 @@ to invoke that immutable version, a current healthy `WorkerActive` datapoint
 with the heartbeat alarm in `OK`, a worker-owned runtime attestation no more
 than ten minutes old for that same target, the absence of direct CloudFront,
 WAF, IAM, KMS, Logs, SNS, S3-control or infrastructure mutation permissions on
-the worker, read-only Secrets Manager access scoped to the exact eight
+the worker except for assuming the exact deployment-owned recording upload
+role, read-only Secrets Manager access scoped to the exact eight
 deployment-owned application, access-code, database, LiveKit and Offline SCORM
 secret names in the staging account and Region, object-data-only S3 access, and
 only the exact metric-publication and runtime-attestation writes, the

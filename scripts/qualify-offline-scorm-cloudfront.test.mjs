@@ -79,6 +79,7 @@ const allocatorRoleName = "upskill-staging-allocator-role";
 const allocatorRoleArn = `arn:aws:iam::${options.expectedAccount}:role/${allocatorRoleName}`;
 const workerRoleName = "upskill-staging-worker-role";
 const workerRoleArn = `arn:aws:iam::${options.expectedAccount}:role/${workerRoleName}`;
+const recordingUploadRoleArn = `arn:aws:iam::${options.expectedAccount}:role/upskill-staging-recording-upload-role`;
 const workerRuntimeTargetParameterArn = `arn:aws:ssm:ap-southeast-2:${options.expectedAccount}:parameter/upskill/staging/offline-scorm/cloudfront-worker-runtime-target`;
 const applicationInstanceId = "i-0123456789abcdef0";
 const workerInstanceProfileName = "upskill-staging-worker-profile";
@@ -435,6 +436,11 @@ function expectedWorkerRoleResponses() {
               ],
               Effect: "Allow",
               Resource: workerSecretArns,
+            },
+            {
+              Action: "sts:AssumeRole",
+              Effect: "Allow",
+              Resource: recordingUploadRoleArn,
             },
             {
               Action: "lambda:InvokeFunction",
@@ -1400,7 +1406,10 @@ describe("Offline SCORM CloudFront qualification harness", () => {
 
   it("requires the worker role to preserve every qualified security boundary", () => {
     const responses = expectedWorkerRoleResponses();
-    const evaluate = (policies = responses.policies) =>
+    const evaluate = (
+      policies = responses.policies,
+      expectedRecordingUploadRoleArn = recordingUploadRoleArn,
+    ) =>
       hasExpectedWorkerAllocatorPolicyBoundary(
         responses.role,
         responses.attached,
@@ -1411,6 +1420,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         workerRuntimeTargetParameterArn,
         logBucketArn,
         workerSecretNames,
+        expectedRecordingUploadRoleArn,
       );
     expect(evaluate()).toBe(true);
     const replaceSecretStatement = (replacement) => [
@@ -1477,7 +1487,6 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       "waf*:GetWebACL",
       "iam:PutRolePolicy",
       "iam:*",
-      "sts:AssumeRole",
       "lambda:UpdateFunctionCode",
       "cloudformation:CreateStack",
       "ec2:AssociateIamInstanceProfile",
@@ -1518,6 +1527,70 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         ]),
       ).toBe(false);
     }
+    for (const statement of [
+      {
+        Action: "sts:AssumeRole",
+        Effect: "Allow",
+        Resource: "*",
+      },
+      {
+        Action: "sts:AssumeRole",
+        Effect: "Allow",
+        Resource: `arn:aws:iam::${options.expectedAccount}:role/unrelated`,
+      },
+      {
+        Action: ["sts:AssumeRole"],
+        Effect: "Allow",
+        Resource: recordingUploadRoleArn,
+      },
+      {
+        Action: "sts:AssumeRole",
+        Condition: { StringEquals: { "aws:ResourceAccount": "123456789012" } },
+        Effect: "Allow",
+        Resource: recordingUploadRoleArn,
+      },
+    ])
+      expect(
+        evaluate([
+          {
+            ...responses.policies[0],
+            PolicyDocument: {
+              ...responses.policies[0].PolicyDocument,
+              Statement: responses.policies[0].PolicyDocument.Statement.map(
+                (candidate) =>
+                  candidate.Action === "sts:AssumeRole" ? statement : candidate,
+              ),
+            },
+          },
+        ]),
+      ).toBe(false);
+    for (const expectedRecordingUploadRoleArn of [
+      workerRoleArn,
+      "arn:aws:iam::210987654321:role/upskill-staging-recording-upload-role",
+      "arn:aws-us-gov:iam::123456789012:role/upskill-staging-recording-upload-role",
+      null,
+    ])
+      expect(evaluate(responses.policies, expectedRecordingUploadRoleArn)).toBe(
+        false,
+      );
+    expect(
+      evaluate([
+        {
+          ...responses.policies[0],
+          PolicyDocument: {
+            ...responses.policies[0].PolicyDocument,
+            Statement: [
+              ...responses.policies[0].PolicyDocument.Statement,
+              {
+                Action: "sts:AssumeRole",
+                Effect: "Allow",
+                Resource: recordingUploadRoleArn,
+              },
+            ],
+          },
+        },
+      ]),
+    ).toBe(false);
     expect(
       evaluate([
         {
@@ -1581,6 +1654,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         workerRuntimeTargetParameterArn,
         logBucketArn,
         workerSecretNames,
+        recordingUploadRoleArn,
       ),
     ).toBe(false);
     expect(
@@ -1609,6 +1683,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         workerRuntimeTargetParameterArn,
         logBucketArn,
         workerSecretNames,
+        recordingUploadRoleArn,
       ),
     ).toBe(false);
   });
@@ -3033,6 +3108,10 @@ describe("Offline SCORM CloudFront qualification harness", () => {
               {
                 OutputKey: "OfflineScormCloudFrontWorkerRoleArn",
                 OutputValue: workerRoleArn,
+              },
+              {
+                OutputKey: "OfflineScormCloudFrontRecordingUploadRoleArn",
+                OutputValue: recordingUploadRoleArn,
               },
               {
                 OutputKey: "ApplicationInstanceId",
