@@ -702,6 +702,43 @@ export function hasExpectedEdgeAlarmKmsBoundary(
   });
 }
 
+export function hasExpectedAlarmTopicPolicy(topicAttributesResponse, expected) {
+  const topicMatch = SNS_TOPIC_ARN.exec(expected.topicArn ?? "");
+  const expectedAlarmArn = topicMatch
+    ? `arn:${topicMatch[1]}:cloudwatch:${expected.region}:${expected.accountId}:alarm:${expected.alarmName}`
+    : null;
+  const attributes = topicAttributesResponse?.Attributes;
+  const policy = parsePolicyDocument(attributes?.Policy);
+  const statements = Array.isArray(policy?.Statement) ? policy.Statement : [];
+  if (
+    topicMatch?.[2] !== expected.region ||
+    topicMatch?.[3] !== expected.accountId ||
+    attributes?.Owner !== expected.accountId ||
+    attributes?.TopicArn !== expected.topicArn ||
+    policy?.Version !== "2012-10-17" ||
+    statements.some((statement) => statement?.Effect === "Deny")
+  )
+    return false;
+  return statements.some((statement) => {
+    const actions = Array.isArray(statement?.Action)
+      ? statement.Action
+      : [statement?.Action];
+    return (
+      statement?.Effect === "Allow" &&
+      isDeepStrictEqual(statement?.Principal, {
+        Service: "cloudwatch.amazonaws.com",
+      }) &&
+      actions.length === 1 &&
+      String(actions[0]).toLowerCase() === "sns:publish" &&
+      statement?.Resource === expected.topicArn &&
+      isDeepStrictEqual(statement?.Condition, {
+        ArnLike: { "aws:SourceArn": expectedAlarmArn },
+        StringEquals: { "aws:SourceAccount": expected.accountId },
+      })
+    );
+  });
+}
+
 export function hasExpectedCloudFrontLogDeliveryAcl(acl) {
   const ownerId = acl?.Owner?.ID;
   if (typeof ownerId !== "string" || ownerId.length === 0) return false;
@@ -721,6 +758,42 @@ export function hasExpectedCloudFrontLogDeliveryAcl(acl) {
     `WRITE|Group||${S3_LOG_DELIVERY_GROUP_URI}`,
   ].sort();
   return isDeepStrictEqual(actual, expected);
+}
+
+export function hasExpectedLogBucketPolicy(policyResponse, expectedBucketArn) {
+  if (
+    !/^arn:(aws|aws-cn|aws-us-gov):s3:::[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/u.test(
+      expectedBucketArn ?? "",
+    )
+  )
+    return false;
+  const policy = parsePolicyDocument(policyResponse?.Policy);
+  const statements = Array.isArray(policy?.Statement) ? policy.Statement : [];
+  const denyStatements = statements.filter(
+    (statement) => statement?.Effect === "Deny",
+  );
+  if (policy?.Version !== "2012-10-17" || denyStatements.length !== 1)
+    return false;
+  const [deny] = denyStatements;
+  const actions = Array.isArray(deny?.Action) ? deny.Action : [deny?.Action];
+  const resources = Array.isArray(deny?.Resource)
+    ? deny.Resource
+    : [deny?.Resource];
+  return (
+    deny?.NotAction === undefined &&
+    deny?.NotPrincipal === undefined &&
+    deny?.NotResource === undefined &&
+    actions.length === 1 &&
+    String(actions[0]).toLowerCase() === "s3:*" &&
+    isDeepStrictEqual(deny?.Principal, { AWS: "*" }) &&
+    isDeepStrictEqual([...resources].sort(), [
+      expectedBucketArn,
+      `${expectedBucketArn}/*`,
+    ]) &&
+    isDeepStrictEqual(deny?.Condition, {
+      Bool: { "aws:SecureTransport": "false" },
+    })
+  );
 }
 
 export function hasExpectedLogBucketPublicAccessBoundary(
@@ -1382,6 +1455,7 @@ export async function collectCloudFrontQualificationReport(
     edgeAlarmKeyDescription,
     edgeAlarmKeyPolicy,
     allocatorSubscriptions,
+    allocatorAlarmTopicAttributes,
     edgeAlarms,
     allocatorAlarms,
     allocatorConfiguration,
@@ -1394,6 +1468,7 @@ export async function collectCloudFrontQualificationReport(
     logBucketAcl,
     logBucketPublicAccessBlock,
     logBucketPolicyStatus,
+    logBucketPolicy,
     logBucketLifecycle,
     cloudTrail,
     logObjects,
@@ -1471,6 +1546,14 @@ export async function collectCloudFrontQualificationReport(
     runAws([
       "sns",
       "list-subscriptions-by-topic",
+      "--topic-arn",
+      allocatorAlarmTopicArn,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "sns",
+      "get-topic-attributes",
       "--topic-arn",
       allocatorAlarmTopicArn,
       "--region",
@@ -1577,6 +1660,16 @@ export async function collectCloudFrontQualificationReport(
     runAws([
       "s3api",
       "get-bucket-policy-status",
+      "--bucket",
+      logBucket,
+      "--expected-bucket-owner",
+      accountId,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "s3api",
+      "get-bucket-policy",
       "--bucket",
       logBucket,
       "--expected-bucket-owner",
@@ -1795,6 +1888,12 @@ export async function collectCloudFrontQualificationReport(
   );
   addCheck(
     checks,
+    "access-log-bucket-policy",
+    hasExpectedLogBucketPolicy(logBucketPolicy, logBucketArn),
+    "CloudFront access-log bucket retains only its TLS transport deny and no deny that overrides legacy log delivery",
+  );
+  addCheck(
+    checks,
     "access-log-bucket-lifecycle",
     hasExpectedLogBucketLifecycle(logBucketLifecycle),
     "CloudFront access-log bucket retains objects for 30 days and aborts incomplete multipart uploads after one day",
@@ -1857,6 +1956,17 @@ export async function collectCloudFrontQualificationReport(
   );
   addCheck(
     checks,
+    "edge-alert-topic-policy",
+    hasExpectedAlarmTopicPolicy(edgeAlarmTopicAttributes, {
+      accountId,
+      alarmName: edgeAlarmName,
+      region: CLOUDFRONT_CONTROL_PLANE_REGION,
+      topicArn: edgeAlarmTopicArn,
+    }),
+    "Edge alarm topic policy grants only the expected same-account CloudWatch alarm publication path",
+  );
+  addCheck(
+    checks,
     "edge-alert-subscription",
     hasExpectedAlarmSubscription(
       edgeSubscriptions,
@@ -1878,6 +1988,17 @@ export async function collectCloudFrontQualificationReport(
       accountId,
     ),
     "Allocator alarm topic has exactly one confirmed, unfiltered subscription for the configured operations email",
+  );
+  addCheck(
+    checks,
+    "allocator-alert-topic-policy",
+    hasExpectedAlarmTopicPolicy(allocatorAlarmTopicAttributes, {
+      accountId,
+      alarmName: "*",
+      region: options.applicationRegion,
+      topicArn: allocatorAlarmTopicArn,
+    }),
+    "Operational alarm topic policy grants the expected same-account CloudWatch alarm publication path",
   );
   const alarmDefaults = {
     comparisonOperator: "GreaterThanOrEqualToThreshold",

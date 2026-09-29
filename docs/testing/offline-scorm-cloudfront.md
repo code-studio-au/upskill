@@ -17,7 +17,8 @@ distribution, invoke the allocator, alter a WAF rule, or write to AWS.
   deployed worker role's permission to invoke the exact allocator version.
 - Read access to the edge SNS topic attributes and deployment-owned KMS key
   metadata and policy so the key's enabled state and CloudWatch alarm
-  publication path can be qualified.
+  publication path can be qualified. The shared operational topic attributes
+  are also read to qualify its same-account CloudWatch publication boundary.
 - The application and edge stacks deployed with the CloudFront qualification
   context.
 - The shared `ap-southeast-2` operational SNS email subscription and the
@@ -47,8 +48,9 @@ redaction, ACL-level and per-rule WAF metric publication/sampling, 30-day WAF
 retention, exact unfiltered confirmed alarm-subscription endpoints, exact alarm
 metrics/units/evaluation/actions, per-distribution entitlement-specific access
 logging, the bucket's exact owner and S3 LogDelivery ACL grants, all four S3
-public-access blocks, a non-public bucket-policy status and the exact 30-day
-retention lifecycle, fully deployed edge status, lifecycle ownership discovery
+public-access blocks, a non-public bucket-policy status, the exact TLS-only
+bucket-policy deny with no competing deny, and the exact 30-day retention
+lifecycle, fully deployed edge status, lifecycle ownership discovery
 across the comment, exact tags and dedicated Web ACL binding,
 entitlement-bound protected origin headers, HTTPS-only TLS 1.2 origin
 transport, the live instance-profile binding to the worker role, the worker's
@@ -57,8 +59,9 @@ version, the live allocator version and code digest, exact execution role,
 runtime, environment and reserved concurrency, the role's Lambda-only trust
 policy and least-privilege managed/inline permission boundary, the edge topic's
 enabled deployment-owned KMS key and exact CloudWatch publish grant, the canonical
-distribution configuration, distribution-cap markers, service-quota headroom
-and a globally bounded sample of recent CloudFront control-plane mutations.
+distribution configuration, both SNS topics' account- and alarm-scoped
+CloudWatch publish grants, distribution-cap markers, service-quota headroom and
+a globally bounded sample of recent CloudFront control-plane mutations.
 
 The deployed cap output must remain the repository qualification baseline of
 25, and quota headroom is calculated from every distribution item aggregated
@@ -100,7 +103,8 @@ these additional read-only actions: `ec2:DescribeInstances`,
 `iam:ListRolePolicies`, `iam:GetRolePolicy`, `iam:SimulatePrincipalPolicy`,
 `kms:DescribeKey`, `kms:GetKeyPolicy`, `sns:GetSubscriptionAttributes`,
 `sns:GetTopicAttributes`, `s3:GetBucketLifecycleConfiguration`,
-`s3:GetBucketPublicAccessBlock`, and `s3:GetBucketPolicyStatus`.
+`s3:GetBucketPolicy`, `s3:GetBucketPublicAccessBlock`, and
+`s3:GetBucketPolicyStatus`.
 
 ## Interpreting results
 

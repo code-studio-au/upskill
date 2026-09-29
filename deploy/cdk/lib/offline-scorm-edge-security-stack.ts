@@ -176,6 +176,24 @@ export class OfflineScormEdgeSecurityStack extends Stack {
       displayName: `Upskill ${props.config.name} Offline SCORM edge alarms`,
       masterKey: alarmKey,
     });
+    alarmTopic.addToResourcePolicy(
+      new PolicyStatement({
+        principals: [new ServicePrincipal("cloudwatch.amazonaws.com")],
+        actions: ["sns:Publish"],
+        resources: [alarmTopic.topicArn],
+        conditions: {
+          StringEquals: { "aws:SourceAccount": this.account },
+          ArnLike: {
+            "aws:SourceArn": this.formatArn({
+              service: "cloudwatch",
+              resource: "alarm",
+              resourceName: blockedRequestAlarmName,
+              arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+            }),
+          },
+        },
+      }),
+    );
     alarmTopic.addSubscription(new EmailSubscription(props.config.alarmEmail));
     const blockedRequestAlarm = new Alarm(
       this,

@@ -201,6 +201,22 @@ test("staging storage is private, disposable and provides a dead-letter queue", 
   });
   template.resourceCountIs("AWS::CloudWatch::Alarm", 3);
   template.resourceCountIs("AWS::SNS::Topic", 1);
+  template.hasResourceProperties("AWS::SNS::TopicPolicy", {
+    PolicyDocument: {
+      Statement: Match.arrayWith([
+        Match.objectLike({
+          Action: "sns:Publish",
+          Condition: {
+            ArnLike: { "aws:SourceArn": Match.anyValue() },
+            StringEquals: { "aws:SourceAccount": Match.anyValue() },
+          },
+          Effect: "Allow",
+          Principal: { Service: "cloudwatch.amazonaws.com" },
+          Resource: Match.anyValue(),
+        }),
+      ]),
+    },
+  });
   template.resourceCountIs("AWS::SNS::Subscription", 1);
 });
 
@@ -919,6 +935,22 @@ test("CloudFront entitlement qualification has a global WAF baseline", () => {
     Protocol: "email",
   });
   template.resourceCountIs("AWS::SNS::Topic", 1);
+  template.hasResourceProperties("AWS::SNS::TopicPolicy", {
+    PolicyDocument: {
+      Statement: Match.arrayWith([
+        Match.objectLike({
+          Action: "sns:Publish",
+          Condition: {
+            ArnLike: { "aws:SourceArn": Match.anyValue() },
+            StringEquals: { "aws:SourceAccount": "123456789012" },
+          },
+          Effect: "Allow",
+          Principal: { Service: "cloudwatch.amazonaws.com" },
+          Resource: Match.anyValue(),
+        }),
+      ]),
+    },
+  });
   template.hasOutput("OfflineScormCloudFrontWebAclArn", {
     Description: Match.stringLikeRegexp("required by every Offline SCORM"),
   });
