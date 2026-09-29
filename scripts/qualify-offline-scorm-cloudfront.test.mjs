@@ -14,6 +14,7 @@ import {
   hasExpectedAlarmSubscription,
   hasExpectedAllocatorConfiguration,
   hasExpectedAllocatorRoleBoundary,
+  hasExpectedWorkerAllocatorPolicyBoundary,
   hasExpectedEdgeAlarmKmsBoundary,
   hasExpectedCloudFrontLogDeliveryAcl,
   hasExpectedLogBucketLifecycle,
@@ -210,6 +211,7 @@ function expectedAllocatorConfiguration() {
     FunctionName: allocatorFunctionName,
     Handler: "index.handler",
     LastUpdateStatus: "Successful",
+    Layers: [],
     Role: allocatorRoleArn,
     Runtime: "nodejs22.x",
     State: "Active",
@@ -341,6 +343,42 @@ function expectedWorkerInvocationSimulation() {
             MissingContextValues: [],
           },
         ],
+      },
+    ],
+  };
+}
+
+function expectedWorkerRoleResponses() {
+  return {
+    attached: {
+      AttachedPolicies: [
+        {
+          PolicyArn: "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
+          PolicyName: "AmazonSSMManagedInstanceCore",
+        },
+      ],
+    },
+    names: { PolicyNames: ["worker-policy"] },
+    policies: [
+      {
+        PolicyName: "worker-policy",
+        RoleName: workerRoleName,
+        PolicyDocument: {
+          Version: "2012-10-17",
+          Statement: [
+            {
+              Action: "lambda:InvokeFunction",
+              Effect: "Allow",
+              Resource: allocatorQualifiedFunctionName,
+            },
+            {
+              Action: "ssm:GetParameter",
+              Effect: "Allow",
+              Resource:
+                "arn:aws:ssm:ap-southeast-2:123456789012:parameter/example",
+            },
+          ],
+        },
       },
     ],
   };
@@ -804,6 +842,14 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       { Handler: "other.handler" },
       { Timeout: 30 },
       { Description: "drifted" },
+      {
+        Layers: [
+          {
+            Arn: "arn:aws:lambda:ap-southeast-2:123456789012:layer:unexpected:1",
+          },
+        ],
+      },
+      { Layers: {} },
       { CodeSha256: `${"b".repeat(43)}=` },
       { CodeSha256: "invalid" },
       { Role: "arn:aws:iam::123456789012:role/broader-role" },
@@ -1077,6 +1123,87 @@ describe("Offline SCORM CloudFront qualification harness", () => {
             },
           ],
         },
+        allocatorQualifiedFunctionName,
+      ),
+    ).toBe(false);
+  });
+
+  it("requires the worker role to grant only the pinned allocator version", () => {
+    const responses = expectedWorkerRoleResponses();
+    const evaluate = (policies = responses.policies) =>
+      hasExpectedWorkerAllocatorPolicyBoundary(
+        responses.attached,
+        responses.names,
+        policies,
+        workerRoleArn,
+        allocatorQualifiedFunctionName,
+      );
+    expect(evaluate()).toBe(true);
+    for (const Resource of [
+      "*",
+      allocatorQualifiedFunctionName.replace(":12", ""),
+      allocatorQualifiedFunctionName.replace(":12", ":*"),
+    ]) {
+      expect(
+        evaluate([
+          {
+            ...responses.policies[0],
+            PolicyDocument: {
+              ...responses.policies[0].PolicyDocument,
+              Statement: [
+                {
+                  Action: "lambda:InvokeFunction",
+                  Effect: "Allow",
+                  Resource,
+                },
+              ],
+            },
+          },
+        ]),
+      ).toBe(false);
+    }
+    for (const Action of ["lambda:*", "lambda:Invoke*", "*"]) {
+      expect(
+        evaluate([
+          {
+            ...responses.policies[0],
+            PolicyDocument: {
+              ...responses.policies[0].PolicyDocument,
+              Statement: [
+                {
+                  Action,
+                  Effect: "Allow",
+                  Resource: allocatorQualifiedFunctionName,
+                },
+              ],
+            },
+          },
+        ]),
+      ).toBe(false);
+    }
+    expect(
+      evaluate([
+        {
+          ...responses.policies[0],
+          PolicyDocument: {
+            ...responses.policies[0].PolicyDocument,
+            Statement: [
+              {
+                Effect: "Allow",
+                NotAction: "s3:*",
+                Resource: "*",
+              },
+            ],
+          },
+        },
+      ]),
+    ).toBe(false);
+    expect(
+      hasExpectedWorkerAllocatorPolicyBoundary(
+        { AttachedPolicies: [] },
+        responses.names,
+        responses.policies,
+        workerRoleArn,
         allocatorQualifiedFunctionName,
       ),
     ).toBe(false);
@@ -2215,13 +2342,19 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       if (command === "iam get-role")
         return expectedAllocatorRoleResponses().role;
       if (command === "iam list-attached-role-policies")
-        return expectedAllocatorRoleResponses().attached;
+        return args.includes(workerRoleName)
+          ? expectedWorkerRoleResponses().attached
+          : expectedAllocatorRoleResponses().attached;
       if (command === "iam list-role-policies")
-        return expectedAllocatorRoleResponses().names;
+        return args.includes(workerRoleName)
+          ? expectedWorkerRoleResponses().names
+          : expectedAllocatorRoleResponses().names;
       if (command === "iam simulate-principal-policy")
         return expectedWorkerInvocationSimulation();
       if (command === "iam get-role-policy")
-        return expectedAllocatorRoleResponses().policies[0];
+        return args.includes(workerRoleName)
+          ? expectedWorkerRoleResponses().policies[0]
+          : expectedAllocatorRoleResponses().policies[0];
       if (command === "iam get-instance-profile")
         return expectedWorkerInstanceProfile();
       if (command === "ec2 describe-instances")
@@ -2284,6 +2417,11 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     ).toMatchObject({ status: "pass" });
     expect(
       report.checks.find((check) => check.id === "worker-allocator-permission"),
+    ).toMatchObject({ status: "pass" });
+    expect(
+      report.checks.find(
+        (check) => check.id === "worker-allocator-policy-boundary",
+      ),
     ).toMatchObject({ status: "pass" });
     expect(
       report.checks.find((check) => check.id === "allocator-invocation-policy"),
@@ -2409,7 +2547,10 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       "get-role",
       "list-attached-role-policies",
       "list-role-policies",
+      "list-attached-role-policies",
+      "list-role-policies",
       "simulate-principal-policy",
+      "get-role-policy",
       "get-role-policy",
       "get-instance-profile",
     ]);

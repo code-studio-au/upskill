@@ -14,8 +14,9 @@ distribution, invoke the allocator, alter a WAF rule, or write to AWS.
   both Offline SCORM SSM parameters, the storage stack resources, and the
   CloudFront access-log bucket ACL, public-access block, policy status, policy
   document and lifecycle. The operator must also be able to inspect the
-  application instance's current IAM instance profile and simulate that
-  deployed worker role's permission to invoke the exact allocator version.
+  application instance's current IAM instance profile, inspect all managed and
+  inline policies on that deployed worker role, and simulate its permission to
+  invoke the exact allocator version.
 - Read access to the edge SNS topic attributes and deployment-owned KMS key
   metadata and policy so the key's enabled state and CloudWatch alarm
   publication path can be qualified. The shared operational topic attributes
@@ -57,9 +58,12 @@ dedicated Web ACL binding,
 entitlement-bound protected origin headers, HTTPS-only TLS 1.2 origin
 transport, the live instance-profile binding to the worker role, the worker's
 exact SSM allocator target and effective permission to invoke that immutable
-version, the live allocator version and code digest, exact execution role,
-runtime, environment and reserved concurrency, the role's Lambda-only trust
-policy and least-privilege managed/inline permission boundary, the edge topic's
+version, the live allocator version and code digest, lack of executable Lambda
+layers, exact execution role, runtime, environment and reserved concurrency,
+the allocator role's Lambda-only trust policy and least-privilege
+managed/inline permission boundary, the worker role's exact managed-policy
+inventory and sole Lambda invoke grant scoped to the immutable allocator
+version, the edge topic's
 enabled deployment-owned KMS key and exact CloudWatch publish grant, the
 canonical distribution configuration, both SNS topics' account- and alarm-scoped
 CloudWatch publish grants and sole confirmed recipient, the edge key's exact

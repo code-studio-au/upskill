@@ -493,6 +493,9 @@ export function hasExpectedAllocatorConfiguration(
     configuration?.Handler === "index.handler" &&
     configuration?.Timeout === 120 &&
     configuration?.Description === ALLOCATOR_DESCRIPTION &&
+    (configuration?.Layers === undefined ||
+      (Array.isArray(configuration.Layers) &&
+        configuration.Layers.length === 0)) &&
     isDeepStrictEqual(configuration?.Environment?.Variables, {
       UPSKILL_ENVIRONMENT: expected.environment,
       UPSKILL_OFFLINE_SCORM_EDGE_LOG_BUCKET_DOMAIN: expected.logBucketDomain,
@@ -666,6 +669,93 @@ export function canWorkerInvokePinnedAllocator(
     resourceResults[0]?.EvalResourceDecision === "allowed" &&
     hasNoMissingContextValues(resourceResults[0])
   );
+}
+
+function actionPatternMatches(actionPattern, action) {
+  if (typeof actionPattern !== "string") return false;
+  const escaped = actionPattern
+    .toLowerCase()
+    .replace(/[.+^${}()|[\]\\]/gu, "\\$&")
+    .replaceAll("*", ".*")
+    .replaceAll("?", ".");
+  return new RegExp(`^${escaped}$`, "u").test(action.toLowerCase());
+}
+
+function isExactAllocatorInvokeStatement(statement, qualifiedFunctionName) {
+  const actions = Array.isArray(statement?.Action)
+    ? statement.Action
+    : [statement?.Action];
+  const resources = Array.isArray(statement?.Resource)
+    ? statement.Resource
+    : [statement?.Resource];
+  return (
+    Object.keys(statement ?? {})
+      .sort()
+      .join(",") === "Action,Effect,Resource" &&
+    statement.Effect === "Allow" &&
+    actions.length === 1 &&
+    actions[0] === "lambda:InvokeFunction" &&
+    resources.length === 1 &&
+    resources[0] === qualifiedFunctionName
+  );
+}
+
+export function hasExpectedWorkerAllocatorPolicyBoundary(
+  attachedPoliciesResponse,
+  inlinePolicyNamesResponse,
+  inlinePolicies,
+  workerRoleArn,
+  qualifiedFunctionName,
+) {
+  const roleMatch = IAM_ROLE_ARN.exec(workerRoleArn ?? "");
+  const roleName = roleMatch?.[3].split("/").at(-1);
+  if (
+    !roleName ||
+    !LAMBDA_VERSION_ARN.test(qualifiedFunctionName ?? "") ||
+    !isDeepStrictEqual(attachedPoliciesResponse?.AttachedPolicies, [
+      {
+        PolicyArn: `arn:${roleMatch[1]}:iam::aws:policy/AmazonSSMManagedInstanceCore`,
+        PolicyName: "AmazonSSMManagedInstanceCore",
+      },
+    ]) ||
+    !Array.isArray(inlinePolicyNamesResponse?.PolicyNames) ||
+    inlinePolicyNamesResponse.PolicyNames.length === 0 ||
+    new Set(inlinePolicyNamesResponse.PolicyNames).size !==
+      inlinePolicyNamesResponse.PolicyNames.length ||
+    !Array.isArray(inlinePolicies) ||
+    inlinePolicies.length !== inlinePolicyNamesResponse.PolicyNames.length
+  )
+    return false;
+
+  const expectedPolicyNames = new Set(inlinePolicyNamesResponse.PolicyNames);
+  let allocatorInvokeStatements = 0;
+  for (const policy of inlinePolicies) {
+    if (
+      policy?.RoleName !== roleName ||
+      !expectedPolicyNames.delete(policy?.PolicyName) ||
+      policy?.PolicyDocument?.Version !== "2012-10-17" ||
+      !Array.isArray(policy.PolicyDocument.Statement)
+    )
+      return false;
+    for (const statement of policy.PolicyDocument.Statement) {
+      if (!statement || statement.Effect !== "Allow") continue;
+      if (statement.NotAction !== undefined) return false;
+      const actions = Array.isArray(statement.Action)
+        ? statement.Action
+        : [statement.Action];
+      if (actions.some((action) => typeof action !== "string")) return false;
+      if (
+        actions.some((action) =>
+          actionPatternMatches(action, "lambda:InvokeFunction"),
+        )
+      ) {
+        if (!isExactAllocatorInvokeStatement(statement, qualifiedFunctionName))
+          return false;
+        allocatorInvokeStatements += 1;
+      }
+    }
+  }
+  return expectedPolicyNames.size === 0 && allocatorInvokeStatements === 1;
 }
 
 function workerInstanceProfileBinding(instancesResponse, expectedInstanceId) {
@@ -1490,6 +1580,8 @@ export async function collectCloudFrontQualificationReport(
   );
   const allocatorRoleMatch = IAM_ROLE_ARN.exec(allocatorRoleArn);
   const allocatorRoleName = allocatorRoleMatch?.[3].split("/").at(-1);
+  const workerRoleMatch = IAM_ROLE_ARN.exec(workerRoleArn);
+  const workerRoleName = workerRoleMatch?.[3].split("/").at(-1);
   const allocatorVersionMatch = LAMBDA_VERSION_ARN.exec(
     allocatorQualifiedFunctionName,
   );
@@ -1499,7 +1591,11 @@ export async function collectCloudFrontQualificationReport(
     allocatorRoleName.length === 0
   )
     throw new Error("Offline SCORM allocator role output is invalid");
-  if (IAM_ROLE_ARN.exec(workerRoleArn)?.[2] !== accountId)
+  if (
+    workerRoleMatch?.[2] !== accountId ||
+    typeof workerRoleName !== "string" ||
+    workerRoleName.length === 0
+  )
     throw new Error("Offline SCORM worker role output is invalid");
   if (
     allocatorVersionMatch?.[2] !== options.applicationRegion ||
@@ -1630,6 +1726,8 @@ export async function collectCloudFrontQualificationReport(
     allocatorAttachedPolicies,
     allocatorInlinePolicyNames,
     workerInstances,
+    workerAttachedPolicies,
+    workerInlinePolicyNames,
     workerInvocationSimulation,
     allocatorConcurrency,
     logBucketAcl,
@@ -1791,6 +1889,22 @@ export async function collectCloudFrontQualificationReport(
     ]),
     runAws([
       "iam",
+      "list-attached-role-policies",
+      "--role-name",
+      workerRoleName,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "iam",
+      "list-role-policies",
+      "--role-name",
+      workerRoleName,
+      "--region",
+      options.applicationRegion,
+    ]),
+    runAws([
+      "iam",
       "simulate-principal-policy",
       "--policy-source-arn",
       workerRoleArn,
@@ -1913,6 +2027,7 @@ export async function collectCloudFrontQualificationReport(
       : null;
   const [
     allocatorInlinePolicies,
+    workerInlinePolicies,
     workerInstanceProfile,
     edgeSubscriptionAttributes,
     allocatorSubscriptionAttributes,
@@ -1924,6 +2039,20 @@ export async function collectCloudFrontQualificationReport(
           "get-role-policy",
           "--role-name",
           allocatorRoleName,
+          "--policy-name",
+          policyName,
+          "--region",
+          options.applicationRegion,
+        ]),
+      ),
+    ),
+    Promise.all(
+      (workerInlinePolicyNames.PolicyNames ?? []).map((policyName) =>
+        runAws([
+          "iam",
+          "get-role-policy",
+          "--role-name",
+          workerRoleName,
           "--policy-name",
           policyName,
           "--region",
@@ -2041,6 +2170,18 @@ export async function collectCloudFrontQualificationReport(
       workerRoleArn,
     ),
     "Live application instance profile contains exactly the deployment-owned worker role",
+  );
+  addCheck(
+    checks,
+    "worker-allocator-policy-boundary",
+    hasExpectedWorkerAllocatorPolicyBoundary(
+      workerAttachedPolicies,
+      workerInlinePolicyNames,
+      workerInlinePolicies,
+      workerRoleArn,
+      allocatorQualifiedFunctionName,
+    ),
+    "Application worker has exactly one allocator invoke grant scoped to the deployment-owned immutable version",
   );
   addCheck(
     checks,
