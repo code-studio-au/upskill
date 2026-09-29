@@ -451,6 +451,11 @@ export function haveExpectedAlarmConfigurations(alarms, expectedAlarms) {
       Array.isArray(alarm.AlarmActions) &&
       alarm.AlarmActions.length === 1 &&
       alarm.AlarmActions[0] === actionArn &&
+      (alarm.OKActions === undefined ||
+        (Array.isArray(alarm.OKActions) && alarm.OKActions.length === 0)) &&
+      (alarm.InsufficientDataActions === undefined ||
+        (Array.isArray(alarm.InsufficientDataActions) &&
+          alarm.InsufficientDataActions.length === 0)) &&
       alarm.Namespace === namespace &&
       alarm.MetricName === metricName &&
       haveExpectedDimensions(alarm.Dimensions, dimensions) &&
@@ -480,6 +485,7 @@ export function hasExpectedAllocatorConfiguration(
     configuration?.FunctionName === versionMatch?.[4] &&
     configuration?.Version === versionMatch?.[5] &&
     LAMBDA_CODE_SHA_256.test(configuration?.CodeSha256 ?? "") &&
+    configuration?.CodeSha256 === expected.codeSha256 &&
     configuration?.Role === expected.roleArn &&
     configuration?.State === "Active" &&
     configuration?.LastUpdateStatus === "Successful" &&
@@ -802,27 +808,29 @@ export function hasExpectedAlarmTopicPolicy(topicAttributesResponse, expected) {
     attributes?.Owner !== expected.accountId ||
     attributes?.TopicArn !== expected.topicArn ||
     policy?.Version !== "2012-10-17" ||
-    statements.some((statement) => statement?.Effect === "Deny")
+    statements.length !== 1
   )
     return false;
-  return statements.some((statement) => {
-    const actions = Array.isArray(statement?.Action)
-      ? statement.Action
-      : [statement?.Action];
-    return (
-      statement?.Effect === "Allow" &&
-      isDeepStrictEqual(statement?.Principal, {
-        Service: "cloudwatch.amazonaws.com",
-      }) &&
-      actions.length === 1 &&
-      String(actions[0]).toLowerCase() === "sns:publish" &&
-      statement?.Resource === expected.topicArn &&
-      isDeepStrictEqual(statement?.Condition, {
-        ArnLike: { "aws:SourceArn": expectedAlarmArn },
-        StringEquals: { "aws:SourceAccount": expected.accountId },
-      })
-    );
-  });
+  const [statement] = statements;
+  const actions = Array.isArray(statement?.Action)
+    ? statement.Action
+    : [statement?.Action];
+  return (
+    Object.keys(statement ?? {})
+      .sort()
+      .join(",") === "Action,Condition,Effect,Principal,Resource" &&
+    statement?.Effect === "Allow" &&
+    isDeepStrictEqual(statement?.Principal, {
+      Service: "cloudwatch.amazonaws.com",
+    }) &&
+    actions.length === 1 &&
+    String(actions[0]).toLowerCase() === "sns:publish" &&
+    statement?.Resource === expected.topicArn &&
+    isDeepStrictEqual(statement?.Condition, {
+      ArnLike: { "aws:SourceArn": expectedAlarmArn },
+      StringEquals: { "aws:SourceAccount": expected.accountId },
+    })
+  );
 }
 
 export function hasExpectedCloudFrontLogDeliveryAcl(acl) {
@@ -1460,6 +1468,11 @@ export async function collectCloudFrontQualificationReport(
     "OfflineScormCloudFrontAllocatorQualifiedFunctionName",
     appStackName,
   );
+  const allocatorCodeSha256 = requiredOutput(
+    applicationOutputs,
+    "OfflineScormCloudFrontAllocatorCodeSha256",
+    appStackName,
+  );
   const allocatorRoleArn = requiredOutput(
     applicationOutputs,
     "OfflineScormCloudFrontAllocatorRoleArn",
@@ -1980,6 +1993,7 @@ export async function collectCloudFrontQualificationReport(
       {
         accountId,
         applicationRegion: options.applicationRegion,
+        codeSha256: allocatorCodeSha256,
         environment: options.environment,
         functionName: allocatorFunctionName,
         logBucketDomain,
@@ -1991,7 +2005,7 @@ export async function collectCloudFrontQualificationReport(
         webAclName,
       },
     ),
-    "Immutable allocator version matches its code, role, runtime, environment and reserved-concurrency baseline",
+    "Immutable allocator version matches its deployment-recorded code digest, role, runtime, environment and reserved-concurrency baseline",
   );
   addCheck(
     checks,

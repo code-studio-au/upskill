@@ -59,6 +59,7 @@ const unrelatedDistributionArn = `arn:aws:cloudfront::${options.expectedAccount}
 const allocatorFunctionName = "allocator";
 const allocatorQualifiedFunctionName =
   "arn:aws:lambda:ap-southeast-2:123456789012:function:allocator:12";
+const allocatorCodeSha256 = `${"a".repeat(43)}=`;
 const allocatorRoleName = "upskill-staging-allocator-role";
 const allocatorRoleArn = `arn:aws:iam::${options.expectedAccount}:role/${allocatorRoleName}`;
 const workerRoleName = "upskill-staging-worker-role";
@@ -177,6 +178,7 @@ function expectedAllocatorBaseline() {
   return {
     accountId: options.expectedAccount,
     applicationRegion: options.applicationRegion,
+    codeSha256: allocatorCodeSha256,
     environment: options.environment,
     functionName: allocatorFunctionName,
     logBucketDomain,
@@ -193,7 +195,7 @@ function expectedAllocatorConfiguration() {
   return {
     Description:
       "Dormant worker-owned allocator for exact-entitlement CloudFront qualification sites",
-    CodeSha256: `${"a".repeat(43)}=`,
+    CodeSha256: allocatorCodeSha256,
     Environment: {
       Variables: {
         UPSKILL_ENVIRONMENT: options.environment,
@@ -528,6 +530,8 @@ function expectedLogBucketLifecycle() {
 function expectedAlarmConfigurations() {
   const defaults = {
     ActionsEnabled: true,
+    InsufficientDataActions: [],
+    OKActions: [],
     ComparisonOperator: "GreaterThanOrEqualToThreshold",
     EvaluationPeriods: 1,
     Period: 300,
@@ -762,6 +766,8 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     ).toBe(false);
     for (const drift of [
       { AlarmActions: [edgeAlarmTopicArn] },
+      { OKActions: [allocatorAlarmTopicArn] },
+      { InsufficientDataActions: [allocatorAlarmTopicArn] },
       { Namespace: "Unrelated/Namespace" },
       { MetricName: "Invocations" },
       { Dimensions: [{ Name: "FunctionName", Value: "another-function" }] },
@@ -798,6 +804,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       { Handler: "other.handler" },
       { Timeout: 30 },
       { Description: "drifted" },
+      { CodeSha256: `${"b".repeat(43)}=` },
       { CodeSha256: "invalid" },
       { Role: "arn:aws:iam::123456789012:role/broader-role" },
       { Version: "13" },
@@ -1322,6 +1329,28 @@ describe("Offline SCORM CloudFront qualification harness", () => {
                   Action: "SNS:Publish",
                   Effect: "Deny",
                   Principal: { Service: "cloudwatch.amazonaws.com" },
+                  Resource: edgeAlarmTopicArn,
+                },
+              ],
+            }),
+          },
+        },
+        edgeExpected,
+      ),
+    ).toBe(false);
+    expect(
+      hasExpectedAlarmTopicPolicy(
+        {
+          Attributes: {
+            ...edgeAttributes.Attributes,
+            Policy: JSON.stringify({
+              ...policy,
+              Statement: [
+                ...policy.Statement,
+                {
+                  Action: "SNS:Publish",
+                  Effect: "Allow",
+                  Principal: { AWS: "*" },
                   Resource: edgeAlarmTopicArn,
                 },
               ],
@@ -1951,6 +1980,10 @@ describe("Offline SCORM CloudFront qualification harness", () => {
                 OutputValue: allocatorQualifiedFunctionName,
               },
               {
+                OutputKey: "OfflineScormCloudFrontAllocatorCodeSha256",
+                OutputValue: allocatorCodeSha256,
+              },
+              {
                 OutputKey: "OfflineScormCloudFrontAllocatorRoleArn",
                 OutputValue: allocatorRoleArn,
               },
@@ -2141,6 +2174,8 @@ describe("Offline SCORM CloudFront qualification harness", () => {
               return {
                 ActionsEnabled: true,
                 AlarmActions: [actionArn],
+                InsufficientDataActions: [],
+                OKActions: [],
                 AlarmName,
                 ComparisonOperator: "GreaterThanOrEqualToThreshold",
                 Dimensions: isEdge

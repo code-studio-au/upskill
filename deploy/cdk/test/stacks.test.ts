@@ -1093,6 +1093,60 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
   template.hasOutput("OfflineScormCloudFrontAllocatorQualifiedFunctionName", {
     Value: allocatorVersionReference,
   });
+  const allocatorDeploymentConfigurations = template.findResources(
+    "Custom::AWS",
+  ) as Record<
+    string,
+    {
+      Properties?: {
+        Create?: unknown;
+        InstallLatestAwsSdk?: boolean;
+        Update?: unknown;
+      };
+    }
+  >;
+  expect(Object.keys(allocatorDeploymentConfigurations)).toHaveLength(1);
+  const [allocatorDeploymentLogicalId, allocatorDeploymentConfiguration] =
+    Object.entries(allocatorDeploymentConfigurations)[0] ?? [];
+  expect(allocatorDeploymentLogicalId).toBeDefined();
+  const allocatorDeploymentCreate =
+    allocatorDeploymentConfiguration?.Properties?.Create;
+  expect(allocatorDeploymentCreate).toEqual({
+    "Fn::Join": [
+      "",
+      [
+        '{"service":"Lambda","action":"getFunctionConfiguration","parameters":{"FunctionName":"',
+        allocatorVersionReference,
+        '"},"physicalResourceId":{"id":"',
+        allocatorVersionReference,
+        '"},"outputPaths":["CodeSha256"],"logApiResponseData":false}',
+      ],
+    ],
+  });
+  expect(allocatorDeploymentConfiguration?.Properties?.Update).toEqual(
+    allocatorDeploymentConfiguration?.Properties?.Create,
+  );
+  expect(
+    allocatorDeploymentConfiguration?.Properties?.InstallLatestAwsSdk,
+  ).toBe(false);
+  template.hasOutput("OfflineScormCloudFrontAllocatorCodeSha256", {
+    Description: Match.stringLikeRegexp("Deployment-observed code digest"),
+    Value: {
+      "Fn::GetAtt": [allocatorDeploymentLogicalId, "CodeSha256"],
+    },
+  });
+  template.hasResourceProperties("AWS::IAM::Policy", {
+    PolicyDocument: {
+      Statement: [
+        {
+          Action: "lambda:GetFunctionConfiguration",
+          Effect: "Allow",
+          Resource: allocatorVersionReference,
+        },
+      ],
+      Version: "2012-10-17",
+    },
+  });
   template.hasOutput("OfflineScormCloudFrontAllocatorRoleArn", {
     Value: Match.anyValue(),
   });

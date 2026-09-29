@@ -52,7 +52,13 @@ import {
 import { CfnRecordSet } from "aws-cdk-lib/aws-route53";
 import { Secret } from "aws-cdk-lib/aws-secretsmanager";
 import { StringParameter, type CfnParameter } from "aws-cdk-lib/aws-ssm";
-import { Provider } from "aws-cdk-lib/custom-resources";
+import {
+  AwsCustomResource,
+  AwsCustomResourcePolicy,
+  Logging,
+  PhysicalResourceId,
+  Provider,
+} from "aws-cdk-lib/custom-resources";
 import { fileURLToPath } from "node:url";
 import type { Queue } from "aws-cdk-lib/aws-sqs";
 import type { Construct } from "constructs";
@@ -687,6 +693,31 @@ UPSKILL_ENV`,
       );
       const allocatorVersion = allocator.currentVersion;
       const allocatorQualifiedFunctionName = allocatorVersion.functionArn;
+      const allocatorDeploymentConfiguration = new AwsCustomResource(
+        this,
+        "OfflineScormCloudFrontAllocatorDeploymentConfiguration",
+        {
+          onUpdate: {
+            service: "Lambda",
+            action: "getFunctionConfiguration",
+            parameters: { FunctionName: allocatorQualifiedFunctionName },
+            physicalResourceId: PhysicalResourceId.of(
+              allocatorQualifiedFunctionName,
+            ),
+            outputPaths: ["CodeSha256"],
+            logging: Logging.withDataHidden(),
+          },
+          installLatestAwsSdk: false,
+          policy: AwsCustomResourcePolicy.fromStatements([
+            new PolicyStatement({
+              actions: ["lambda:GetFunctionConfiguration"],
+              resources: [allocatorQualifiedFunctionName],
+            }),
+          ]),
+        },
+      );
+      const allocatorCodeSha256 =
+        allocatorDeploymentConfiguration.getResponseField("CodeSha256");
       const allocatorRole = allocator.role;
       if (!allocatorRole)
         throw new Error(
@@ -800,6 +831,11 @@ UPSKILL_ENV`,
             "Immutable published allocator function version invoked by the staging worker",
         },
       );
+      new CfnOutput(this, "OfflineScormCloudFrontAllocatorCodeSha256", {
+        value: allocatorCodeSha256,
+        description:
+          "Deployment-observed code digest for the immutable Offline SCORM allocator version",
+      });
       new CfnOutput(this, "OfflineScormCloudFrontAllocatorRoleArn", {
         value: allocatorRole.roleArn,
         description:

@@ -95,10 +95,12 @@ the ownership/configuration checks instead of escaping the inventory.
 The application stack publishes an immutable Lambda version, grants the worker
 invoke permission only for that version through its identity policy, and writes
 its qualified ARN to SSM. The harness requires the stack output, worker SSM
-target and exact live version to agree and requires that version to have no
+target and exact live version to agree, compares the live package digest with
+the digest captured by the deployment, and requires that version to have no
 resource-based invocation policy. Updating mutable `$LATEST` cannot change the
-code the worker invokes; a code change requires a deployment that publishes and
-selects a new version.
+code the worker invokes; deleting and recreating the named function or version
+cannot pass qualification with different code; a legitimate code change
+requires a deployment that publishes, records and selects a new version.
 
 The live allocator, IAM role/policy and instance-profile responses, worker
 permission simulation, topic and subscription attributes, KMS key metadata and
