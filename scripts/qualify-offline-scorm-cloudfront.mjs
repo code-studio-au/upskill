@@ -20,6 +20,8 @@ const CLOUDFRONT_WEB_ACL_ARN =
   /^arn:[a-z0-9-]+:wafv2:us-east-1:[0-9]{12}:global\/webacl\/([A-Za-z0-9_-]{1,128})\/([A-Za-z0-9-]{36})$/u;
 const LAMBDA_VERSION_ARN =
   /^arn:(aws|aws-cn|aws-us-gov):lambda:([a-z0-9-]+):([0-9]{12}):function:([A-Za-z0-9_-]{1,64}):([1-9][0-9]*)$/u;
+const SECRETS_MANAGER_SECRET_ARN =
+  /^arn:(aws|aws-cn|aws-us-gov):secretsmanager:([a-z0-9-]+):([0-9]{12}):secret:(.+)-([A-Za-z0-9]{6})$/u;
 const IAM_ROLE_ARN =
   /^arn:(aws|aws-cn|aws-us-gov):iam::([0-9]{12}):role\/(.+)$/u;
 const IAM_INSTANCE_PROFILE_ARN =
@@ -864,6 +866,50 @@ function statementMayTargetS3Bucket(statement, bucketArn) {
   );
 }
 
+function expectedWorkerSecretName(resource, expected) {
+  const match = SECRETS_MANAGER_SECRET_ARN.exec(resource ?? "");
+  if (
+    match?.[1] !== expected.partition ||
+    match?.[2] !== expected.region ||
+    match?.[3] !== expected.accountId ||
+    !expected.names.has(match?.[4])
+  )
+    return null;
+  return match[4];
+}
+
+function workerSecretStatementNames(statement, actions, expected) {
+  if (
+    !isDeepStrictEqual(Object.keys(statement ?? {}).sort(), [
+      "Action",
+      "Effect",
+      "Resource",
+    ]) ||
+    statement.Effect !== "Allow" ||
+    actions.length === 0 ||
+    !actions.every((action) =>
+      [
+        "secretsmanager:DescribeSecret",
+        "secretsmanager:GetSecretValue",
+      ].includes(action),
+    )
+  )
+    return null;
+  const resources = Array.isArray(statement.Resource)
+    ? statement.Resource
+    : [statement.Resource];
+  if (
+    resources.length === 0 ||
+    new Set(resources).size !== resources.length ||
+    resources.some((resource) => typeof resource !== "string")
+  )
+    return null;
+  const names = resources.map((resource) =>
+    expectedWorkerSecretName(resource, expected),
+  );
+  return names.includes(null) ? null : names;
+}
+
 export function hasExpectedWorkerAllocatorPolicyBoundary(
   roleResponse,
   attachedPoliciesResponse,
@@ -873,14 +919,28 @@ export function hasExpectedWorkerAllocatorPolicyBoundary(
   qualifiedFunctionName,
   runtimeTargetParameterArn,
   protectedLogBucketArn,
+  approvedSecretNames,
 ) {
   const roleMatch = IAM_ROLE_ARN.exec(workerRoleArn ?? "");
+  const functionMatch = LAMBDA_VERSION_ARN.exec(qualifiedFunctionName ?? "");
   const roleName = roleMatch?.[3].split("/").at(-1);
+  const approvedSecretNameSet = new Set(
+    Array.isArray(approvedSecretNames) ? approvedSecretNames : [],
+  );
   if (
     !roleName ||
-    !LAMBDA_VERSION_ARN.test(qualifiedFunctionName ?? "") ||
+    functionMatch?.[1] !== roleMatch?.[1] ||
+    functionMatch?.[3] !== roleMatch?.[2] ||
     typeof runtimeTargetParameterArn !== "string" ||
     !S3_BUCKET_ARN.test(protectedLogBucketArn ?? "") ||
+    !Array.isArray(approvedSecretNames) ||
+    approvedSecretNames.length === 0 ||
+    approvedSecretNameSet.size !== approvedSecretNames.length ||
+    approvedSecretNames.some(
+      (name) =>
+        typeof name !== "string" ||
+        !/^upskill\/[a-z0-9-]+\/[A-Za-z0-9/_+=.@-]+$/u.test(name),
+    ) ||
     roleResponse?.Role?.Arn !== workerRoleArn ||
     roleResponse?.Role?.RoleName !== roleName ||
     roleResponse?.Role?.MaxSessionDuration !== 3_600 ||
@@ -913,6 +973,7 @@ export function hasExpectedWorkerAllocatorPolicyBoundary(
   const expectedPolicyNames = new Set(inlinePolicyNamesResponse.PolicyNames);
   let allocatorInvokeStatements = 0;
   let runtimeAttestationStatements = 0;
+  const observedSecretNames = new Set();
   for (const policy of inlinePolicies) {
     if (
       policy?.RoleName !== roleName ||
@@ -932,19 +993,24 @@ export function hasExpectedWorkerAllocatorPolicyBoundary(
         ? statement.Action
         : [statement.Action];
       if (actions.some((action) => typeof action !== "string")) return false;
-      const hasUnexpectedSecretAction = actions.some(
-        (action) =>
-          actionPatternMayTargetService(action, "secretsmanager") &&
-          ![
-            "secretsmanager:DescribeSecret",
-            "secretsmanager:GetSecretValue",
-          ].includes(action),
+      const hasSecretAction = actions.some((action) =>
+        actionPatternMayTargetService(action, "secretsmanager"),
       );
+      if (hasSecretAction) {
+        const secretNames = workerSecretStatementNames(statement, actions, {
+          accountId: roleMatch[2],
+          names: approvedSecretNameSet,
+          partition: roleMatch[1],
+          region: functionMatch[2],
+        });
+        if (secretNames === null) return false;
+        for (const secretName of secretNames)
+          observedSecretNames.add(secretName);
+      }
       const hasS3Action = actions.some((action) =>
         actionPatternMayTargetService(action, "s3"),
       );
       if (
-        hasUnexpectedSecretAction ||
         (hasS3Action &&
           statementMayTargetS3Bucket(statement, protectedLogBucketArn)) ||
         actions.some(
@@ -1007,7 +1073,9 @@ export function hasExpectedWorkerAllocatorPolicyBoundary(
   return (
     expectedPolicyNames.size === 0 &&
     allocatorInvokeStatements === 1 &&
-    runtimeAttestationStatements === 1
+    runtimeAttestationStatements === 1 &&
+    observedSecretNames.size === approvedSecretNameSet.size &&
+    [...approvedSecretNameSet].every((name) => observedSecretNames.has(name))
   );
 }
 
@@ -1974,6 +2042,19 @@ function stackName(environment, suffix) {
   return `upskill-${environment}-${suffix}`;
 }
 
+function workerSecretNames(environment) {
+  return [
+    `upskill/${environment}/access-code/v1`,
+    `upskill/${environment}/application`,
+    `upskill/${environment}/database`,
+    `upskill/${environment}/database/web`,
+    `upskill/${environment}/database/worker`,
+    `upskill/${environment}/livekit`,
+    `upskill/${environment}/offline-scorm`,
+    `upskill/${environment}/offline-scorm/cloudfront-origin-key`,
+  ];
+}
+
 export async function collectCloudFrontQualificationReport(
   options,
   dependencies = {},
@@ -2926,8 +3007,9 @@ export async function collectCloudFrontQualificationReport(
       allocatorQualifiedFunctionName,
       workerRuntimeTargetParameterArn,
       logBucketArn,
+      workerSecretNames(options.environment),
     ),
-    "Application worker has only qualified-boundary-safe actions plus exact allocator invoke, runtime attestation and metric grants",
+    "Application worker has only qualified-boundary-safe actions and deployment-owned secret reads plus exact allocator invoke, runtime attestation and metric grants",
   );
   addCheck(
     checks,

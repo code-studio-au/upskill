@@ -83,6 +83,20 @@ const workerRuntimeTargetParameterArn = `arn:aws:ssm:ap-southeast-2:${options.ex
 const applicationInstanceId = "i-0123456789abcdef0";
 const workerInstanceProfileName = "upskill-staging-worker-profile";
 const workerInstanceProfileArn = `arn:aws:iam::${options.expectedAccount}:instance-profile/${workerInstanceProfileName}`;
+const workerSecretNames = [
+  "upskill/staging/access-code/v1",
+  "upskill/staging/application",
+  "upskill/staging/database",
+  "upskill/staging/database/web",
+  "upskill/staging/database/worker",
+  "upskill/staging/livekit",
+  "upskill/staging/offline-scorm",
+  "upskill/staging/offline-scorm/cloudfront-origin-key",
+];
+const workerSecretArns = workerSecretNames.map(
+  (name) =>
+    `arn:aws:secretsmanager:${options.applicationRegion}:${options.expectedAccount}:secret:${name}-ABC123`,
+);
 const autoDeleteRoleName =
   "upskill-staging-storage-CustomS3AutoDeleteObjectsRole-ABC123";
 const autoDeleteRoleArn = `arn:aws:iam::${options.expectedAccount}:role/${autoDeleteRoleName}`;
@@ -420,8 +434,7 @@ function expectedWorkerRoleResponses() {
                 "secretsmanager:GetSecretValue",
               ],
               Effect: "Allow",
-              Resource:
-                "arn:aws:secretsmanager:ap-southeast-2:123456789012:secret:application",
+              Resource: workerSecretArns,
             },
             {
               Action: "lambda:InvokeFunction",
@@ -1397,8 +1410,41 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         allocatorQualifiedFunctionName,
         workerRuntimeTargetParameterArn,
         logBucketArn,
+        workerSecretNames,
       );
     expect(evaluate()).toBe(true);
+    const replaceSecretStatement = (replacement) => [
+      {
+        ...responses.policies[0],
+        PolicyDocument: {
+          ...responses.policies[0].PolicyDocument,
+          Statement: responses.policies[0].PolicyDocument.Statement.map(
+            (statement) =>
+              Array.isArray(statement.Action) &&
+              statement.Action.includes("secretsmanager:GetSecretValue")
+                ? { ...statement, ...replacement }
+                : statement,
+          ),
+        },
+      },
+    ];
+    for (const Resource of [
+      "*",
+      `arn:aws:secretsmanager:${options.applicationRegion}:${options.expectedAccount}:secret:upskill/staging/unrelated-ABC123`,
+      `arn:aws:secretsmanager:us-east-1:${options.expectedAccount}:secret:upskill/staging/application-ABC123`,
+      workerSecretArns.slice(1),
+      [...workerSecretArns, `${workerSecretArns[0]}-extra`],
+    ])
+      expect(evaluate(replaceSecretStatement({ Resource }))).toBe(false);
+    expect(
+      evaluate(
+        replaceSecretStatement({
+          Condition: {
+            StringEquals: { "aws:ResourceAccount": options.expectedAccount },
+          },
+        }),
+      ),
+    ).toBe(false);
     for (const Resource of [
       "*",
       allocatorQualifiedFunctionName.replace(":12", ""),
@@ -1534,6 +1580,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         allocatorQualifiedFunctionName,
         workerRuntimeTargetParameterArn,
         logBucketArn,
+        workerSecretNames,
       ),
     ).toBe(false);
     expect(
@@ -1561,6 +1608,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         allocatorQualifiedFunctionName,
         workerRuntimeTargetParameterArn,
         logBucketArn,
+        workerSecretNames,
       ),
     ).toBe(false);
   });
