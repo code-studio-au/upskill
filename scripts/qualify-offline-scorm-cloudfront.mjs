@@ -1507,6 +1507,76 @@ export function haveExpectedDistributionLogging(
   );
 }
 
+function expectedDistributionAccessLogObjectPrefix(distribution, environment) {
+  const markerPrefix = `upskill:${environment}:offline-scorm:`;
+  const inventoryComment = distribution?.inventoryComment;
+  if (
+    !CLOUDFRONT_DISTRIBUTION_ID.test(distribution?.distributionId ?? "") ||
+    typeof inventoryComment !== "string" ||
+    !inventoryComment.startsWith(markerPrefix)
+  )
+    return null;
+  const digest = inventoryComment.slice(markerPrefix.length);
+  if (!/^[a-f0-9]{32}$/u.test(digest)) return null;
+  const loggingPrefix = `offline-scorm/${environment}/${digest}/`;
+  if (distribution?.configuration?.Logging?.Prefix !== loggingPrefix)
+    return null;
+  return `${loggingPrefix}${distribution.distributionId}.`;
+}
+
+function hasCurrentAccessLogObject(evidence, startTime, generatedAt) {
+  const startAt = Date.parse(startTime);
+  const endAt = Date.parse(generatedAt);
+  const objectPrefix = evidence?.objectPrefix;
+  const contents = evidence?.response?.Contents;
+  if (
+    !Number.isFinite(startAt) ||
+    !Number.isFinite(endAt) ||
+    typeof objectPrefix !== "string" ||
+    !Array.isArray(contents) ||
+    contents.length !== 1
+  )
+    return false;
+  const [object] = contents;
+  if (typeof object?.Key !== "string" || !object.Key.startsWith(objectPrefix))
+    return false;
+  const keyMatch =
+    /^(\d{4})-(\d{2})-(\d{2})-(\d{2})\.[A-Za-z0-9_-]+\.gz$/u.exec(
+      object.Key.slice(objectPrefix.length),
+    );
+  if (keyMatch === null) return false;
+  const eventHour = Date.UTC(
+    Number(keyMatch[1]),
+    Number(keyMatch[2]) - 1,
+    Number(keyMatch[3]),
+    Number(keyMatch[4]),
+  );
+  const lastModifiedAt = Date.parse(object.LastModified ?? "");
+  const eventHourText = keyMatch.slice(1, 5).join("-");
+  return (
+    new Date(eventHour).toISOString().slice(0, 13).replace("T", "-") ===
+      eventHourText &&
+    eventHour >= startAt - (startAt % (60 * 60_000)) &&
+    eventHour <= endAt &&
+    lastModifiedAt >= startAt &&
+    lastModifiedAt <= endAt + 5 * 60_000
+  );
+}
+
+export function hasCurrentAccessLogEvidence(
+  evidenceByDistribution,
+  startTime,
+  generatedAt,
+) {
+  return (
+    Array.isArray(evidenceByDistribution) &&
+    evidenceByDistribution.length > 0 &&
+    evidenceByDistribution.every((evidence) =>
+      hasCurrentAccessLogObject(evidence, startTime, generatedAt),
+    )
+  );
+}
+
 function hasOnlyEmptyAction(action, expectedAction) {
   return (
     action !== null &&
@@ -2267,7 +2337,7 @@ export async function collectCloudFrontQualificationReport(
     logBucketVersioning,
     logBucketReplication,
     cloudTrail,
-    logObjects,
+    accessLogEvidence,
   ] = await Promise.all([
     runAws([
       "wafv2",
@@ -2614,20 +2684,43 @@ export async function collectCloudFrontQualificationReport(
       "--region",
       CLOUDFRONT_CONTROL_PLANE_REGION,
     ]),
-    runAws([
-      "s3api",
-      "list-objects-v2",
-      "--bucket",
-      logBucket,
-      "--prefix",
-      `offline-scorm/${options.environment}/`,
-      "--max-items",
-      "1",
-      "--expected-bucket-owner",
-      accountId,
-      "--region",
-      options.applicationRegion,
-    ]),
+    Promise.all(
+      ownedDistributionConfigurations.map(async (distribution) => {
+        const objectPrefix = expectedDistributionAccessLogObjectPrefix(
+          distribution,
+          options.environment,
+        );
+        if (objectPrefix === null)
+          return {
+            distributionId: distribution.distributionId,
+            objectPrefix,
+            response: null,
+          };
+        const startAfter = `${objectPrefix}${startTime
+          .slice(0, 13)
+          .replace("T", "-")}`;
+        return {
+          distributionId: distribution.distributionId,
+          objectPrefix,
+          response: await runAws([
+            "s3api",
+            "list-objects-v2",
+            "--bucket",
+            logBucket,
+            "--prefix",
+            objectPrefix,
+            "--start-after",
+            startAfter,
+            "--max-items",
+            "1",
+            "--expected-bucket-owner",
+            accountId,
+            "--region",
+            options.applicationRegion,
+          ]),
+        };
+      }),
+    ),
   ]);
   const workerProfileBinding = workerInstanceProfileBinding(
     workerInstances,
@@ -3151,23 +3244,30 @@ export async function collectCloudFrontQualificationReport(
     true,
     `CloudTrail Event History returned ${mutationEvents.length} CloudFront mutation event(s) in the selected window`,
   );
-  const accessLogObjects = logObjects.Contents ?? [];
+  const accessLogEvidencePresent = hasCurrentAccessLogEvidence(
+    accessLogEvidence,
+    startTime,
+    generatedAt,
+  );
+  const evidencedDistributionCount = accessLogEvidence.filter((evidence) =>
+    hasCurrentAccessLogObject(evidence, startTime, generatedAt),
+  ).length;
   addCheck(
     checks,
     "access-log-evidence",
-    accessLogObjects.length > 0,
-    accessLogObjects.length > 0
-      ? "CloudFront access-log evidence is present"
+    accessLogEvidencePresent,
+    accessLogEvidencePresent
+      ? `Recent CloudFront access-log evidence is present for all ${owned.length} owned distribution(s)`
       : owned.length === 0
         ? "No owned distribution is active; access-log evidence is not expected yet"
-        : "CloudFront access-log evidence is not available yet; standard delivery can be delayed",
+        : `Recent CloudFront access-log evidence is present for ${evidencedDistributionCount} of ${owned.length} owned distribution(s); standard delivery can be delayed`,
     "warning",
   );
 
   const failures = checks.filter((check) => check.status === "fail").length;
   const warnings = checks.filter((check) => check.status === "warning").length;
   return {
-    accessLogEvidencePresent: accessLogObjects.length > 0,
+    accessLogEvidencePresent,
     accountId,
     checks,
     cloudTrailMutations: mutationEvents,

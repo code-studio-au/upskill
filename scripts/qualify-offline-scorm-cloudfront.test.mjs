@@ -10,6 +10,7 @@ import {
   deploymentOwnedAutoDeleteRoleArn,
   evaluateQuotaHeadroom,
   hasConfirmedEmailSubscription,
+  hasCurrentAccessLogEvidence,
   hasCurrentHealthyWorkerSignal,
   hasExpectedAlarmTopicPolicy,
   hasExpectedAlarmSubscription,
@@ -2509,6 +2510,87 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     }
   });
 
+  it("requires recent access-log evidence for every current distribution", () => {
+    const startTime = "2026-09-27T00:00:00.000Z";
+    const generatedAt = "2026-09-28T00:00:00.000Z";
+    const firstPrefix = `offline-scorm/staging/${entitlementDigest}/${distributionId}.`;
+    const secondPrefix = `offline-scorm/staging/${"b".repeat(32)}/E2222222222ABC.`;
+    const firstEvidence = {
+      objectPrefix: firstPrefix,
+      response: {
+        Contents: [
+          {
+            Key: `${firstPrefix}2026-09-27-23.ABC123.gz`,
+            LastModified: "2026-09-27T23:55:00Z",
+          },
+        ],
+      },
+    };
+    const secondEvidence = {
+      objectPrefix: secondPrefix,
+      response: {
+        Contents: [
+          {
+            Key: `${secondPrefix}2026-09-27-22.DEF456.gz`,
+            LastModified: "2026-09-27T23:50:00Z",
+          },
+        ],
+      },
+    };
+    expect(
+      hasCurrentAccessLogEvidence(
+        [firstEvidence, secondEvidence],
+        startTime,
+        generatedAt,
+      ),
+    ).toBe(true);
+    expect(hasCurrentAccessLogEvidence([], startTime, generatedAt)).toBe(false);
+    for (const staleOrUnboundEvidence of [
+      {
+        ...secondEvidence,
+        response: {
+          Contents: [
+            {
+              Key: `${secondPrefix}2026-09-26-23.OLD123.gz`,
+              LastModified: "2026-09-27T23:50:00Z",
+            },
+          ],
+        },
+      },
+      {
+        ...secondEvidence,
+        response: {
+          Contents: [
+            {
+              Key: `offline-scorm/staging/${"c".repeat(32)}/E3333333333ABC.2026-09-27-23.OTHER.gz`,
+              LastModified: "2026-09-27T23:50:00Z",
+            },
+          ],
+        },
+      },
+      {
+        ...secondEvidence,
+        response: {
+          Contents: [
+            {
+              Key: `${secondPrefix}2026-09-27-22.DEF456.gz`,
+              LastModified: "2026-09-26T23:50:00Z",
+            },
+          ],
+        },
+      },
+      { ...secondEvidence, response: { Contents: [] } },
+    ]) {
+      expect(
+        hasCurrentAccessLogEvidence(
+          [firstEvidence, staleOrUnboundEvidence],
+          startTime,
+          generatedAt,
+        ),
+      ).toBe(false);
+    }
+  });
+
   it("requires the complete deployed WAF security baseline", () => {
     const webAcl = expectedWebAcl();
     expect(hasExpectedWebAclBaseline(webAcl, options.environment)).toBe(true);
@@ -3357,6 +3439,26 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       expect.arrayContaining(["--max-items", "50"]),
     );
     expect(cloudTrailCall).not.toContain("--max-results");
+    expect(
+      calls.find(
+        (args) => args.slice(0, 2).join(" ") === "s3api list-objects-v2",
+      ),
+    ).toEqual([
+      "s3api",
+      "list-objects-v2",
+      "--bucket",
+      "upskill-edge-logs",
+      "--prefix",
+      `offline-scorm/staging/${entitlementDigest}/${distributionId}.`,
+      "--start-after",
+      `offline-scorm/staging/${entitlementDigest}/${distributionId}.2026-09-27-00`,
+      "--max-items",
+      "1",
+      "--expected-bucket-owner",
+      options.expectedAccount,
+      "--region",
+      options.applicationRegion,
+    ]);
     expect(
       calls.find(
         (args) =>

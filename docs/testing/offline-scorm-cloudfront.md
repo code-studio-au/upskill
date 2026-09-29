@@ -173,7 +173,11 @@ these additional read-only actions: `cloudformation:ListStackResources`,
 
 A `failed` result exits non-zero and means the recorded deployed boundary is
 not suitable for qualification. A `warning` result exits zero but needs an
-operator decision. In particular, absent CloudFront standard access logs are a
+operator decision. Access-log evidence is queried separately for every current
+owned distribution using its entitlement-specific prefix and distribution ID.
+Every distribution needs an object whose event hour and S3 modification time
+fall within the selected lookback window (24 hours by default); stale evidence
+from a deleted distribution cannot satisfy the check. Missing evidence is a
 warning while no entitlement distribution is active, and can remain delayed
 after a distribution serves requests. AWS notes that standard log delivery is
 not real time and can be delayed by up to 24 hours.
