@@ -76,8 +76,10 @@ worker's exact EC2-only trust policy, default session duration and lack of a
 permissions boundary, its exact SSM allocator target and effective permission
 to invoke that immutable version, a current healthy `WorkerActive` datapoint
 with the heartbeat alarm in `OK`, a worker-owned runtime attestation no more
-than ten minutes old for that same target, the absence of direct CloudFront or WAF permissions on the
-worker and IAM, Lambda mutation or equivalent privilege-escalation actions, the
+than ten minutes old for that same target, the absence of direct CloudFront,
+WAF, IAM, KMS, Logs, SNS, S3-control or infrastructure mutation permissions on
+the worker, read-only Secrets Manager access, object-data-only S3 access, and
+only the exact metric-publication and runtime-attestation writes, the
 live allocator version and code digest, lack of executable
 Lambda layers, exact execution role, runtime, environment and reserved
 concurrency,

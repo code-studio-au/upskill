@@ -63,6 +63,7 @@ const originKeySecretArn =
 const wafLogGroupName = "aws-waf-logs-upskill-staging-offline-scorm-cloudfront";
 const wafLogGroupArn = `arn:aws:logs:us-east-1:${options.expectedAccount}:log-group:${wafLogGroupName}`;
 const logBucketDomain = "upskill-edge-logs.s3.amazonaws.com";
+const logBucketArn = "arn:aws:s3:::upskill-edge-logs";
 const distributionId = "E1234567890ABC";
 const distributionArn = `arn:aws:cloudfront::${options.expectedAccount}:distribution/${distributionId}`;
 const unrelatedDistributionId = "E0987654321XYZ";
@@ -75,6 +76,7 @@ const allocatorRoleName = "upskill-staging-allocator-role";
 const allocatorRoleArn = `arn:aws:iam::${options.expectedAccount}:role/${allocatorRoleName}`;
 const workerRoleName = "upskill-staging-worker-role";
 const workerRoleArn = `arn:aws:iam::${options.expectedAccount}:role/${workerRoleName}`;
+const workerRuntimeTargetParameterArn = `arn:aws:ssm:ap-southeast-2:${options.expectedAccount}:parameter/upskill/staging/offline-scorm/cloudfront-worker-runtime-target`;
 const applicationInstanceId = "i-0123456789abcdef0";
 const workerInstanceProfileName = "upskill-staging-worker-profile";
 const workerInstanceProfileArn = `arn:aws:iam::${options.expectedAccount}:instance-profile/${workerInstanceProfileName}`;
@@ -394,6 +396,25 @@ function expectedWorkerRoleResponses() {
           Version: "2012-10-17",
           Statement: [
             {
+              Action: ["s3:GetBucket*", "s3:GetObject*", "s3:List*"],
+              Effect: "Allow",
+              Resource: "arn:aws:s3:::application-content/*",
+            },
+            {
+              Action: ["s3:DeleteObject*", "s3:PutObject*"],
+              Effect: "Allow",
+              Resource: "arn:aws:s3:::application-content/*",
+            },
+            {
+              Action: [
+                "secretsmanager:DescribeSecret",
+                "secretsmanager:GetSecretValue",
+              ],
+              Effect: "Allow",
+              Resource:
+                "arn:aws:secretsmanager:ap-southeast-2:123456789012:secret:application",
+            },
+            {
               Action: "lambda:InvokeFunction",
               Effect: "Allow",
               Resource: allocatorQualifiedFunctionName,
@@ -403,6 +424,19 @@ function expectedWorkerRoleResponses() {
               Effect: "Allow",
               Resource:
                 "arn:aws:ssm:ap-southeast-2:123456789012:parameter/example",
+            },
+            {
+              Action: "ssm:PutParameter",
+              Effect: "Allow",
+              Resource: workerRuntimeTargetParameterArn,
+            },
+            {
+              Action: "cloudwatch:PutMetricData",
+              Condition: {
+                StringEquals: { "cloudwatch:namespace": "Upskill" },
+              },
+              Effect: "Allow",
+              Resource: "*",
             },
           ],
         },
@@ -1327,7 +1361,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     ).toBe(false);
   });
 
-  it("requires the worker role to grant only the pinned allocator version", () => {
+  it("requires the worker role to preserve every qualified security boundary", () => {
     const responses = expectedWorkerRoleResponses();
     const evaluate = (policies = responses.policies) =>
       hasExpectedWorkerAllocatorPolicyBoundary(
@@ -1337,6 +1371,8 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         policies,
         workerRoleArn,
         allocatorQualifiedFunctionName,
+        workerRuntimeTargetParameterArn,
+        logBucketArn,
       );
     expect(evaluate()).toBe(true);
     for (const Resource of [
@@ -1350,13 +1386,12 @@ describe("Offline SCORM CloudFront qualification harness", () => {
             ...responses.policies[0],
             PolicyDocument: {
               ...responses.policies[0].PolicyDocument,
-              Statement: [
-                {
-                  Action: "lambda:InvokeFunction",
-                  Effect: "Allow",
-                  Resource,
-                },
-              ],
+              Statement: responses.policies[0].PolicyDocument.Statement.map(
+                (statement) =>
+                  statement.Action === "lambda:InvokeFunction"
+                    ? { ...statement, Resource }
+                    : statement,
+              ),
             },
           },
         ]),
@@ -1377,6 +1412,22 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       "cloudformation:CreateStack",
       "ec2:AssociateIamInstanceProfile",
       "ssm:SendCommand",
+      "ssm:PutParameter",
+      "secretsmanager:PutResourcePolicy",
+      "secretsmanager:*",
+      "secretsmanager:Get*",
+      "s3:PutBucketPolicy",
+      "s3:PutBucket*",
+      "s3:*",
+      "s3control:PutPublicAccessBlock",
+      "sns:SetTopicAttributes",
+      "kms:PutKeyPolicy",
+      "logs:PutResourcePolicy",
+      "cloudwatch:PutMetricAlarm",
+      "cloudwatch:PutMetricData",
+      "cloudwatch:*",
+      "route53:ChangeResourceRecordSets",
+      "route53:*",
     ]) {
       expect(
         evaluate([
@@ -1385,6 +1436,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
             PolicyDocument: {
               ...responses.policies[0].PolicyDocument,
               Statement: [
+                ...responses.policies[0].PolicyDocument.Statement,
                 {
                   Action,
                   Effect: "Allow",
@@ -1403,10 +1455,45 @@ describe("Offline SCORM CloudFront qualification harness", () => {
           PolicyDocument: {
             ...responses.policies[0].PolicyDocument,
             Statement: [
+              ...responses.policies[0].PolicyDocument.Statement,
               {
                 Effect: "Allow",
                 NotAction: "s3:*",
                 Resource: "*",
+              },
+            ],
+          },
+        },
+      ]),
+    ).toBe(false);
+    for (const Resource of [logBucketArn, `${logBucketArn}/*`, "*"]) {
+      expect(
+        evaluate([
+          {
+            ...responses.policies[0],
+            PolicyDocument: {
+              ...responses.policies[0].PolicyDocument,
+              Statement: [
+                ...responses.policies[0].PolicyDocument.Statement,
+                { Action: "s3:GetObject", Effect: "Allow", Resource },
+              ],
+            },
+          },
+        ]),
+      ).toBe(false);
+    }
+    expect(
+      evaluate([
+        {
+          ...responses.policies[0],
+          PolicyDocument: {
+            ...responses.policies[0].PolicyDocument,
+            Statement: [
+              ...responses.policies[0].PolicyDocument.Statement,
+              {
+                Action: "s3:GetObject",
+                Effect: "Allow",
+                NotResource: `${logBucketArn}/*`,
               },
             ],
           },
@@ -1421,6 +1508,8 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         responses.policies,
         workerRoleArn,
         allocatorQualifiedFunctionName,
+        workerRuntimeTargetParameterArn,
+        logBucketArn,
       ),
     ).toBe(false);
     expect(
@@ -1446,6 +1535,8 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         responses.policies,
         workerRoleArn,
         allocatorQualifiedFunctionName,
+        workerRuntimeTargetParameterArn,
+        logBucketArn,
       ),
     ).toBe(false);
   });

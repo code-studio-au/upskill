@@ -72,6 +72,20 @@ const PRIVILEGE_ESCALATION_ACTIONS = [
   "ssm:StartSession",
   "sts:AssumeRole",
 ];
+const WORKER_S3_DATA_ACTIONS = [
+  "s3:Abort*",
+  "s3:DeleteObject*",
+  "s3:GetBucket*",
+  "s3:GetDataAccess",
+  "s3:GetObject*",
+  "s3:List*",
+  "s3:PutObject*",
+];
+const WORKER_ROUTE53_READ_ACTIONS = [
+  "route53:Get*",
+  "route53:List*",
+  "route53:TestDNSAnswer",
+];
 
 export class AwsCliError extends Error {
   constructor(message, stderr = "") {
@@ -786,6 +800,64 @@ function isExactAllocatorInvokeStatement(statement, qualifiedFunctionName) {
   );
 }
 
+function isExactWorkerRuntimeAttestationStatement(
+  statement,
+  runtimeTargetParameterArn,
+) {
+  const actions = Array.isArray(statement?.Action)
+    ? statement.Action
+    : [statement?.Action];
+  const resources = Array.isArray(statement?.Resource)
+    ? statement.Resource
+    : [statement?.Resource];
+  return (
+    Object.keys(statement ?? {})
+      .sort()
+      .join(",") === "Action,Effect,Resource" &&
+    statement.Effect === "Allow" &&
+    actions.length === 1 &&
+    actions[0] === "ssm:PutParameter" &&
+    resources.length === 1 &&
+    resources[0] === runtimeTargetParameterArn
+  );
+}
+
+function isExactWorkerMetricPublicationStatement(statement) {
+  const actions = Array.isArray(statement?.Action)
+    ? statement.Action
+    : [statement?.Action];
+  const resources = Array.isArray(statement?.Resource)
+    ? statement.Resource
+    : [statement?.Resource];
+  return (
+    isDeepStrictEqual(Object.keys(statement ?? {}).sort(), [
+      "Action",
+      "Condition",
+      "Effect",
+      "Resource",
+    ]) &&
+    statement.Effect === "Allow" &&
+    isDeepStrictEqual(actions, ["cloudwatch:PutMetricData"]) &&
+    isDeepStrictEqual(resources, ["*"]) &&
+    isDeepStrictEqual(statement.Condition, {
+      StringEquals: { "cloudwatch:namespace": "Upskill" },
+    })
+  );
+}
+
+function statementMayTargetS3Bucket(statement, bucketArn) {
+  const resources = Array.isArray(statement?.Resource)
+    ? statement.Resource
+    : [statement?.Resource];
+  return resources.some(
+    (resource) =>
+      typeof resource === "string" &&
+      (resource === "*" ||
+        actionPatternMatches(resource, bucketArn) ||
+        actionPatternMatches(resource, `${bucketArn}/qualification-probe`)),
+  );
+}
+
 export function hasExpectedWorkerAllocatorPolicyBoundary(
   roleResponse,
   attachedPoliciesResponse,
@@ -793,12 +865,16 @@ export function hasExpectedWorkerAllocatorPolicyBoundary(
   inlinePolicies,
   workerRoleArn,
   qualifiedFunctionName,
+  runtimeTargetParameterArn,
+  protectedLogBucketArn,
 ) {
   const roleMatch = IAM_ROLE_ARN.exec(workerRoleArn ?? "");
   const roleName = roleMatch?.[3].split("/").at(-1);
   if (
     !roleName ||
     !LAMBDA_VERSION_ARN.test(qualifiedFunctionName ?? "") ||
+    typeof runtimeTargetParameterArn !== "string" ||
+    !S3_BUCKET_ARN.test(protectedLogBucketArn ?? "") ||
     roleResponse?.Role?.Arn !== workerRoleArn ||
     roleResponse?.Role?.RoleName !== roleName ||
     roleResponse?.Role?.MaxSessionDuration !== 3_600 ||
@@ -830,6 +906,7 @@ export function hasExpectedWorkerAllocatorPolicyBoundary(
 
   const expectedPolicyNames = new Set(inlinePolicyNamesResponse.PolicyNames);
   let allocatorInvokeStatements = 0;
+  let runtimeAttestationStatements = 0;
   for (const policy of inlinePolicies) {
     if (
       policy?.RoleName !== roleName ||
@@ -840,18 +917,50 @@ export function hasExpectedWorkerAllocatorPolicyBoundary(
       return false;
     for (const statement of policy.PolicyDocument.Statement) {
       if (!statement || statement.Effect !== "Allow") continue;
-      if (statement.NotAction !== undefined) return false;
+      if (
+        statement.NotAction !== undefined ||
+        statement.NotResource !== undefined
+      )
+        return false;
       const actions = Array.isArray(statement.Action)
         ? statement.Action
         : [statement.Action];
       if (actions.some((action) => typeof action !== "string")) return false;
+      const hasUnexpectedSecretAction = actions.some(
+        (action) =>
+          actionPatternMayTargetService(action, "secretsmanager") &&
+          ![
+            "secretsmanager:DescribeSecret",
+            "secretsmanager:GetSecretValue",
+          ].includes(action),
+      );
+      const hasS3Action = actions.some((action) =>
+        actionPatternMayTargetService(action, "s3"),
+      );
       if (
+        hasUnexpectedSecretAction ||
+        (hasS3Action &&
+          statementMayTargetS3Bucket(statement, protectedLogBucketArn)) ||
         actions.some(
           (action) =>
             actionPatternMayTargetService(action, "cloudfront") ||
             actionPatternMayTargetService(action, "wafv2") ||
             actionPatternMayTargetService(action, "iam") ||
             actionPatternMayTargetService(action, "organizations") ||
+            actionPatternMayTargetService(action, "cloudformation") ||
+            actionPatternMayTargetService(action, "ec2") ||
+            actionPatternMayTargetService(action, "kms") ||
+            actionPatternMayTargetService(action, "logs") ||
+            actionPatternMayTargetService(action, "sns") ||
+            actionPatternMayTargetService(action, "s3control") ||
+            (actionPatternMayTargetService(action, "s3") &&
+              !WORKER_S3_DATA_ACTIONS.some((allowedAction) =>
+                actionPatternMatches(allowedAction, action),
+              )) ||
+            (actionPatternMayTargetService(action, "route53") &&
+              !WORKER_ROUTE53_READ_ACTIONS.some((allowedAction) =>
+                actionPatternMatches(allowedAction, action),
+              )) ||
             PRIVILEGE_ESCALATION_ACTIONS.some((privilegedAction) =>
               actionPatternMatches(action, privilegedAction),
             ),
@@ -867,9 +976,33 @@ export function hasExpectedWorkerAllocatorPolicyBoundary(
           return false;
         allocatorInvokeStatements += 1;
       }
+      if (
+        actions.some((action) => actionPatternMayTargetService(action, "ssm"))
+      ) {
+        if (
+          isExactWorkerRuntimeAttestationStatement(
+            statement,
+            runtimeTargetParameterArn,
+          )
+        )
+          runtimeAttestationStatements += 1;
+        else if (!actions.every((action) => action === "ssm:GetParameter"))
+          return false;
+      }
+      if (
+        actions.some((action) =>
+          actionPatternMayTargetService(action, "cloudwatch"),
+        ) &&
+        !isExactWorkerMetricPublicationStatement(statement)
+      )
+        return false;
     }
   }
-  return expectedPolicyNames.size === 0 && allocatorInvokeStatements === 1;
+  return (
+    expectedPolicyNames.size === 0 &&
+    allocatorInvokeStatements === 1 &&
+    runtimeAttestationStatements === 1
+  );
 }
 
 export function hasNoOriginKeyResourcePolicy(policyResponse, secretArn) {
@@ -1946,6 +2079,7 @@ export async function collectCloudFrontQualificationReport(
     throw new Error("Offline SCORM allocator version output is invalid");
   if (!EC2_INSTANCE_ID.test(applicationInstanceId))
     throw new Error("Application instance output is invalid");
+  const workerRuntimeTargetParameterArn = `arn:${allocatorVersionMatch[1]}:ssm:${options.applicationRegion}:${accountId}:parameter/upskill/${options.environment}/offline-scorm/cloudfront-worker-runtime-target`;
   const originDomain = requiredValue(
     originParameter.Parameter?.Value,
     "CloudFront origin domain parameter is unavailable",
@@ -2644,8 +2778,10 @@ export async function collectCloudFrontQualificationReport(
       workerInlinePolicies,
       workerRoleArn,
       allocatorQualifiedFunctionName,
+      workerRuntimeTargetParameterArn,
+      logBucketArn,
     ),
-    "Application worker has exactly one allocator invoke grant scoped to the deployment-owned immutable version",
+    "Application worker has only qualified-boundary-safe actions plus exact allocator invoke, runtime attestation and metric grants",
   );
   addCheck(
     checks,
