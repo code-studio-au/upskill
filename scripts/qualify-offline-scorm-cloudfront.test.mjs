@@ -17,6 +17,7 @@ import {
   hasExpectedAllocatorRoleBoundary,
   hasExpectedWorkerAllocatorPolicyBoundary,
   hasExpectedWorkerRuntimeTarget,
+  WORKER_RUNTIME_ATTESTATION_MAX_AGE_MS,
   hasExpectedEdgeAlarmKmsBoundary,
   hasExpectedCloudFrontLogDeliveryAcl,
   hasExpectedLogBucketLifecycle,
@@ -1449,7 +1450,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     ).toBe(false);
   });
 
-  it("requires a post-restart worker attestation for the configured target", () => {
+  it("requires a fresh process-owned attestation for the configured target", () => {
     const configuredName =
       "/upskill/staging/offline-scorm/cloudfront-allocator-function-name";
     const runtimeName =
@@ -1460,8 +1461,13 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         Value: allocatorQualifiedFunctionName,
       },
     };
+    const observedAt = "2026-09-29T00:00:00Z";
     const runtime = {
-      Parameter: { Name: runtimeName, Value: allocatorQualifiedFunctionName },
+      Parameter: {
+        LastModifiedDate: "2026-09-28T23:55:00Z",
+        Name: runtimeName,
+        Value: allocatorQualifiedFunctionName,
+      },
     };
     expect(
       hasExpectedWorkerRuntimeTarget(
@@ -1470,6 +1476,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         configuredName,
         runtimeName,
         allocatorQualifiedFunctionName,
+        observedAt,
       ),
     ).toBe(true);
     for (const Value of [
@@ -1484,6 +1491,25 @@ describe("Offline SCORM CloudFront qualification harness", () => {
           configuredName,
           runtimeName,
           allocatorQualifiedFunctionName,
+          observedAt,
+        ),
+      ).toBe(false);
+    }
+    for (const LastModifiedDate of [
+      new Date(
+        Date.parse(observedAt) - WORKER_RUNTIME_ATTESTATION_MAX_AGE_MS - 1,
+      ).toISOString(),
+      "not-a-date",
+      "2026-09-29T00:01:01Z",
+    ]) {
+      expect(
+        hasExpectedWorkerRuntimeTarget(
+          configured,
+          { Parameter: { ...runtime.Parameter, LastModifiedDate } },
+          configuredName,
+          runtimeName,
+          allocatorQualifiedFunctionName,
+          observedAt,
         ),
       ).toBe(false);
     }
@@ -2816,6 +2842,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         const parameterName = args[args.indexOf("--name") + 1];
         return {
           Parameter: {
+            LastModifiedDate: "2026-09-27T23:55:00Z",
             Name: parameterName,
             Value:
               parameterName.endsWith("allocator-function-name") ||

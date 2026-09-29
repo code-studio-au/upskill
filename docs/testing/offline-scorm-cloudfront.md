@@ -19,9 +19,10 @@ distribution, invoke the allocator, alter a WAF rule, or write to AWS.
   running application instance's current IAM instance profile, inspect the
   deployed worker role's EC2-only trust policy plus all managed and inline
   policies, and simulate its permission to invoke the exact allocator version.
-  Read the post-restart worker runtime target parameter written only after the
-  deployed worker passes readiness. Read the worker heartbeat alarm and recent
-  `WorkerActive` datapoints so current process health can also be qualified.
+  Read the worker-owned runtime-target lease refreshed by the running process
+  at startup and every five minutes. Read the worker heartbeat alarm and recent
+  `WorkerActive` datapoints so target freshness and current process health can
+  both be qualified.
 - Read access to the edge SNS topic attributes and deployment-owned KMS key
   metadata and policy so the key's enabled state and CloudWatch alarm
   publication path can be qualified. The shared operational topic attributes
@@ -74,8 +75,8 @@ transport, the running instance's live profile binding to the worker role, the
 worker's exact EC2-only trust policy, default session duration and lack of a
 permissions boundary, its exact SSM allocator target and effective permission
 to invoke that immutable version, a current healthy `WorkerActive` datapoint
-with the heartbeat alarm in `OK`, the post-restart worker runtime attestation
-for that same target, the absence of direct CloudFront or WAF permissions on the
+with the heartbeat alarm in `OK`, a worker-owned runtime attestation no more
+than ten minutes old for that same target, the absence of direct CloudFront or WAF permissions on the
 worker and IAM, Lambda mutation or equivalent privilege-escalation actions, the
 live allocator version and code digest, lack of executable
 Lambda layers, exact execution role, runtime, environment and reserved
@@ -125,10 +126,11 @@ canonical ownership/configuration checks instead of escaping the inventory.
 The application stack publishes an immutable Lambda version, grants the worker
 invoke permission only for that version through its identity policy, writes
 its qualified ARN to SSM, and resets a separate runtime-attestation parameter
-to a non-qualifying pending value. After refreshing the worker environment and
-successfully restarting the service, the release installer writes the ARN it
-actually loaded to that narrowly scoped attestation parameter. The harness
-requires the stack output, configured target, post-restart runtime target and
+to a non-qualifying pending value. The worker process writes the ARN it
+actually loaded at startup and refreshes that narrowly scoped lease every five
+minutes; a write failure is fatal so the service cannot remain healthy with
+stale evidence. The release installer never writes the runtime attestation.
+The harness requires the stack output, configured target, fresh runtime target and
 exact live version to agree, compares the live package digest with
 the digest captured by the deployment, and requires that version to have no
 resource-based invocation policy. Updating mutable `$LATEST` cannot change the

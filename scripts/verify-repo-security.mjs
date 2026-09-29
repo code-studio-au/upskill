@@ -2084,6 +2084,10 @@ const installRelease = fs.readFileSync(
   path.join(root, "deploy/scripts/install-release.sh"),
   "utf8",
 );
+const offlineScormWorkerAttestation = fs.readFileSync(
+  path.join(root, "src/worker/offline-scorm-worker-attestation.ts"),
+  "utf8",
+);
 const environmentRefresh = fs.readFileSync(
   path.join(root, "deploy/scripts/upskill-refresh-env.sh"),
   "utf8",
@@ -2194,16 +2198,25 @@ for (const invariant of [
   "Active-release configuration refresh failed validation",
   "Active-release configuration refresh failed readiness",
   "Release failed readiness checks and was rolled back",
-  "record_worker_allocator_target",
-  "/offline-scorm/cloudfront-worker-runtime-target",
-  "aws ssm put-parameter",
-  "--overwrite",
   "/usr/local/sbin/upskill-bootstrap-platform-admin",
   "/usr/local/sbin/upskill-invite-platform-admin",
   "/usr/local/sbin/upskill-reset-and-seed-staging",
 ])
   if (!installRelease.includes(invariant))
     failures.push(`Release installation safety is missing: ${invariant}`);
+for (const invariant of [
+  "/offline-scorm/cloudfront-worker-runtime-target",
+  '"ssm"',
+  '"put-parameter"',
+  '"--overwrite"',
+  "OFFLINE_SCORM_WORKER_ATTESTATION_INTERVAL_MS",
+])
+  if (!offlineScormWorkerAttestation.includes(invariant))
+    failures.push(`Worker runtime attestation is missing: ${invariant}`);
+if (installRelease.includes("cloudfront-worker-runtime-target"))
+  failures.push(
+    "Release installation must not impersonate worker runtime attestation",
+  );
 const guardedReleaseActivation =
   'if ! ln -sfn "$release_path" /opt/upskill/current ||';
 const releaseSymlinkSwitches = installRelease.match(

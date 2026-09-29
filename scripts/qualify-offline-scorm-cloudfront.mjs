@@ -47,6 +47,7 @@ const ALLOCATOR_DESCRIPTION =
 const S3_LOG_DELIVERY_GROUP_URI =
   "http://acs.amazonaws.com/groups/s3/LogDelivery";
 const EDGE_LOG_RETENTION_DAYS = 30;
+export const WORKER_RUNTIME_ATTESTATION_MAX_AGE_MS = 10 * 60_000;
 const MUTATING_CLOUDFRONT_EVENTS = new Set([
   "CreateDistribution",
   "CreateDistributionWithTags",
@@ -886,9 +887,19 @@ export function hasExpectedWorkerRuntimeTarget(
   configuredParameterName,
   runtimeParameterName,
   qualifiedFunctionName,
+  observedAt,
 ) {
+  const observedAtMilliseconds = Date.parse(observedAt ?? "");
+  const attestedAtMilliseconds = Date.parse(
+    runtimeParameter?.Parameter?.LastModifiedDate ?? "",
+  );
   return (
     LAMBDA_VERSION_ARN.test(qualifiedFunctionName ?? "") &&
+    Number.isFinite(observedAtMilliseconds) &&
+    Number.isFinite(attestedAtMilliseconds) &&
+    attestedAtMilliseconds <= observedAtMilliseconds + 60_000 &&
+    observedAtMilliseconds - attestedAtMilliseconds <=
+      WORKER_RUNTIME_ATTESTATION_MAX_AGE_MS &&
     configuredParameter?.Parameter?.Name === configuredParameterName &&
     configuredParameter.Parameter.Value === qualifiedFunctionName &&
     runtimeParameter?.Parameter?.Name === runtimeParameterName &&
@@ -1734,7 +1745,8 @@ export async function collectCloudFrontQualificationReport(
   dependencies = {},
 ) {
   const runAws = dependencies.runAws ?? runAwsJson;
-  const generatedAt = (dependencies.now ?? (() => new Date()))().toISOString();
+  const now = dependencies.now ?? (() => new Date());
+  const generatedAt = now().toISOString();
   const appStackName = stackName(options.environment, "application");
   const storageStackName = stackName(options.environment, "storage");
   const edgeStackName = stackName(
@@ -2519,6 +2531,7 @@ export async function collectCloudFrontQualificationReport(
         ]),
   ]);
 
+  const attestationObservedAt = now().toISOString();
   const checks = [];
   addCheck(
     checks,
@@ -2542,8 +2555,9 @@ export async function collectCloudFrontQualificationReport(
       `/upskill/${options.environment}/offline-scorm/cloudfront-allocator-function-name`,
       `/upskill/${options.environment}/offline-scorm/cloudfront-worker-runtime-target`,
       allocatorQualifiedFunctionName,
+      attestationObservedAt,
     ),
-    "Worker configuration and post-restart runtime attestation target the deployment-owned immutable allocator version",
+    "Worker configuration and fresh process-owned runtime attestation target the deployment-owned immutable allocator version",
   );
   addCheck(
     checks,

@@ -743,7 +743,7 @@ UPSKILL_ENV`,
         {
           parameterName: offlineScormCloudFrontWorkerRuntimeTargetParameterName,
           description:
-            "Allocator version confirmed by the restarted staging worker runtime",
+            "Fresh allocator-version lease maintained by the running worker process",
           stringValue: `pending:${allocatorQualifiedFunctionName}`,
         },
       );
