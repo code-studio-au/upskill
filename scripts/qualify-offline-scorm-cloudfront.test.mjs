@@ -2379,6 +2379,81 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         options.expectedAccount,
       ),
     ).toBe(false);
+    const expectedPolicy = JSON.parse(
+      logPolicies.resourcePolicies[0].policyDocument,
+    );
+    const overridingDeny = {
+      Effect: "Deny",
+      Principal: { Service: "delivery.logs.amazonaws.com" },
+      Action: "logs:PutLogEvents",
+      Resource: `${wafLogGroupArn}:log-stream:*`,
+    };
+    expect(
+      hasExpectedWafLogDeliveryPolicy(
+        { resourcePolicies: [] },
+        {
+          resourcePolicies: logPolicies.resourcePolicies.map((policy) => ({
+            ...policy,
+            policyDocument: JSON.stringify({
+              ...expectedPolicy,
+              Statement: [...expectedPolicy.Statement, overridingDeny],
+            }),
+          })),
+        },
+        wafLogGroupArn,
+        options.expectedAccount,
+      ),
+    ).toBe(false);
+    expect(
+      hasExpectedWafLogDeliveryPolicy(
+        {
+          resourcePolicies: [
+            {
+              policyDocument: JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [
+                  {
+                    ...overridingDeny,
+                    Principal: "*",
+                    Action: "logs:Put*",
+                  },
+                ],
+              }),
+              policyName: "account-deny",
+              policyScope: "ACCOUNT",
+            },
+          ],
+        },
+        logPolicies,
+        wafLogGroupArn,
+        options.expectedAccount,
+      ),
+    ).toBe(false);
+    expect(
+      hasExpectedWafLogDeliveryPolicy(
+        {
+          resourcePolicies: [
+            {
+              policyDocument: JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [
+                  {
+                    ...overridingDeny,
+                    Resource:
+                      "arn:aws:logs:us-east-1:123456789012:log-group:unrelated:log-stream:*",
+                  },
+                ],
+              }),
+              policyName: "unrelated-account-deny",
+              policyScope: "ACCOUNT",
+            },
+          ],
+        },
+        logPolicies,
+        wafLogGroupArn,
+        options.expectedAccount,
+      ),
+    ).toBe(true);
     expect(
       hasExpectedWafLoggingBaseline(
         {

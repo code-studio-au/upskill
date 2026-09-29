@@ -54,7 +54,8 @@ pnpm run qualify:offline-scorm:cloudfront -- \
 Store the JSON output with the qualification record. It verifies the direct
 origin parameter and deployed-distribution binding, staging risk
 acknowledgement, WAF ownership/binding, mandatory rules, safe log filtering and
-redaction, exact CloudWatch Logs delivery policy, ACL-level and per-rule WAF metric publication/sampling, 30-day WAF
+redaction, the exact CloudWatch Logs delivery grant with no applicable explicit
+deny, ACL-level and per-rule WAF metric publication/sampling, 30-day WAF
 retention, exact unfiltered confirmed alarm-subscription endpoints, exact alarm
 metrics/units/evaluation/actions, per-distribution entitlement-specific access
 logging, the bucket's exact owner and S3 LogDelivery ACL grants, all four S3

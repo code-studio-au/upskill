@@ -1398,51 +1398,109 @@ export function hasExpectedWafLogDeliveryPolicy(
     ...(accountPoliciesResponse?.resourcePolicies ?? []),
     ...(resourcePoliciesResponse?.resourcePolicies ?? []),
   ];
-  return policies.some((resourcePolicy) => {
+  const statements = policies.flatMap((resourcePolicy) => {
     if (
       resourcePolicy?.policyScope === "RESOURCE" &&
       resourcePolicy?.resourceArn !== logGroupArn
     )
-      return false;
+      return [];
     const policy = parsePolicyDocument(resourcePolicy?.policyDocument);
     if (policy?.Version !== "2012-10-17" || !Array.isArray(policy.Statement))
-      return false;
-    return policy.Statement.some((statement) => {
-      const actions = Array.isArray(statement?.Action)
-        ? statement.Action
-        : [statement?.Action];
-      const resources = Array.isArray(statement?.Resource)
-        ? statement.Resource
-        : [statement?.Resource];
-      const services = Array.isArray(statement?.Principal?.Service)
-        ? statement.Principal.Service
-        : [statement?.Principal?.Service];
-      const sourceAccounts = Array.isArray(
-        statement?.Condition?.StringEquals?.["aws:SourceAccount"],
-      )
-        ? statement.Condition.StringEquals["aws:SourceAccount"]
-        : [statement?.Condition?.StringEquals?.["aws:SourceAccount"]];
-      const sourceArns = Array.isArray(
-        statement?.Condition?.ArnLike?.["aws:SourceArn"],
-      )
-        ? statement.Condition.ArnLike["aws:SourceArn"]
-        : [statement?.Condition?.ArnLike?.["aws:SourceArn"]];
-      return (
-        statement?.Effect === "Allow" &&
-        isDeepStrictEqual(services, ["delivery.logs.amazonaws.com"]) &&
-        isDeepStrictEqual([...actions].sort(), [
-          "logs:CreateLogStream",
-          "logs:PutLogEvents",
-        ]) &&
-        isDeepStrictEqual(resources, [expectedLogStreamArn]) &&
-        isDeepStrictEqual(sourceAccounts, [expectedAccount]) &&
-        isDeepStrictEqual(sourceArns, [expectedSourceArn]) &&
-        statement?.NotAction === undefined &&
-        statement?.NotPrincipal === undefined &&
-        statement?.NotResource === undefined
-      );
-    });
+      return [];
+    return policy.Statement;
   });
+  const hasExpectedAllow = statements.some((statement) => {
+    const actions = Array.isArray(statement?.Action)
+      ? statement.Action
+      : [statement?.Action];
+    const resources = Array.isArray(statement?.Resource)
+      ? statement.Resource
+      : [statement?.Resource];
+    const services = Array.isArray(statement?.Principal?.Service)
+      ? statement.Principal.Service
+      : [statement?.Principal?.Service];
+    const sourceAccounts = Array.isArray(
+      statement?.Condition?.StringEquals?.["aws:SourceAccount"],
+    )
+      ? statement.Condition.StringEquals["aws:SourceAccount"]
+      : [statement?.Condition?.StringEquals?.["aws:SourceAccount"]];
+    const sourceArns = Array.isArray(
+      statement?.Condition?.ArnLike?.["aws:SourceArn"],
+    )
+      ? statement.Condition.ArnLike["aws:SourceArn"]
+      : [statement?.Condition?.ArnLike?.["aws:SourceArn"]];
+    return (
+      statement?.Effect === "Allow" &&
+      isDeepStrictEqual(services, ["delivery.logs.amazonaws.com"]) &&
+      isDeepStrictEqual([...actions].sort(), [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+      ]) &&
+      isDeepStrictEqual(resources, [expectedLogStreamArn]) &&
+      isDeepStrictEqual(sourceAccounts, [expectedAccount]) &&
+      isDeepStrictEqual(sourceArns, [expectedSourceArn]) &&
+      statement?.NotAction === undefined &&
+      statement?.NotPrincipal === undefined &&
+      statement?.NotResource === undefined
+    );
+  });
+  const requiredActions = ["logs:CreateLogStream", "logs:PutLogEvents"];
+  const expectedService = "delivery.logs.amazonaws.com";
+  const list = (value) => (Array.isArray(value) ? value : [value]);
+  const patternMatches = (pattern, value) =>
+    typeof pattern === "string" && actionPatternMatches(pattern, value);
+  const principalApplies = (statement) => {
+    const principal = statement?.Principal;
+    const notPrincipal = statement?.NotPrincipal;
+    const matches = (candidate) =>
+      candidate === "*" ||
+      list(candidate?.Service).some((pattern) =>
+        patternMatches(pattern, expectedService),
+      ) ||
+      list(candidate?.AWS).some((pattern) => pattern === "*");
+    if (notPrincipal !== undefined) return !matches(notPrincipal);
+    return matches(principal);
+  };
+  const actionApplies = (statement) => {
+    if (statement?.NotAction !== undefined)
+      return requiredActions.some(
+        (action) =>
+          !list(statement.NotAction).some((pattern) =>
+            patternMatches(pattern, action),
+          ),
+      );
+    return requiredActions.some((action) =>
+      list(statement?.Action).some((pattern) =>
+        patternMatches(pattern, action),
+      ),
+    );
+  };
+  const resourceApplies = (statement) => {
+    const matchesLogStream = (pattern) =>
+      pattern === "*" ||
+      (typeof pattern === "string" &&
+        (pattern.startsWith(`${logGroupArn}:log-stream:`) ||
+          patternMatches(
+            pattern,
+            `${logGroupArn}:log-stream:qualification-probe`,
+          )));
+    if (statement?.NotResource !== undefined)
+      return !list(statement.NotResource).some(
+        (pattern) =>
+          pattern === expectedLogStreamArn ||
+          pattern === "*" ||
+          patternMatches(pattern, expectedLogStreamArn),
+      );
+    return list(statement?.Resource).some(matchesLogStream);
+  };
+  const hasApplicableDeny = statements.some(
+    (statement) =>
+      statement?.Effect === "Deny" &&
+      principalApplies(statement) &&
+      actionApplies(statement) &&
+      resourceApplies(statement),
+  );
+  return hasExpectedAllow && !hasApplicableDeny;
 }
 
 function confirmedSubscriptions(response) {
