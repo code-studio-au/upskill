@@ -24,6 +24,7 @@
     "start:https": "node --env-file-if-exists=.env.local scripts/start-secure-local.mjs",
     "preview:https": "pnpm run build && pnpm run start:https",
     "preview:offline-scorm:android": "pnpm run build && node --env-file-if-exists=.env.local scripts/start-offline-scorm-android.mjs",
+    "qualify:offline-scorm:cloudfront": "node scripts/qualify-offline-scorm-cloudfront.mjs",
     "test": "vitest run",
     "test:e2e": "node --env-file-if-exists=.env.local scripts/run-browser-tests.mjs all",
     "test:e2e:core": "node --env-file-if-exists=.env.local scripts/run-browser-tests.mjs core",

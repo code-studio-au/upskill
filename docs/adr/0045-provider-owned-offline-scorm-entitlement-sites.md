@@ -232,10 +232,14 @@ and operational commitment are disproportionate; revisit it before production
 acceptance if risk or organisational policy requires the additional response
 features.
 
-CloudFront access-log review, CloudTrail control-plane auditing, account quota
-headroom confirmation and anomalous origin-denial telemetry remain required
-before learner activation. The counted Common Rule Set must be tuned and the
-resulting block/count policy recorded during qualification.
+The staging-only read-only qualification harness records CloudTrail Event
+History, account quota headroom, WAF configuration, alarms and access-log
+availability from deployed stack outputs. It does not create, update or delete
+any edge resource, and it does not replace a durable production audit-retention
+decision. CloudFront access-log review, anomalous origin-denial telemetry and
+the resulting control-plane evidence remain required before learner activation.
+The counted Common Rule Set must be tuned and the resulting block/count policy
+recorded during qualification.
 
 The AWS-owned hostname also forces use of the default CloudFront certificate.
 AWS documents that this fixes the minimum viewer security policy at `TLSv1`;
@@ -359,6 +363,8 @@ deleted stack still requires the normal retained-resource recovery process.
      request alarm, exact allocator WAF binding and 25-distribution staging cap
      are **implemented and dormant**.
 5. Run the browser, cleanup, latency, quota, WAF and cost qualification matrix.
+   The read-only deployed-boundary harness is **implemented**; retain its
+   staging report with the manual device and operational evidence.
 6. Amend this ADR to Accepted or Rejected. Only an Accepted amendment may add a
    deployment-mode flag and activate staging learners.
 

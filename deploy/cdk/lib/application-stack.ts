@@ -52,7 +52,13 @@ import {
 import { CfnRecordSet } from "aws-cdk-lib/aws-route53";
 import { Secret } from "aws-cdk-lib/aws-secretsmanager";
 import { StringParameter, type CfnParameter } from "aws-cdk-lib/aws-ssm";
-import { Provider } from "aws-cdk-lib/custom-resources";
+import {
+  AwsCustomResource,
+  AwsCustomResourcePolicy,
+  Logging,
+  PhysicalResourceId,
+  Provider,
+} from "aws-cdk-lib/custom-resources";
 import { fileURLToPath } from "node:url";
 import type { Queue } from "aws-cdk-lib/aws-sqs";
 import type { Construct } from "constructs";
@@ -213,6 +219,7 @@ export class ApplicationStack extends Stack {
     );
     const offlineScormCloudFrontOriginDomainParameterName = `/upskill/${props.config.name}/offline-scorm/cloudfront-origin-domain`;
     const offlineScormCloudFrontAllocatorFunctionParameterName = `/upskill/${props.config.name}/offline-scorm/cloudfront-allocator-function-name`;
+    const offlineScormCloudFrontWorkerRuntimeTargetParameterName = `/upskill/${props.config.name}/offline-scorm/cloudfront-worker-runtime-target`;
     if (props.config.offlineScormCloudFrontQualification)
       new StringParameter(this, "OfflineScormCloudFrontOriginDomainParameter", {
         parameterName: offlineScormCloudFrontOriginDomainParameterName,
@@ -550,8 +557,8 @@ else
   exit 1
 fi
 rm -f -- "$offline_scorm_cloudfront_allocator_parameter_error"
-if [[ -n "$offline_scorm_cloudfront_allocator_function_name" && ! "$offline_scorm_cloudfront_allocator_function_name" =~ ^[A-Za-z0-9_-]{1,64}$ ]]; then
-  echo 'Offline SCORM CloudFront allocator function name is invalid' >&2
+if [[ -n "$offline_scorm_cloudfront_allocator_function_name" && ! "$offline_scorm_cloudfront_allocator_function_name" =~ ^arn:(aws|aws-cn|aws-us-gov):lambda:[a-z0-9-]+:[0-9]{12}:function:[A-Za-z0-9_-]{1,64}:[1-9][0-9]*$ ]]; then
+  echo 'Offline SCORM CloudFront allocator immutable version ARN is invalid' >&2
   exit 1
 fi
 database_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${props.databaseSecretArn}' --query SecretString --output text)
@@ -685,8 +692,40 @@ UPSKILL_ENV`,
           },
         },
       );
+      const allocatorVersion = allocator.currentVersion;
+      const allocatorQualifiedFunctionName = allocatorVersion.functionArn;
+      const allocatorDeploymentConfiguration = new AwsCustomResource(
+        this,
+        "OfflineScormCloudFrontAllocatorDeploymentConfiguration",
+        {
+          onUpdate: {
+            service: "Lambda",
+            action: "getFunctionConfiguration",
+            parameters: { FunctionName: allocatorQualifiedFunctionName },
+            physicalResourceId: PhysicalResourceId.of(
+              allocatorQualifiedFunctionName,
+            ),
+            outputPaths: ["CodeSha256"],
+            logging: Logging.withDataHidden(),
+          },
+          installLatestAwsSdk: false,
+          policy: AwsCustomResourcePolicy.fromStatements([
+            new PolicyStatement({
+              actions: ["lambda:GetFunctionConfiguration"],
+              resources: [allocatorQualifiedFunctionName],
+            }),
+          ]),
+        },
+      );
+      const allocatorCodeSha256 =
+        allocatorDeploymentConfiguration.getResponseField("CodeSha256");
+      const allocatorRole = allocator.role;
+      if (!allocatorRole)
+        throw new Error(
+          "Offline SCORM allocator execution role is unavailable",
+        );
       offlineScormCloudFrontOriginKey.grantRead(allocator);
-      allocator.grantInvoke(role);
+      allocatorVersion.grantInvoke(role);
       const allocatorFunctionNameParameter = new StringParameter(
         this,
         "OfflineScormCloudFrontAllocatorFunctionNameParameter",
@@ -694,10 +733,27 @@ UPSKILL_ENV`,
           parameterName: offlineScormCloudFrontAllocatorFunctionParameterName,
           description:
             "Dormant CloudFront allocator function name for worker configuration",
-          stringValue: allocator.functionName,
+          stringValue: allocatorQualifiedFunctionName,
         },
       );
       instance.node.addDependency(allocatorFunctionNameParameter);
+      const workerRuntimeTargetParameter = new StringParameter(
+        this,
+        "OfflineScormCloudFrontWorkerRuntimeTargetParameter",
+        {
+          parameterName: offlineScormCloudFrontWorkerRuntimeTargetParameterName,
+          description:
+            "Fresh allocator-version lease maintained by the running worker process",
+          stringValue: `pending:${allocatorQualifiedFunctionName}`,
+        },
+      );
+      role.addToPolicy(
+        new PolicyStatement({
+          actions: ["ssm:PutParameter"],
+          resources: [workerRuntimeTargetParameter.parameterArn],
+        }),
+      );
+      instance.node.addDependency(workerRuntimeTargetParameter);
       allocator.addToRolePolicy(
         new PolicyStatement({
           actions: ["s3:GetBucketAcl", "s3:PutBucketAcl"],
@@ -784,12 +840,59 @@ UPSKILL_ENV`,
         description:
           "Dormant qualification allocator configured for the worker recovery boundary on the shared application host",
       });
+      new CfnOutput(
+        this,
+        "OfflineScormCloudFrontAllocatorQualifiedFunctionName",
+        {
+          value: allocatorQualifiedFunctionName,
+          description:
+            "Immutable published allocator function version invoked by the staging worker",
+        },
+      );
+      new CfnOutput(this, "OfflineScormCloudFrontAllocatorCodeSha256", {
+        value: allocatorCodeSha256,
+        description:
+          "Deployment-observed code digest for the immutable Offline SCORM allocator version",
+      });
+      new CfnOutput(this, "OfflineScormCloudFrontAllocatorRoleArn", {
+        value: allocatorRole.roleArn,
+        description:
+          "Deployment-owned execution role required by the Offline SCORM allocator",
+      });
+      new CfnOutput(this, "OfflineScormCloudFrontWorkerRoleArn", {
+        value: role.roleArn,
+        description:
+          "Application worker role that must invoke the pinned Offline SCORM allocator version",
+      });
+      new CfnOutput(this, "OfflineScormCloudFrontRecordingUploadRoleArn", {
+        value: recordingUploadRole.roleArn,
+        description:
+          "Deployment-owned recording upload role that the application worker may assume",
+      });
+      new CfnOutput(this, "OfflineScormCloudFrontAllocatorAlarmTopicArn", {
+        value: props.alarmTopic.topicArn,
+        description:
+          "Operational notification topic required by the Offline SCORM allocator alarms",
+      });
+      new CfnOutput(this, "OfflineScormCloudFrontAllocatorAlarmEmail", {
+        value: props.config.alarmEmail,
+        description:
+          "Expected confirmed email endpoint for Offline SCORM allocator alarms",
+      });
       new CfnOutput(this, "OfflineScormCloudFrontSharedHostRiskAcceptance", {
         value:
           props.config.offlineScormCloudFrontQualification
             .sharedHostRiskAcceptance,
         description:
           "Explicit staging-only acceptance of the shared-host worker IAM boundary for Offline SCORM qualification",
+      });
+      new CfnOutput(this, "OfflineScormCloudFrontMaxDistributions", {
+        value: String(
+          props.config.offlineScormCloudFrontQualification
+            .maxEntitlementDistributions,
+        ),
+        description:
+          "Maximum retained entitlement distributions allowed by the staging qualification allocator",
       });
     }
     const packageHostLifecycleCode = Code.fromAsset(
@@ -1160,6 +1263,11 @@ UPSKILL_ENV`,
       value: offlineScormConfigurationSecret.secretArn,
       description:
         "Populate the P-256 signing authority only before deliberate offline SCORM activation",
+    });
+    new CfnOutput(this, "OfflineScormCloudFrontOriginKeySecretArn", {
+      value: offlineScormCloudFrontOriginKey.secretArn,
+      description:
+        "Read-only qualification binding for the CloudFront origin capability authority",
     });
     new CfnOutput(this, "OfflineScormEdgeLogBucketArn", {
       value: props.offlineScormEdgeLogBucket.bucketArn,

@@ -176,6 +176,24 @@ export class OfflineScormEdgeSecurityStack extends Stack {
       displayName: `Upskill ${props.config.name} Offline SCORM edge alarms`,
       masterKey: alarmKey,
     });
+    alarmTopic.addToResourcePolicy(
+      new PolicyStatement({
+        principals: [new ServicePrincipal("cloudwatch.amazonaws.com")],
+        actions: ["sns:Publish"],
+        resources: [alarmTopic.topicArn],
+        conditions: {
+          StringEquals: { "aws:SourceAccount": this.account },
+          ArnLike: {
+            "aws:SourceArn": this.formatArn({
+              service: "cloudwatch",
+              resource: "alarm",
+              resourceName: blockedRequestAlarmName,
+              arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+            }),
+          },
+        },
+      }),
+    );
     alarmTopic.addSubscription(new EmailSubscription(props.config.alarmEmail));
     const blockedRequestAlarm = new Alarm(
       this,
@@ -214,6 +232,21 @@ export class OfflineScormEdgeSecurityStack extends Stack {
     });
     new CfnOutput(this, "OfflineScormWafLogGroupName", {
       value: wafLogGroup.logGroupName,
+    });
+    new CfnOutput(this, "OfflineScormEdgeAlarmTopicArn", {
+      value: alarmTopic.topicArn,
+      description:
+        "Encrypted notification topic whose email subscription must be confirmed before qualification",
+    });
+    new CfnOutput(this, "OfflineScormEdgeAlarmKeyArn", {
+      value: alarmKey.keyArn,
+      description:
+        "Deployment-owned KMS key whose CloudWatch publish grant must remain intact",
+    });
+    new CfnOutput(this, "OfflineScormEdgeAlarmEmail", {
+      value: props.config.alarmEmail,
+      description:
+        "Expected confirmed email endpoint for Offline SCORM edge alarms",
     });
   }
 }

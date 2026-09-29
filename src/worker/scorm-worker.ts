@@ -13,11 +13,15 @@ import { processAvailableEventVirtualAttendanceReconciliations } from "#/server/
 import { getServerEnv } from "#/server/env.server";
 import { processAvailableOfflineScormCloudFrontAllocations } from "#/server/scorm/offline-scorm-cloudfront-allocation.server";
 import { createConfiguredOfflineScormCloudFrontProvider } from "#/server/scorm/offline-scorm-cloudfront-provider.server";
+import { createOfflineScormWorkerAttestor } from "./offline-scorm-worker-attestation";
 import { runScormWorkerIteration } from "./scorm-worker-iteration";
 
 const shutdown = new AbortController();
+const environment = getServerEnv();
+const offlineScormWorkerAttestor =
+  createOfflineScormWorkerAttestor(environment);
 const offlineScormCloudFrontProvider =
-  createConfiguredOfflineScormCloudFrontProvider(getServerEnv());
+  createConfiguredOfflineScormCloudFrontProvider(environment);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.once(signal, () => {
@@ -29,7 +33,9 @@ function pause(milliseconds: number): Promise<void> {
 }
 
 try {
+  await offlineScormWorkerAttestor.attestIfDue();
   while (!shutdown.signal.aborted) {
+    await offlineScormWorkerAttestor.attestIfDue();
     const {
       schedules,
       virtualRooms,

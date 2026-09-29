@@ -1,4 +1,5 @@
 import {
+  ArnFormat,
   CfnOutput,
   Duration,
   RemovalPolicy,
@@ -18,6 +19,7 @@ import {
   TreatMissingData,
 } from "aws-cdk-lib/aws-cloudwatch";
 import { SnsAction } from "aws-cdk-lib/aws-cloudwatch-actions";
+import { PolicyStatement, ServicePrincipal } from "aws-cdk-lib/aws-iam";
 import { Queue, QueueEncryption } from "aws-cdk-lib/aws-sqs";
 import { Topic } from "aws-cdk-lib/aws-sns";
 import { EmailSubscription } from "aws-cdk-lib/aws-sns-subscriptions";
@@ -119,6 +121,24 @@ export class StorageStack extends Stack {
     this.alarmTopic = new Topic(this, "OperationalAlarmTopic", {
       displayName: `Upskill ${config.name} operational alarms`,
     });
+    this.alarmTopic.addToResourcePolicy(
+      new PolicyStatement({
+        principals: [new ServicePrincipal("cloudwatch.amazonaws.com")],
+        actions: ["sns:Publish"],
+        resources: [this.alarmTopic.topicArn],
+        conditions: {
+          StringEquals: { "aws:SourceAccount": this.account },
+          ArnLike: {
+            "aws:SourceArn": this.formatArn({
+              service: "cloudwatch",
+              resource: "alarm",
+              resourceName: "*",
+              arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+            }),
+          },
+        },
+      }),
+    );
     this.alarmTopic.addSubscription(new EmailSubscription(config.alarmEmail));
     const alarmDefaults = {
       evaluationPeriods: 2,

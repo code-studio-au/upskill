@@ -201,6 +201,22 @@ test("staging storage is private, disposable and provides a dead-letter queue", 
   });
   template.resourceCountIs("AWS::CloudWatch::Alarm", 3);
   template.resourceCountIs("AWS::SNS::Topic", 1);
+  template.hasResourceProperties("AWS::SNS::TopicPolicy", {
+    PolicyDocument: {
+      Statement: Match.arrayWith([
+        Match.objectLike({
+          Action: "sns:Publish",
+          Condition: {
+            ArnLike: { "aws:SourceArn": Match.anyValue() },
+            StringEquals: { "aws:SourceAccount": Match.anyValue() },
+          },
+          Effect: "Allow",
+          Principal: { Service: "cloudwatch.amazonaws.com" },
+          Resource: Match.anyValue(),
+        }),
+      ]),
+    },
+  });
   template.resourceCountIs("AWS::SNS::Subscription", 1);
 });
 
@@ -321,6 +337,11 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
       ExcludePunctuation: true,
       PasswordLength: 64,
     },
+  });
+  applicationTemplate.hasOutput("OfflineScormCloudFrontOriginKeySecretArn", {
+    Description:
+      "Read-only qualification binding for the CloudFront origin capability authority",
+    Value: { Ref: Match.anyValue() },
   });
   applicationTemplate.hasOutput("OfflineScormEdgeLogBucketArn", {
     Description:
@@ -914,8 +935,33 @@ test("CloudFront entitlement qualification has a global WAF baseline", () => {
     Protocol: "email",
   });
   template.resourceCountIs("AWS::SNS::Topic", 1);
+  template.hasResourceProperties("AWS::SNS::TopicPolicy", {
+    PolicyDocument: {
+      Statement: Match.arrayWith([
+        Match.objectLike({
+          Action: "sns:Publish",
+          Condition: {
+            ArnLike: { "aws:SourceArn": Match.anyValue() },
+            StringEquals: { "aws:SourceAccount": "123456789012" },
+          },
+          Effect: "Allow",
+          Principal: { Service: "cloudwatch.amazonaws.com" },
+          Resource: Match.anyValue(),
+        }),
+      ]),
+    },
+  });
   template.hasOutput("OfflineScormCloudFrontWebAclArn", {
     Description: Match.stringLikeRegexp("required by every Offline SCORM"),
+  });
+  template.hasOutput("OfflineScormEdgeAlarmTopicArn", {
+    Description: Match.stringLikeRegexp("must be confirmed"),
+  });
+  template.hasOutput("OfflineScormEdgeAlarmKeyArn", {
+    Description: Match.stringLikeRegexp("CloudWatch publish grant"),
+  });
+  template.hasOutput("OfflineScormEdgeAlarmEmail", {
+    Value: "ops@codestudio.au",
   });
 });
 
@@ -992,11 +1038,55 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
     Type: "String",
     Value: "staging.upskill.institute",
   });
+  template.resourceCountIs("AWS::Lambda::Version", 1);
+  const allocatorVersionLogicalId = Object.keys(
+    template.findResources("AWS::Lambda::Version"),
+  )[0];
+  expect(allocatorVersionLogicalId).toBeDefined();
+  const allocatorVersionReference = { Ref: allocatorVersionLogicalId };
+  const lambdaPermissions = template.findResources(
+    "AWS::Lambda::Permission",
+  ) as Record<string, { Properties?: { FunctionName?: unknown } }>;
+  const allocatorVersionPermissions = Object.values(lambdaPermissions).filter(
+    (permission) =>
+      JSON.stringify(permission.Properties?.FunctionName).includes(
+        allocatorVersionLogicalId ?? "",
+      ),
+  );
+  expect(allocatorVersionPermissions).toEqual([]);
+  const roles = template.findResources("AWS::IAM::Role");
+  const instanceRoleLogicalId = Object.keys(roles).find((logicalId) =>
+    logicalId.startsWith("InstanceRole"),
+  );
+  const recordingRoleLogicalId = Object.keys(roles).find((logicalId) =>
+    logicalId.startsWith("RecordingUploadRole"),
+  );
+  expect(instanceRoleLogicalId).toBeDefined();
+  expect(recordingRoleLogicalId).toBeDefined();
   template.hasResourceProperties("AWS::SSM::Parameter", {
     Name: "/upskill/staging/offline-scorm/cloudfront-allocator-function-name",
     Type: "String",
-    Value: Match.anyValue(),
+    Value: allocatorVersionReference,
   });
+  template.hasResourceProperties("AWS::SSM::Parameter", {
+    Name: "/upskill/staging/offline-scorm/cloudfront-worker-runtime-target",
+    Type: "String",
+    Value: {
+      "Fn::Join": ["", ["pending:", allocatorVersionReference]],
+    },
+  });
+  const ssmParameters = template.findResources("AWS::SSM::Parameter") as Record<
+    string,
+    { Properties?: { Name?: unknown } }
+  >;
+  const workerRuntimeTargetParameterLogicalId = Object.entries(
+    ssmParameters,
+  ).find(
+    ([, resource]) =>
+      resource.Properties?.Name ===
+      "/upskill/staging/offline-scorm/cloudfront-worker-runtime-target",
+  )?.[0];
+  expect(workerRuntimeTargetParameterLogicalId).toBeDefined();
   template.hasResourceProperties("AWS::Lambda::Function", {
     Description: Match.stringLikeRegexp("worker-owned allocator"),
     ReservedConcurrentExecutions: 1,
@@ -1011,11 +1101,98 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
       }),
     },
   });
+  template.hasOutput("OfflineScormCloudFrontMaxDistributions", {
+    Value: "25",
+  });
+  template.hasOutput("OfflineScormCloudFrontAllocatorAlarmTopicArn", {
+    Description: Match.stringLikeRegexp("required by the Offline SCORM"),
+  });
+  template.hasOutput("OfflineScormCloudFrontAllocatorAlarmEmail", {
+    Value: "ops@codestudio.au",
+  });
+  template.hasOutput("OfflineScormCloudFrontAllocatorFunctionName", {
+    Value: Match.anyValue(),
+  });
+  template.hasOutput("OfflineScormCloudFrontAllocatorQualifiedFunctionName", {
+    Value: allocatorVersionReference,
+  });
+  const allocatorDeploymentConfigurations = template.findResources(
+    "Custom::AWS",
+  ) as Record<
+    string,
+    {
+      Properties?: {
+        Create?: unknown;
+        InstallLatestAwsSdk?: boolean;
+        Update?: unknown;
+      };
+    }
+  >;
+  expect(Object.keys(allocatorDeploymentConfigurations)).toHaveLength(1);
+  const [allocatorDeploymentLogicalId, allocatorDeploymentConfiguration] =
+    Object.entries(allocatorDeploymentConfigurations)[0] ?? [];
+  expect(allocatorDeploymentLogicalId).toBeDefined();
+  const allocatorDeploymentCreate =
+    allocatorDeploymentConfiguration?.Properties?.Create;
+  expect(allocatorDeploymentCreate).toEqual({
+    "Fn::Join": [
+      "",
+      [
+        '{"service":"Lambda","action":"getFunctionConfiguration","parameters":{"FunctionName":"',
+        allocatorVersionReference,
+        '"},"physicalResourceId":{"id":"',
+        allocatorVersionReference,
+        '"},"outputPaths":["CodeSha256"],"logApiResponseData":false}',
+      ],
+    ],
+  });
+  expect(allocatorDeploymentConfiguration?.Properties?.Update).toEqual(
+    allocatorDeploymentConfiguration?.Properties?.Create,
+  );
+  expect(
+    allocatorDeploymentConfiguration?.Properties?.InstallLatestAwsSdk,
+  ).toBe(false);
+  template.hasOutput("OfflineScormCloudFrontAllocatorCodeSha256", {
+    Description: Match.stringLikeRegexp("Deployment-observed code digest"),
+    Value: {
+      "Fn::GetAtt": [allocatorDeploymentLogicalId, "CodeSha256"],
+    },
+  });
+  template.hasResourceProperties("AWS::IAM::Policy", {
+    PolicyDocument: {
+      Statement: [
+        {
+          Action: "lambda:GetFunctionConfiguration",
+          Effect: "Allow",
+          Resource: allocatorVersionReference,
+        },
+      ],
+      Version: "2012-10-17",
+    },
+  });
+  template.hasOutput("OfflineScormCloudFrontAllocatorRoleArn", {
+    Value: Match.anyValue(),
+  });
+  template.hasOutput("OfflineScormCloudFrontWorkerRoleArn", {
+    Value: { "Fn::GetAtt": [instanceRoleLogicalId, "Arn"] },
+  });
+  template.hasOutput("OfflineScormCloudFrontRecordingUploadRoleArn", {
+    Value: { "Fn::GetAtt": [recordingRoleLogicalId, "Arn"] },
+  });
   const serialized = JSON.stringify(template.toJSON());
   expect(serialized).toContain("OFFLINE_SCORM_CLOUDFRONT_ORIGIN_DOMAIN");
   expect(serialized).toContain("OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY");
   expect(serialized).toContain(
     "OFFLINE_SCORM_CLOUDFRONT_ALLOCATOR_FUNCTION_NAME",
+  );
+  expect(serialized).toContain(
+    "Offline SCORM CloudFront allocator immutable version ARN is invalid",
+  );
+  expect(serialized).toContain(
+    "^arn:(aws|aws-cn|aws-us-gov):lambda:[a-z0-9-]+:[0-9]{12}:function:[A-Za-z0-9_-]{1,64}:[1-9][0-9]*$",
+  );
+  expect(serialized).not.toContain(
+    "Offline SCORM CloudFront allocator function name is invalid",
   );
   expect(serialized).toContain("upskill-worker.env");
   expect(serialized).toContain("upskill-web.env");
@@ -1026,6 +1203,8 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
   expect(serialized).toContain("cloudfront:ListTagsForResource");
   expect(serialized).toContain("wafv2:ListWebACLs");
   expect(serialized).toContain("wafv2:ListTagsForResource");
+  expect(serialized).toContain('"AWS::Lambda::Version"');
+  expect(serialized).toContain('"Fn::GetAtt"');
   template.hasResourceProperties("AWS::IAM::Policy", {
     PolicyDocument: {
       Statement: Match.arrayWith([
@@ -1039,11 +1218,6 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
   });
   expect(serialized).not.toContain('"cloudfront:*"');
   expect(serialized).not.toContain('"wafv2:*"');
-  const roles = template.findResources("AWS::IAM::Role");
-  const instanceRoleLogicalId = Object.keys(roles).find((logicalId) =>
-    logicalId.startsWith("InstanceRole"),
-  );
-  expect(instanceRoleLogicalId).toBeDefined();
   const policies = template.findResources("AWS::IAM::Policy") as Record<
     string,
     { Properties?: { Roles?: unknown[] } }
@@ -1055,6 +1229,17 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
     ),
   );
   expect(JSON.stringify(instancePolicies)).toContain("lambda:InvokeFunction");
+  expect(JSON.stringify(instancePolicies)).toContain(
+    JSON.stringify({
+      Action: "lambda:InvokeFunction",
+      Effect: "Allow",
+      Resource: allocatorVersionReference,
+    }),
+  );
+  expect(JSON.stringify(instancePolicies)).toContain("ssm:PutParameter");
+  expect(JSON.stringify(instancePolicies)).toContain(
+    workerRuntimeTargetParameterLogicalId,
+  );
   expect(JSON.stringify(instancePolicies)).toContain(
     "OfflineScormCloudFrontOriginKey",
   );

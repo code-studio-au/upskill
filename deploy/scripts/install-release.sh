@@ -11,6 +11,8 @@ previous_release=""
 previous_sha=""
 environment_backup=""
 reconcile_package_site_vhost=/usr/local/bin/upskill-reconcile-package-site-vhost
+package_nginx_path=/etc/nginx/conf.d/upskill-package-site.conf
+package_site_state_path=/etc/upskill/offline-scorm-package-site-suffix
 
 write_deployment_id() {
   local deployment_id=$1
@@ -37,6 +39,11 @@ cleanup() {
   if [[ -n "$environment_backup" && -d "$environment_backup" ]]; then
     case "$environment_backup" in
       /opt/upskill/shared/.environment-backup.*)
+        if ! restore_environment_backup; then
+          echo "Unable to restore the pre-release environment backup" >&2
+        elif ! restore_package_site_vhost; then
+          echo "Unable to restore the pre-release package-site vhost" >&2
+        fi
         rm -rf -- "$environment_backup"
         ;;
       *)
@@ -56,8 +63,49 @@ restore_environment_backup() {
   done
 }
 
+restore_package_site_vhost() {
+  local backup_name
+  local runtime_file
+  for runtime_file in "$package_nginx_path" "$package_site_state_path"; do
+    backup_name=${runtime_file##*/}
+    if [[ -f "$environment_backup/$backup_name" ]]; then
+      cp -p -- "$environment_backup/$backup_name" "$runtime_file"
+    elif [[ -f "$environment_backup/$backup_name.absent" ]]; then
+      rm -f -- "$runtime_file"
+    else
+      echo "Package-site backup is incomplete: $backup_name" >&2
+      return 1
+    fi
+  done
+  nginx -t && systemctl reload nginx
+}
+
+create_environment_backup() {
+  local backup_name
+  local environment_file
+  local runtime_file
+  environment_backup=$(mktemp -d \
+    /opt/upskill/shared/.environment-backup.XXXXXX)
+  chmod 0700 "$environment_backup"
+  for environment_file in upskill-web.env upskill-worker.env upskill-deploy.env; do
+    cp -p "/opt/upskill/shared/$environment_file" \
+      "$environment_backup/$environment_file"
+  done
+  for runtime_file in "$package_nginx_path" "$package_site_state_path"; do
+    backup_name=${runtime_file##*/}
+    if [[ -f "$runtime_file" ]]; then
+      cp -p -- "$runtime_file" "$environment_backup/$backup_name"
+    else
+      touch "$environment_backup/$backup_name.absent"
+    fi
+  done
+}
+
 restore_active_environment() {
-  restore_environment_backup
+  if ! restore_environment_backup || ! restore_package_site_vhost; then
+    echo "Previous configuration restore could not restore its files" >&2
+    return 1
+  fi
   if systemctl restart upskill-web upskill-worker && \
     active_release_is_ready; then
     echo "Restored previous configuration after active-release refresh failure" >&2
@@ -139,14 +187,7 @@ if [[ -e "$release_path" || -L "$release_path" ]]; then
   fi
   active_path=$(readlink -f /opt/upskill/current 2>/dev/null || true)
   if [[ "$active_path" == "$release_path" ]]; then
-    environment_backup=$(mktemp -d \
-      /opt/upskill/shared/.environment-backup.XXXXXX)
-    chmod 0700 "$environment_backup"
-    for environment_file in \
-      upskill-web.env upskill-worker.env upskill-deploy.env; do
-      cp -p "/opt/upskill/shared/$environment_file" \
-        "$environment_backup/$environment_file"
-    done
+    create_environment_backup
     if ! /usr/local/bin/upskill-refresh-env || \
       ! write_deployment_id "$release_sha" || \
       ! validate_active_environment; then
@@ -169,6 +210,26 @@ if [[ -e "$release_path" || -L "$release_path" ]]; then
 fi
 mv "$staging_path" "$release_path"
 staging_path=""
+
+if [[ -L /opt/upskill/current ]]; then
+  previous_release=$(readlink -f /opt/upskill/current || true)
+  previous_sha=${previous_release#"$release_root"/}
+  if [[ ! "$previous_sha" =~ ^[a-f0-9]{40}$ || "$previous_release" != "$release_root/$previous_sha" || ! -d "$previous_release" ]]; then
+    echo "The current release does not have a verifiable rollback identity" >&2
+    previous_release=""
+    previous_sha=""
+  elif [[ -f "$previous_release/.upskill-release.json" ]]; then
+    previous_manifest_sha=$(jq -er '.gitSha' "$previous_release/.upskill-release.json" 2>/dev/null || true)
+    if [[ "$previous_manifest_sha" != "$previous_sha" ]]; then
+      echo "The current release manifest does not match its rollback identity" >&2
+      previous_release=""
+      previous_sha=""
+    fi
+  fi
+fi
+if [[ -n "$previous_release" ]]; then
+  create_environment_backup
+fi
 
 /usr/local/bin/upskill-refresh-env
 write_deployment_id "$release_sha"
@@ -193,23 +254,6 @@ package_host_suffix=$(
 )
 "$reconcile_package_site_vhost" "$package_host_suffix" "$release_supports_package_host"
 
-if [[ -L /opt/upskill/current ]]; then
-  previous_release=$(readlink -f /opt/upskill/current || true)
-  previous_sha=${previous_release#"$release_root"/}
-  if [[ ! "$previous_sha" =~ ^[a-f0-9]{40}$ || "$previous_release" != "$release_root/$previous_sha" || ! -d "$previous_release" ]]; then
-    echo "The current release does not have a verifiable rollback identity" >&2
-    previous_release=""
-    previous_sha=""
-  elif [[ -f "$previous_release/.upskill-release.json" ]]; then
-    previous_manifest_sha=$(jq -er '.gitSha' "$previous_release/.upskill-release.json" 2>/dev/null || true)
-    if [[ "$previous_manifest_sha" != "$previous_sha" ]]; then
-      echo "The current release manifest does not match its rollback identity" >&2
-      previous_release=""
-      previous_sha=""
-    fi
-  fi
-fi
-ln -sfn "$release_path" /opt/upskill/current
 if [[ -n "$previous_release" && -d "$previous_release" ]]; then
   ln -sfn "$previous_release" /opt/upskill/previous
 fi
@@ -233,25 +277,20 @@ fi
 nginx -t
 systemctl daemon-reload
 systemctl enable upskill-web upskill-worker upskill-monitor.timer nginx
-systemctl start upskill-monitor.timer
-systemctl restart upskill-web upskill-worker
-systemctl reload nginx
 
-if ! curl --fail --silent --show-error --retry 20 --retry-delay 2 --retry-connrefused "http://127.0.0.1:3000/api/ready?deploymentId=${release_sha}" >/dev/null || ! systemctl is-active --quiet upskill-worker; then
+if ! ln -sfn "$release_path" /opt/upskill/current || \
+  ! systemctl start upskill-monitor.timer || \
+  ! systemctl restart upskill-web upskill-worker || \
+  ! systemctl reload nginx || \
+  ! curl --fail --silent --show-error --retry 20 --retry-delay 2 --retry-connrefused "http://127.0.0.1:3000/api/ready?deploymentId=${release_sha}" >/dev/null || \
+  ! systemctl is-active --quiet upskill-worker; then
   if [[ -n "$previous_release" && -n "$previous_sha" ]]; then
-    if /usr/local/bin/upskill-refresh-env && write_deployment_id "$previous_sha"; then
-      previous_release_supports_package_host=false
-      if [[ -f "$previous_release/deploy/nginx/upskill.package-site.https.conf.template" ]]; then
-        previous_release_supports_package_host=true
-      fi
-      package_host_suffix=$(
-        set -a
-        source /opt/upskill/shared/upskill-deploy.env
-        printf '%s' "${OFFLINE_SCORM_PACKAGE_HOST_SUFFIX:-}"
-      )
-      "$reconcile_package_site_vhost" "$package_host_suffix" "$previous_release_supports_package_host"
-      ln -sfn "$previous_release" /opt/upskill/current
-      if systemctl restart upskill-web upskill-worker && curl --fail --silent --show-error --retry 20 --retry-delay 2 --retry-connrefused "http://127.0.0.1:3000/api/ready?deploymentId=${previous_sha}" >/dev/null && systemctl is-active --quiet upskill-worker; then
+    if [[ -n "$environment_backup" ]] && restore_environment_backup; then
+      if ln -sfn "$previous_release" /opt/upskill/current && \
+        restore_package_site_vhost && \
+        systemctl restart upskill-web upskill-worker && \
+        curl --fail --silent --show-error --retry 20 --retry-delay 2 --retry-connrefused "http://127.0.0.1:3000/api/ready?deploymentId=${previous_sha}" >/dev/null && \
+        systemctl is-active --quiet upskill-worker; then
         echo "Restored previous release $previous_sha" >&2
       else
         echo "Previous release rollback failed readiness checks" >&2
@@ -262,6 +301,11 @@ if ! curl --fail --silent --show-error --retry 20 --retry-delay 2 --retry-connre
   fi
   echo "Release failed readiness checks and was rolled back" >&2
   exit 1
+fi
+
+if [[ -n "$environment_backup" ]]; then
+  rm -rf -- "$environment_backup"
+  environment_backup=""
 fi
 
 find "$release_root" -mindepth 1 -maxdepth 1 -type d -not -path "$release_path" -not -path "$previous_release" -mtime +14 -exec rm -rf -- {} +

@@ -47,9 +47,11 @@ const environmentSchema = z.object({
   OFFLINE_SCORM_CLOUDFRONT_ORIGIN_KEY: z.string().min(43).max(512).optional(),
   OFFLINE_SCORM_CLOUDFRONT_ALLOCATOR_FUNCTION_NAME: z
     .string()
-    .min(1)
-    .max(64)
-    .regex(/^[A-Za-z0-9_-]+$/u)
+    .max(140)
+    .regex(
+      /^arn:(?:aws|aws-cn|aws-us-gov):lambda:[a-z0-9-]+:[0-9]{12}:function:[A-Za-z0-9_-]{1,64}:[1-9][0-9]*$/u,
+      "Offline SCORM CloudFront allocator must use an immutable version ARN",
+    )
     .optional(),
   UPSKILL_PROCESS_ROLE: z.enum(["worker"]).optional(),
   STRIPE_SECRET_KEY: z.string().regex(/^(?:sk|rk)_/u, {

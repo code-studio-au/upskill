@@ -2084,6 +2084,10 @@ const installRelease = fs.readFileSync(
   path.join(root, "deploy/scripts/install-release.sh"),
   "utf8",
 );
+const offlineScormWorkerAttestation = fs.readFileSync(
+  path.join(root, "src/worker/offline-scorm-worker-attestation.ts"),
+  "utf8",
+);
 const environmentRefresh = fs.readFileSync(
   path.join(root, "deploy/scripts/upskill-refresh-env.sh"),
   "utf8",
@@ -2181,7 +2185,9 @@ for (const invariant of [
   "src/server/db/provision-runtime-roles.ts",
   "upskill-deploy.env",
   'write_deployment_id "$release_sha"',
-  'write_deployment_id "$previous_sha"',
+  '[[ -n "$environment_backup" ]] && restore_environment_backup',
+  "restore_package_site_vhost",
+  'if ! ln -sfn "$release_path" /opt/upskill/current ||',
   "scripts/validate-runtime-environment.ts",
   "http://127.0.0.1:3000/api/ready?deploymentId=${previous_sha}",
   "http://127.0.0.1:3000/api/ready?deploymentId=",
@@ -2198,6 +2204,32 @@ for (const invariant of [
 ])
   if (!installRelease.includes(invariant))
     failures.push(`Release installation safety is missing: ${invariant}`);
+for (const invariant of [
+  "/offline-scorm/cloudfront-worker-runtime-target",
+  '"ssm"',
+  '"put-parameter"',
+  '"--overwrite"',
+  "OFFLINE_SCORM_WORKER_ATTESTATION_INTERVAL_MS",
+])
+  if (!offlineScormWorkerAttestation.includes(invariant))
+    failures.push(`Worker runtime attestation is missing: ${invariant}`);
+if (installRelease.includes("cloudfront-worker-runtime-target"))
+  failures.push(
+    "Release installation must not impersonate worker runtime attestation",
+  );
+const guardedReleaseActivation =
+  'if ! ln -sfn "$release_path" /opt/upskill/current ||';
+const releaseSymlinkSwitches = installRelease.match(
+  /ln -sfn "\$release_path" \/opt\/upskill\/current/gu,
+);
+if (
+  releaseSymlinkSwitches?.length !== 1 ||
+  installRelease.indexOf(guardedReleaseActivation) <
+    installRelease.indexOf("systemctl enable upskill-web")
+)
+  failures.push(
+    "Release activation must defer its sole current symlink switch until the guarded restart and rollback boundary",
+  );
 for (const invariant of [
   "I_UNDERSTAND_THIS_DELETES_ALL_STAGING_DATA",
   "APP_ENV=staging",
@@ -2357,6 +2389,8 @@ for (const invariant of [
   "LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID",
   "/offline-scorm/cloudfront-allocator-function-name",
   "OFFLINE_SCORM_CLOUDFRONT_ALLOCATOR_FUNCTION_NAME",
+  "Offline SCORM CloudFront allocator immutable version ARN is invalid",
+  "^arn:(aws|aws-cn|aws-us-gov):lambda:[a-z0-9-]+:[0-9]{12}:function:[A-Za-z0-9_-]{1,64}:[1-9][0-9]*$",
   'UPSKILL_PROCESS_ROLE="worker"',
   'LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT',
   'OFFLINE_SCORM_ENABLED" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID',
@@ -2597,7 +2631,9 @@ for (const invariant of [
 if (
   !installRelease.includes("upskill.package-site.https.conf.template") ||
   !installRelease.includes("upskill-reconcile-package-site-vhost") ||
-  !installRelease.includes("previous_release_supports_package_host") ||
+  !installRelease.includes("package_site_state_path") ||
+  !installRelease.includes("create_environment_backup") ||
+  !installRelease.includes("restore_package_site_vhost") ||
   !environmentRefresh.includes("OFFLINE_SCORM_PACKAGE_HOST_SUFFIX") ||
   !environmentRefresh.includes("upskill-reconcile-package-site-vhost")
 )
