@@ -25,6 +25,7 @@ import {
   hasExpectedLogCleanupRoleBoundary,
   hasExpectedLogBucketPolicy,
   hasExpectedLogBucketPublicAccessBoundary,
+  hasExpectedLogBucketVersioning,
   hasExpectedWorkerInstanceProfile,
   hasNoAllocatorInvocationPolicy,
   hasNoLogBucketReplication,
@@ -2140,6 +2141,12 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         },
       }),
     ).toBe(false);
+    expect(hasExpectedLogBucketVersioning({})).toBe(true);
+    expect(hasExpectedLogBucketVersioning({ Status: "Enabled" })).toBe(false);
+    expect(hasExpectedLogBucketVersioning({ Status: "Suspended" })).toBe(false);
+    expect(hasExpectedLogBucketVersioning({ MFADelete: "Disabled" })).toBe(
+      false,
+    );
     expect(hasNoLogBucketReplication({ absent: true })).toBe(true);
     expect(
       hasNoLogBucketReplication({
@@ -3197,6 +3204,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         return expectedLogBucketLifecycle();
       if (command === "s3api get-bucket-encryption")
         return expectedLogBucketEncryption();
+      if (command === "s3api get-bucket-versioning") return {};
       if (command === "s3api get-bucket-replication")
         throw new AwsCliError(
           "ReplicationConfigurationNotFoundError",
@@ -3436,6 +3444,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       "get-bucket-policy",
       "get-bucket-lifecycle-configuration",
       "get-bucket-encryption",
+      "get-bucket-versioning",
       "get-bucket-replication",
       "list-objects-v2",
     ]) {

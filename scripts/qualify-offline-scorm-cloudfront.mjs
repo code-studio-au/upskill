@@ -1360,6 +1360,10 @@ export function hasExpectedLogBucketEncryption(configuration) {
   );
 }
 
+export function hasExpectedLogBucketVersioning(configuration) {
+  return isDeepStrictEqual(configuration, {});
+}
+
 async function readBucketReplication(runAws, args) {
   try {
     return { absent: false, response: await runAws(args) };
@@ -2260,6 +2264,7 @@ export async function collectCloudFrontQualificationReport(
     logBucketPolicy,
     logBucketLifecycle,
     logBucketEncryption,
+    logBucketVersioning,
     logBucketReplication,
     cloudTrail,
     logObjects,
@@ -2575,6 +2580,16 @@ export async function collectCloudFrontQualificationReport(
       "--region",
       options.applicationRegion,
     ]),
+    runAws([
+      "s3api",
+      "get-bucket-versioning",
+      "--bucket",
+      logBucket,
+      "--expected-bucket-owner",
+      accountId,
+      "--region",
+      options.applicationRegion,
+    ]),
     readBucketReplication(runAws, [
       "s3api",
       "get-bucket-replication",
@@ -2875,6 +2890,12 @@ export async function collectCloudFrontQualificationReport(
     "access-log-bucket-encryption",
     hasExpectedLogBucketEncryption(logBucketEncryption),
     "CloudFront access-log bucket retains its exact SSE-S3 encryption baseline",
+  );
+  addCheck(
+    checks,
+    "access-log-bucket-versioning",
+    hasExpectedLogBucketVersioning(logBucketVersioning),
+    "CloudFront access-log bucket retains its exact unversioned baseline",
   );
   addCheck(
     checks,

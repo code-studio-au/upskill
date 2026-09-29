@@ -14,8 +14,9 @@ distribution, invoke the allocator, alter a WAF rule, or write to AWS.
   and reserved concurrency, its IAM role/trust/managed and inline policies,
   all three Offline SCORM SSM parameters, the storage stack resources, and the
   CloudFront access-log bucket ACL, public-access block, policy status, policy
-  document, lifecycle and replication configuration, plus the deployment-owned
-  cleanup role's trust policy. The operator must also be able to inspect the
+  document, lifecycle, versioning and replication configuration, plus the
+  deployment-owned cleanup role's trust policy. The operator must also be able
+  to inspect the
   running application instance's current IAM instance profile, inspect the
   deployed worker role's EC2-only trust policy plus all managed and inline
   policies, and simulate its permission to invoke the exact allocator version.
@@ -65,8 +66,8 @@ metrics/units/evaluation/actions, per-distribution entitlement-specific access
 logging, the bucket's exact owner and S3 LogDelivery ACL grants, all four S3
 public-access blocks, a non-public bucket-policy status, the exact TLS-only
 bucket-policy deny plus the deployment-owned staging cleanup grant with no
-other access grant, its exact SSE-S3 encryption baseline, absence of
-replication, the cleanup role's exact Lambda-only trust boundary, and
+other access grant, its exact SSE-S3 encryption and unversioned baselines,
+absence of replication, the cleanup role's exact Lambda-only trust boundary, and
 the exact 30-day retention lifecycle, fully deployed
 edge status, lifecycle ownership discovery across the immutable caller
 reference, comment, exact tags and dedicated Web ACL binding,
@@ -164,7 +165,7 @@ these additional read-only actions: `cloudformation:ListStackResources`,
 `sns:GetSubscriptionAttributes`,
 `sns:GetTopicAttributes`, `s3:GetBucketLifecycleConfiguration`,
 `s3:GetEncryptionConfiguration`, `s3:GetBucketPolicy`,
-`s3:GetReplicationConfiguration`,
+`s3:GetBucketVersioning`, `s3:GetReplicationConfiguration`,
 `s3:GetBucketPublicAccessBlock`, and
 `s3:GetBucketPolicyStatus`.
 
