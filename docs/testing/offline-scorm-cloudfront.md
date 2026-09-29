@@ -9,18 +9,19 @@ distribution, invoke the allocator, alter a WAF rule, or write to AWS.
 - AWS CLI credentials for the staging account.
 - Read access to the staging CloudFront origin-key secret; its value is used
   only in memory and is never included in the qualification report.
-- Read access to the allocator Lambda version configuration and reserved
-  concurrency, its IAM role/trust/managed and inline policies, both Offline
-  SCORM SSM parameters, and the CloudFront access-log bucket ACL, public-access
-  block, policy status and lifecycle. The operator must also be able to inspect
-  the application instance's current IAM instance profile and simulate that
+- Read access to the allocator Lambda version configuration, resource policy
+  and reserved concurrency, its IAM role/trust/managed and inline policies,
+  both Offline SCORM SSM parameters, the storage stack resources, and the
+  CloudFront access-log bucket ACL, public-access block, policy status, policy
+  document and lifecycle. The operator must also be able to inspect the
+  application instance's current IAM instance profile and simulate that
   deployed worker role's permission to invoke the exact allocator version.
 - Read access to the edge SNS topic attributes and deployment-owned KMS key
   metadata and policy so the key's enabled state and CloudWatch alarm
   publication path can be qualified. The shared operational topic attributes
   are also read to qualify its same-account CloudWatch publication boundary.
-- The application and edge stacks deployed with the CloudFront qualification
-  context.
+- The application, storage and edge stacks deployed with the CloudFront
+  qualification context.
 - The shared `ap-southeast-2` operational SNS email subscription and the
   separate `us-east-1` edge SNS email subscription confirmed for the exact
   endpoint exported by each stack, with no subscription filter policy.
@@ -49,19 +50,23 @@ retention, exact unfiltered confirmed alarm-subscription endpoints, exact alarm
 metrics/units/evaluation/actions, per-distribution entitlement-specific access
 logging, the bucket's exact owner and S3 LogDelivery ACL grants, all four S3
 public-access blocks, a non-public bucket-policy status, the exact TLS-only
-bucket-policy deny with no competing deny, and the exact 30-day retention
-lifecycle, fully deployed edge status, lifecycle ownership discovery
-across the comment, exact tags and dedicated Web ACL binding,
+bucket-policy deny plus the deployment-owned staging cleanup grant with no
+other access grant, and the exact 30-day retention lifecycle, fully deployed
+edge status, lifecycle ownership discovery across the comment, exact tags and
+dedicated Web ACL binding,
 entitlement-bound protected origin headers, HTTPS-only TLS 1.2 origin
 transport, the live instance-profile binding to the worker role, the worker's
 exact SSM allocator target and effective permission to invoke that immutable
 version, the live allocator version and code digest, exact execution role,
 runtime, environment and reserved concurrency, the role's Lambda-only trust
 policy and least-privilege managed/inline permission boundary, the edge topic's
-enabled deployment-owned KMS key and exact CloudWatch publish grant, the canonical
-distribution configuration, both SNS topics' account- and alarm-scoped
-CloudWatch publish grants, distribution-cap markers, service-quota headroom and
-a globally bounded sample of recent CloudFront control-plane mutations.
+enabled deployment-owned KMS key and exact CloudWatch publish grant, the
+canonical distribution configuration, both SNS topics' account- and alarm-scoped
+CloudWatch publish grants and sole confirmed recipient, the edge key's exact
+administration and CloudWatch policy without an overriding deny, the absence of
+an allocator-version resource policy, distribution-cap markers, service-quota
+headroom and a globally bounded sample of recent CloudFront control-plane
+mutations.
 
 The deployed cap output must remain the repository qualification baseline of
 25, and quota headroom is calculated from every distribution item aggregated
@@ -88,20 +93,24 @@ therefore remains visible through its deployment-owned WAF binding and fails
 the ownership/configuration checks instead of escaping the inventory.
 
 The application stack publishes an immutable Lambda version, grants the worker
-invoke permission only for that version, and writes its qualified ARN to SSM.
-The harness requires the stack output, worker SSM target and exact live version
-to agree. Updating mutable `$LATEST` cannot change the code the worker invokes;
-a code change requires a deployment that publishes and selects a new version.
+invoke permission only for that version through its identity policy, and writes
+its qualified ARN to SSM. The harness requires the stack output, worker SSM
+target and exact live version to agree and requires that version to have no
+resource-based invocation policy. Updating mutable `$LATEST` cannot change the
+code the worker invokes; a code change requires a deployment that publishes and
+selects a new version.
 
 The live allocator, IAM role/policy and instance-profile responses, worker
 permission simulation, topic and subscription attributes, KMS key metadata and
 policy, bucket ACL, public-access block, bucket-policy status and lifecycle
 responses are evaluated only in memory. They are not copied into the report;
 only the pass/fail checks are retained. The operator identity therefore needs
-these additional read-only actions: `ec2:DescribeInstances`,
+these additional read-only actions: `cloudformation:ListStackResources`,
+`ec2:DescribeInstances`,
 `iam:GetInstanceProfile`, `iam:GetRole`, `iam:ListAttachedRolePolicies`,
 `iam:ListRolePolicies`, `iam:GetRolePolicy`, `iam:SimulatePrincipalPolicy`,
-`kms:DescribeKey`, `kms:GetKeyPolicy`, `sns:GetSubscriptionAttributes`,
+`kms:DescribeKey`, `kms:GetKeyPolicy`, `lambda:GetPolicy`,
+`sns:GetSubscriptionAttributes`,
 `sns:GetTopicAttributes`, `s3:GetBucketLifecycleConfiguration`,
 `s3:GetBucketPolicy`, `s3:GetBucketPublicAccessBlock`, and
 `s3:GetBucketPolicyStatus`.

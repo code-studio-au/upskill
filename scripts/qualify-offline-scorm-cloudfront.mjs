@@ -24,8 +24,13 @@ const IAM_ROLE_ARN =
   /^arn:(aws|aws-cn|aws-us-gov):iam::([0-9]{12}):role\/(.+)$/u;
 const IAM_INSTANCE_PROFILE_ARN =
   /^arn:(aws|aws-cn|aws-us-gov):iam::([0-9]{12}):instance-profile\/(.+)$/u;
+const IAM_ROLE_NAME = /^[A-Za-z0-9+=,.@_-]{1,64}$/u;
+const AUTO_DELETE_ROLE_LOGICAL_ID =
+  /^CustomS3AutoDeleteObjectsCustomResourceProviderRole[A-F0-9]+$/u;
 const KMS_KEY_ARN =
   /^arn:(aws|aws-cn|aws-us-gov):kms:([a-z0-9-]+):([0-9]{12}):key\/([a-f0-9-]{36})$/u;
+const S3_BUCKET_ARN =
+  /^arn:(aws|aws-cn|aws-us-gov):s3:::([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])$/u;
 const SNS_TOPIC_ARN =
   /^arn:(aws|aws-cn|aws-us-gov):sns:([a-z0-9-]+):([0-9]{12}):([A-Za-z0-9_-]{1,256})$/u;
 const EC2_INSTANCE_ID = /^i-(?:[0-9a-f]{8}|[0-9a-f]{17})$/u;
@@ -80,6 +85,64 @@ export async function runAwsJson(args) {
     const stderr = typeof error?.stderr === "string" ? error.stderr : "";
     throw new AwsCliError(stderr.trim() || "AWS CLI command failed", stderr);
   }
+}
+
+async function readAllocatorInvocationPolicy(
+  runAws,
+  functionName,
+  qualifier,
+  region,
+) {
+  try {
+    return {
+      absent: false,
+      response: await runAws([
+        "lambda",
+        "get-policy",
+        "--function-name",
+        functionName,
+        "--qualifier",
+        qualifier,
+        "--region",
+        region,
+      ]),
+    };
+  } catch (error) {
+    if (
+      error instanceof AwsCliError &&
+      error.hasCode("ResourceNotFoundException")
+    )
+      return { absent: true };
+    throw error;
+  }
+}
+
+export function hasNoAllocatorInvocationPolicy(policyRead) {
+  return (
+    policyRead?.absent === true &&
+    policyRead?.response === undefined &&
+    Object.keys(policyRead).length === 1
+  );
+}
+
+export function deploymentOwnedAutoDeleteRoleArn(
+  stackResources,
+  expectedAccount,
+  expectedPartition,
+) {
+  const matches = (stackResources?.StackResourceSummaries ?? []).filter(
+    (resource) =>
+      resource?.ResourceType === "AWS::IAM::Role" &&
+      AUTO_DELETE_ROLE_LOGICAL_ID.test(resource?.LogicalResourceId ?? "") &&
+      IAM_ROLE_NAME.test(resource?.PhysicalResourceId ?? ""),
+  );
+  if (
+    !ACCOUNT_ID.test(expectedAccount ?? "") ||
+    !["aws", "aws-cn", "aws-us-gov"].includes(expectedPartition) ||
+    matches.length !== 1
+  )
+    return null;
+  return `arn:${expectedPartition}:iam::${expectedAccount}:role/${matches[0].PhysicalResourceId}`;
 }
 
 function requiredValue(value, message) {
@@ -680,7 +743,26 @@ export function hasExpectedEdgeAlarmKmsBoundary(
   const policy = parsePolicyDocument(keyPolicyResponse?.Policy);
   const statements = Array.isArray(policy?.Statement) ? policy.Statement : [];
   const expectedAlarmArn = `arn:${keyMatch[1]}:cloudwatch:${CLOUDFRONT_CONTROL_PLANE_REGION}:${expected.accountId}:alarm:${expected.alarmName}`;
-  return statements.some((statement) => {
+  if (policy?.Version !== "2012-10-17" || statements.length !== 2) return false;
+  const hasAccountAdministration = statements.some((statement) => {
+    const actions = Array.isArray(statement?.Action)
+      ? statement.Action
+      : [statement?.Action];
+    return (
+      statement?.Effect === "Allow" &&
+      isDeepStrictEqual(statement?.Principal, {
+        AWS: `arn:${keyMatch[1]}:iam::${expected.accountId}:root`,
+      }) &&
+      actions.length === 1 &&
+      actions[0] === "kms:*" &&
+      statement?.Resource === "*" &&
+      statement?.Condition === undefined &&
+      statement?.NotAction === undefined &&
+      statement?.NotPrincipal === undefined &&
+      statement?.NotResource === undefined
+    );
+  });
+  const hasCloudWatchGrant = statements.some((statement) => {
     const actions = Array.isArray(statement?.Action)
       ? statement.Action
       : [statement?.Action];
@@ -689,6 +771,9 @@ export function hasExpectedEdgeAlarmKmsBoundary(
       isDeepStrictEqual(statement?.Principal, {
         Service: "cloudwatch.amazonaws.com",
       }) &&
+      statement?.NotAction === undefined &&
+      statement?.NotPrincipal === undefined &&
+      statement?.NotResource === undefined &&
       isDeepStrictEqual([...actions].sort(), [
         "kms:Decrypt",
         "kms:GenerateDataKey*",
@@ -700,6 +785,7 @@ export function hasExpectedEdgeAlarmKmsBoundary(
       })
     );
   });
+  return hasAccountAdministration && hasCloudWatchGrant;
 }
 
 export function hasExpectedAlarmTopicPolicy(topicAttributesResponse, expected) {
@@ -760,25 +846,35 @@ export function hasExpectedCloudFrontLogDeliveryAcl(acl) {
   return isDeepStrictEqual(actual, expected);
 }
 
-export function hasExpectedLogBucketPolicy(policyResponse, expectedBucketArn) {
+export function hasExpectedLogBucketPolicy(
+  policyResponse,
+  expectedBucketArn,
+  expectedAutoDeleteRoleArn,
+) {
   if (
     !/^arn:(aws|aws-cn|aws-us-gov):s3:::[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/u.test(
       expectedBucketArn ?? "",
+    ) ||
+    !/^arn:(aws|aws-cn|aws-us-gov):iam::[0-9]{12}:role\/[A-Za-z0-9+=,.@_-]{1,64}$/u.test(
+      expectedAutoDeleteRoleArn ?? "",
     )
   )
     return false;
   const policy = parsePolicyDocument(policyResponse?.Policy);
   const statements = Array.isArray(policy?.Statement) ? policy.Statement : [];
-  const denyStatements = statements.filter(
-    (statement) => statement?.Effect === "Deny",
-  );
-  if (policy?.Version !== "2012-10-17" || denyStatements.length !== 1)
-    return false;
-  const [deny] = denyStatements;
+  if (policy?.Version !== "2012-10-17" || statements.length !== 2) return false;
+  const deny = statements.find((statement) => statement?.Effect === "Deny");
+  const allow = statements.find((statement) => statement?.Effect === "Allow");
   const actions = Array.isArray(deny?.Action) ? deny.Action : [deny?.Action];
   const resources = Array.isArray(deny?.Resource)
     ? deny.Resource
     : [deny?.Resource];
+  const allowActions = Array.isArray(allow?.Action)
+    ? allow.Action
+    : [allow?.Action];
+  const allowResources = Array.isArray(allow?.Resource)
+    ? allow.Resource
+    : [allow?.Resource];
   return (
     deny?.NotAction === undefined &&
     deny?.NotPrincipal === undefined &&
@@ -792,7 +888,24 @@ export function hasExpectedLogBucketPolicy(policyResponse, expectedBucketArn) {
     ]) &&
     isDeepStrictEqual(deny?.Condition, {
       Bool: { "aws:SecureTransport": "false" },
-    })
+    }) &&
+    allow?.NotAction === undefined &&
+    allow?.NotPrincipal === undefined &&
+    allow?.NotResource === undefined &&
+    allow?.Condition === undefined &&
+    isDeepStrictEqual([...allowActions].sort(), [
+      "s3:DeleteObject*",
+      "s3:GetBucket*",
+      "s3:List*",
+      "s3:PutBucketPolicy",
+    ]) &&
+    isDeepStrictEqual(allow?.Principal, {
+      AWS: expectedAutoDeleteRoleArn,
+    }) &&
+    isDeepStrictEqual([...allowResources].sort(), [
+      expectedBucketArn,
+      `${expectedBucketArn}/*`,
+    ])
   );
 }
 
@@ -1092,12 +1205,20 @@ export function hasExpectedWafLoggingBaseline(
   );
 }
 
-function confirmedEmailSubscriptions(response, topicArn, expectedEndpoint) {
+function confirmedSubscriptions(response) {
   return (response.Subscriptions ?? []).filter(
+    (subscription) =>
+      typeof subscription?.SubscriptionArn === "string" &&
+      subscription.SubscriptionArn !== "PendingConfirmation" &&
+      subscription.SubscriptionArn !== "Deleted",
+  );
+}
+
+function confirmedEmailSubscriptions(response, topicArn, expectedEndpoint) {
+  return confirmedSubscriptions(response).filter(
     (subscription) =>
       subscription.Protocol === "email" &&
       subscription.Endpoint === expectedEndpoint &&
-      typeof subscription.SubscriptionArn === "string" &&
       subscription.SubscriptionArn.startsWith(`${topicArn}:`),
   );
 }
@@ -1107,9 +1228,11 @@ export function hasConfirmedEmailSubscription(
   topicArn,
   expectedEndpoint,
 ) {
+  const confirmed = confirmedSubscriptions(response);
   return (
+    confirmed.length === 1 &&
     confirmedEmailSubscriptions(response, topicArn, expectedEndpoint).length ===
-    1
+      1
   );
 }
 
@@ -1120,6 +1243,7 @@ export function hasExpectedAlarmSubscription(
   expectedEndpoint,
   expectedAccount,
 ) {
+  if (confirmedSubscriptions(response).length !== 1) return false;
   const subscriptions = confirmedEmailSubscriptions(
     response,
     topicArn,
@@ -1194,6 +1318,7 @@ export async function collectCloudFrontQualificationReport(
   const runAws = dependencies.runAws ?? runAwsJson;
   const generatedAt = (dependencies.now ?? (() => new Date()))().toISOString();
   const appStackName = stackName(options.environment, "application");
+  const storageStackName = stackName(options.environment, "storage");
   const edgeStackName = stackName(
     options.environment,
     "offline-scorm-edge-security",
@@ -1211,6 +1336,7 @@ export async function collectCloudFrontQualificationReport(
   const [
     applicationStack,
     edgeStack,
+    storageStackResources,
     originParameter,
     allocatorTargetParameter,
     distributions,
@@ -1231,6 +1357,14 @@ export async function collectCloudFrontQualificationReport(
       edgeStackName,
       "--region",
       CLOUDFRONT_CONTROL_PLANE_REGION,
+    ]),
+    runAws([
+      "cloudformation",
+      "list-stack-resources",
+      "--stack-name",
+      storageStackName,
+      "--region",
+      options.applicationRegion,
     ]),
     runAws([
       "ssm",
@@ -1343,6 +1477,9 @@ export async function collectCloudFrontQualificationReport(
   );
   const allocatorRoleMatch = IAM_ROLE_ARN.exec(allocatorRoleArn);
   const allocatorRoleName = allocatorRoleMatch?.[3].split("/").at(-1);
+  const allocatorVersionMatch = LAMBDA_VERSION_ARN.exec(
+    allocatorQualifiedFunctionName,
+  );
   if (
     allocatorRoleMatch?.[2] !== accountId ||
     typeof allocatorRoleName !== "string" ||
@@ -1351,6 +1488,12 @@ export async function collectCloudFrontQualificationReport(
     throw new Error("Offline SCORM allocator role output is invalid");
   if (IAM_ROLE_ARN.exec(workerRoleArn)?.[2] !== accountId)
     throw new Error("Offline SCORM worker role output is invalid");
+  if (
+    allocatorVersionMatch?.[2] !== options.applicationRegion ||
+    allocatorVersionMatch?.[3] !== accountId ||
+    allocatorVersionMatch?.[4] !== allocatorFunctionName
+  )
+    throw new Error("Offline SCORM allocator version output is invalid");
   if (!EC2_INSTANCE_ID.test(applicationInstanceId))
     throw new Error("Application instance output is invalid");
   const originDomain = requiredValue(
@@ -1374,9 +1517,19 @@ export async function collectCloudFrontQualificationReport(
   const webAclMatch = CLOUDFRONT_WEB_ACL_ARN.exec(webAclArn);
   if (!webAclMatch || webAclMatch[1] !== webAclName)
     throw new Error("CloudFront Web ACL stack outputs are inconsistent");
-  const logBucket = logBucketArn.replace(/^arn:[a-z0-9-]+:s3:::/u, "");
-  if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/u.test(logBucket))
+  const logBucketMatch = S3_BUCKET_ARN.exec(logBucketArn);
+  const logBucket = logBucketMatch?.[2];
+  const logBucketAutoDeleteRoleArn = deploymentOwnedAutoDeleteRoleArn(
+    storageStackResources,
+    accountId,
+    logBucketMatch?.[1],
+  );
+  if (typeof logBucket !== "string")
     throw new Error("CloudFront access-log bucket output is invalid");
+  if (logBucketAutoDeleteRoleArn === null)
+    throw new Error(
+      "CloudFront access-log bucket cleanup role is not deployment-owned",
+    );
   const distributionItems = distributions.DistributionList?.Items ?? [];
   if (!Array.isArray(distributionItems))
     throw new Error("CloudFront distribution inventory is invalid");
@@ -1459,6 +1612,7 @@ export async function collectCloudFrontQualificationReport(
     edgeAlarms,
     allocatorAlarms,
     allocatorConfiguration,
+    allocatorInvocationPolicy,
     allocatorRole,
     allocatorAttachedPolicies,
     allocatorInlinePolicyNames,
@@ -1584,6 +1738,12 @@ export async function collectCloudFrontQualificationReport(
       "--region",
       options.applicationRegion,
     ]),
+    readAllocatorInvocationPolicy(
+      runAws,
+      allocatorFunctionName,
+      allocatorVersionMatch[5],
+      options.applicationRegion,
+    ),
     runAws([
       "iam",
       "get-role",
@@ -1835,6 +1995,12 @@ export async function collectCloudFrontQualificationReport(
   );
   addCheck(
     checks,
+    "allocator-invocation-policy",
+    hasNoAllocatorInvocationPolicy(allocatorInvocationPolicy),
+    "Immutable allocator version has no resource-based invocation grants",
+  );
+  addCheck(
+    checks,
     "allocator-role-boundary",
     hasExpectedAllocatorRoleBoundary(
       allocatorRole,
@@ -1889,8 +2055,12 @@ export async function collectCloudFrontQualificationReport(
   addCheck(
     checks,
     "access-log-bucket-policy",
-    hasExpectedLogBucketPolicy(logBucketPolicy, logBucketArn),
-    "CloudFront access-log bucket retains only its TLS transport deny and no deny that overrides legacy log delivery",
+    hasExpectedLogBucketPolicy(
+      logBucketPolicy,
+      logBucketArn,
+      logBucketAutoDeleteRoleArn,
+    ),
+    "CloudFront access-log bucket retains only its TLS deny and deployment-owned staging cleanup grant",
   );
   addCheck(
     checks,

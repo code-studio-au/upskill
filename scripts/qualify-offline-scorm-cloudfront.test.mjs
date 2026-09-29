@@ -7,6 +7,7 @@ import {
   canWorkerInvokePinnedAllocator,
   classifyQualificationDistributions,
   collectCloudFrontQualificationReport,
+  deploymentOwnedAutoDeleteRoleArn,
   evaluateQuotaHeadroom,
   hasConfirmedEmailSubscription,
   hasExpectedAlarmTopicPolicy,
@@ -19,6 +20,7 @@ import {
   hasExpectedLogBucketPolicy,
   hasExpectedLogBucketPublicAccessBoundary,
   hasExpectedWorkerInstanceProfile,
+  hasNoAllocatorInvocationPolicy,
   haveExpectedAlarmConfigurations,
   haveExpectedDistributionLogging,
   haveExpectedDistributionOwnership,
@@ -64,6 +66,9 @@ const workerRoleArn = `arn:aws:iam::${options.expectedAccount}:role/${workerRole
 const applicationInstanceId = "i-0123456789abcdef0";
 const workerInstanceProfileName = "upskill-staging-worker-profile";
 const workerInstanceProfileArn = `arn:aws:iam::${options.expectedAccount}:instance-profile/${workerInstanceProfileName}`;
+const autoDeleteRoleName =
+  "upskill-staging-storage-CustomS3AutoDeleteObjectsRole-ABC123";
+const autoDeleteRoleArn = `arn:aws:iam::${options.expectedAccount}:role/${autoDeleteRoleName}`;
 const entitlementId = "entitlement-123";
 const originKey = "qualification-origin-key-".repeat(3);
 const entitlementDigest = createHash("sha256")
@@ -487,11 +492,14 @@ function expectedLogBucketPolicy() {
           Resource: [bucketArn, `${bucketArn}/*`],
         },
         {
-          Action: ["s3:DeleteObject*", "s3:GetBucket*", "s3:List*"],
+          Action: [
+            "s3:DeleteObject*",
+            "s3:GetBucket*",
+            "s3:List*",
+            "s3:PutBucketPolicy",
+          ],
           Effect: "Allow",
-          Principal: {
-            AWS: "arn:aws:iam::123456789012:role/staging-auto-delete",
-          },
+          Principal: { AWS: autoDeleteRoleArn },
           Resource: [bucketArn, `${bucketArn}/*`],
         },
       ],
@@ -906,6 +914,78 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     ).toBe(false);
   });
 
+  it("requires the allocator version to have no resource-based invocation policy", () => {
+    expect(hasNoAllocatorInvocationPolicy({ absent: true })).toBe(true);
+    expect(
+      hasNoAllocatorInvocationPolicy({
+        absent: false,
+        response: {
+          Policy: JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [
+              {
+                Action: "lambda:InvokeFunction",
+                Effect: "Allow",
+                Principal: { AWS: "arn:aws:iam::210987654321:root" },
+                Resource: allocatorQualifiedFunctionName,
+              },
+            ],
+          }),
+        },
+      }),
+    ).toBe(false);
+    expect(hasNoAllocatorInvocationPolicy({})).toBe(false);
+  });
+
+  it("resolves exactly one deployment-owned staging cleanup role", () => {
+    const resources = {
+      StackResourceSummaries: [
+        {
+          LogicalResourceId:
+            "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092",
+          PhysicalResourceId: autoDeleteRoleName,
+          ResourceType: "AWS::IAM::Role",
+        },
+      ],
+    };
+    expect(
+      deploymentOwnedAutoDeleteRoleArn(
+        resources,
+        options.expectedAccount,
+        "aws",
+      ),
+    ).toBe(autoDeleteRoleArn);
+    expect(
+      deploymentOwnedAutoDeleteRoleArn(
+        {
+          StackResourceSummaries: [
+            ...resources.StackResourceSummaries,
+            {
+              ...resources.StackResourceSummaries[0],
+              PhysicalResourceId: "another-auto-delete-role",
+            },
+          ],
+        },
+        options.expectedAccount,
+        "aws",
+      ),
+    ).toBeNull();
+    expect(
+      deploymentOwnedAutoDeleteRoleArn(
+        {
+          StackResourceSummaries: [
+            {
+              ...resources.StackResourceSummaries[0],
+              LogicalResourceId: "UnrelatedRoleABC123",
+            },
+          ],
+        },
+        options.expectedAccount,
+        "aws",
+      ),
+    ).toBeNull();
+  });
+
   it("requires the exact CloudFront log-delivery bucket ACL", () => {
     const acl = expectedLogBucketAcl();
     expect(hasExpectedCloudFrontLogDeliveryAcl(acl)).toBe(true);
@@ -1121,6 +1201,48 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         {
           Policy: JSON.stringify({
             ...policyDocument,
+            Statement: [
+              ...policyDocument.Statement,
+              {
+                Action: ["kms:Decrypt", "kms:GenerateDataKey*"],
+                Effect: "Deny",
+                Principal: { Service: "cloudwatch.amazonaws.com" },
+                Resource: "*",
+              },
+            ],
+          }),
+        },
+        expected,
+      ),
+    ).toBe(false);
+    expect(
+      hasExpectedEdgeAlarmKmsBoundary(
+        topic,
+        description,
+        {
+          Policy: JSON.stringify({
+            ...policyDocument,
+            Statement: [
+              ...policyDocument.Statement,
+              {
+                Action: "kms:Decrypt",
+                Effect: "Allow",
+                Principal: { AWS: "arn:aws:iam::210987654321:root" },
+                Resource: "*",
+              },
+            ],
+          }),
+        },
+        expected,
+      ),
+    ).toBe(false);
+    expect(
+      hasExpectedEdgeAlarmKmsBoundary(
+        topic,
+        description,
+        {
+          Policy: JSON.stringify({
+            ...policyDocument,
             Statement: policyDocument.Statement.map((statement) =>
               statement.Principal?.Service === "cloudwatch.amazonaws.com"
                 ? { ...statement, Action: ["kms:Decrypt"] }
@@ -1262,10 +1384,12 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     ).toBe(false);
   });
 
-  it("requires the access-log bucket TLS policy without a competing deny", () => {
+  it("requires the exact access-log bucket policy boundary", () => {
     const bucketArn = "arn:aws:s3:::upskill-edge-logs";
     const response = expectedLogBucketPolicy();
-    expect(hasExpectedLogBucketPolicy(response, bucketArn)).toBe(true);
+    expect(
+      hasExpectedLogBucketPolicy(response, bucketArn, autoDeleteRoleArn),
+    ).toBe(true);
     const policy = JSON.parse(response.Policy);
     expect(
       hasExpectedLogBucketPolicy(
@@ -1278,6 +1402,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
           }),
         },
         bucketArn,
+        autoDeleteRoleArn,
       ),
     ).toBe(false);
     expect(
@@ -1297,6 +1422,7 @@ describe("Offline SCORM CloudFront qualification harness", () => {
           }),
         },
         bucketArn,
+        autoDeleteRoleArn,
       ),
     ).toBe(false);
     expect(
@@ -1315,8 +1441,32 @@ describe("Offline SCORM CloudFront qualification harness", () => {
           }),
         },
         bucketArn,
+        autoDeleteRoleArn,
       ),
     ).toBe(false);
+    expect(
+      hasExpectedLogBucketPolicy(
+        {
+          Policy: JSON.stringify({
+            ...policy,
+            Statement: [
+              ...policy.Statement,
+              {
+                Action: "s3:GetObject",
+                Effect: "Allow",
+                Principal: { AWS: "arn:aws:iam::210987654321:root" },
+                Resource: `${bucketArn}/*`,
+              },
+            ],
+          }),
+        },
+        bucketArn,
+        autoDeleteRoleArn,
+      ),
+    ).toBe(false);
+    expect(hasExpectedLogBucketPolicy(response, bucketArn, workerRoleArn)).toBe(
+      false,
+    );
   });
 
   it("requires the complete access-log retention lifecycle", () => {
@@ -1414,6 +1564,45 @@ describe("Offline SCORM CloudFront qualification harness", () => {
         expectedEndpoint,
       ),
     ).toBe(false);
+    const unrelatedConfirmed = {
+      Endpoint: "https://attacker.example/alarm",
+      Protocol: "https",
+      SubscriptionArn: `${edgeAlarmTopicArn}:unrelated-confirmed`,
+    };
+    expect(
+      hasConfirmedEmailSubscription(
+        { Subscriptions: [subscription, unrelatedConfirmed] },
+        edgeAlarmTopicArn,
+        expectedEndpoint,
+      ),
+    ).toBe(false);
+    expect(
+      hasExpectedAlarmSubscription(
+        { Subscriptions: [subscription, unrelatedConfirmed] },
+        attributes,
+        edgeAlarmTopicArn,
+        expectedEndpoint,
+        options.expectedAccount,
+      ),
+    ).toBe(false);
+    expect(
+      hasExpectedAlarmSubscription(
+        {
+          Subscriptions: [
+            subscription,
+            {
+              Endpoint: "pending@example.com",
+              Protocol: "email",
+              SubscriptionArn: "PendingConfirmation",
+            },
+          ],
+        },
+        attributes,
+        edgeAlarmTopicArn,
+        expectedEndpoint,
+        options.expectedAccount,
+      ),
+    ).toBe(true);
     expect(
       hasConfirmedEmailSubscription(
         {
@@ -1824,6 +2013,17 @@ describe("Offline SCORM CloudFront qualification harness", () => {
           Stacks: [{ Outputs: outputs, StackStatus: "UPDATE_COMPLETE" }],
         };
       }
+      if (command === "cloudformation list-stack-resources")
+        return {
+          StackResourceSummaries: [
+            {
+              LogicalResourceId:
+                "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092",
+              PhysicalResourceId: autoDeleteRoleName,
+              ResourceType: "AWS::IAM::Role",
+            },
+          ],
+        };
       if (command === "ssm get-parameter") {
         const parameterName = args[args.indexOf("--name") + 1];
         return {
@@ -1970,6 +2170,11 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       }
       if (command === "lambda get-function-configuration")
         return expectedAllocatorConfiguration();
+      if (command === "lambda get-policy")
+        throw new AwsCliError(
+          "No resource-based policy is attached",
+          "ResourceNotFoundException",
+        );
       if (command === "lambda get-function-concurrency")
         return { ReservedConcurrentExecutions: 1 };
       if (command === "iam get-role")
@@ -2046,6 +2251,9 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       report.checks.find((check) => check.id === "worker-allocator-permission"),
     ).toMatchObject({ status: "pass" });
     expect(
+      report.checks.find((check) => check.id === "allocator-invocation-policy"),
+    ).toMatchObject({ status: "pass" });
+    expect(
       report.checks.find((check) => check.id === "worker-instance-profile"),
     ).toMatchObject({ status: "pass" });
     expect(
@@ -2114,11 +2322,25 @@ describe("Offline SCORM CloudFront qualification harness", () => {
     );
     expect(cloudTrailCall).not.toContain("--max-results");
     expect(
+      calls.find(
+        (args) =>
+          args.slice(0, 2).join(" ") === "cloudformation list-stack-resources",
+      ),
+    ).toEqual([
+      "cloudformation",
+      "list-stack-resources",
+      "--stack-name",
+      "upskill-staging-storage",
+      "--region",
+      options.applicationRegion,
+    ]);
+    expect(
       calls
         .filter((args) => args[0] === "lambda")
         .map((args) => args.slice(0, 2)),
     ).toEqual([
       ["lambda", "get-function-configuration"],
+      ["lambda", "get-policy"],
       ["lambda", "get-function-concurrency"],
     ]);
     expect(
@@ -2131,6 +2353,18 @@ describe("Offline SCORM CloudFront qualification harness", () => {
       "get-function-configuration",
       "--function-name",
       allocatorQualifiedFunctionName,
+      "--region",
+      options.applicationRegion,
+    ]);
+    expect(
+      calls.find((args) => args.slice(0, 2).join(" ") === "lambda get-policy"),
+    ).toEqual([
+      "lambda",
+      "get-policy",
+      "--function-name",
+      allocatorFunctionName,
+      "--qualifier",
+      "12",
       "--region",
       options.applicationRegion,
     ]);

@@ -1044,6 +1044,16 @@ test("CloudFront entitlement qualification is dormant and worker-owned", () => {
   )[0];
   expect(allocatorVersionLogicalId).toBeDefined();
   const allocatorVersionReference = { Ref: allocatorVersionLogicalId };
+  const lambdaPermissions = template.findResources(
+    "AWS::Lambda::Permission",
+  ) as Record<string, { Properties?: { FunctionName?: unknown } }>;
+  const allocatorVersionPermissions = Object.values(lambdaPermissions).filter(
+    (permission) =>
+      JSON.stringify(permission.Properties?.FunctionName).includes(
+        allocatorVersionLogicalId ?? "",
+      ),
+  );
+  expect(allocatorVersionPermissions).toEqual([]);
   const roles = template.findResources("AWS::IAM::Role");
   const instanceRoleLogicalId = Object.keys(roles).find((logicalId) =>
     logicalId.startsWith("InstanceRole"),
